@@ -155,11 +155,11 @@ def main():
     
     # ── 第五步：保存报告 ──
     report_dir = Path("logs")
-    report_txt = report_dir / f"daily_report_{today}.txt"
+    report_txt = report_dir / f"reports/daily_report_{today}.txt"
     with open(report_txt, "w", encoding="utf-8") as f:
         f.write(report)
     
-    report_json = report_dir / f"daily_report_{today}.json"
+    report_json = report_dir / f"reports/daily_report_{today}.json"
     with open(report_json, "w", encoding="utf-8") as f:
         json.dump({
             "date": today,
