@@ -457,7 +457,7 @@ def analyze_with_text_llm(market_snapshot: str) -> dict:
     import os
 
     text_cfg = _get_text_llm_cfg()
-    primary_model  = text_cfg.get("primary_model",  "qwen-plus")
+    primary_model  = text_cfg.get("primary_model",  "qwen3.5-plus")
     fallback_model = text_cfg.get("fallback_model", "qwen-max")
     max_tokens     = text_cfg.get("max_tokens", 2000)
     timeout        = text_cfg.get("timeout", 30)
