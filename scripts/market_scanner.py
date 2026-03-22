@@ -4,9 +4,7 @@ Market Scanner - 动态热门合约扫描交易系统
 每15分钟执行一次：获取热门合约 -> AI分析 -> 风控 -> 执行交易
 """
 
-import os
 import sys
-import time
 import logging
 from datetime import datetime
 from pathlib import Path
@@ -14,15 +12,17 @@ from pathlib import Path
 # 添加 scripts 目录到路径
 sys.path.insert(0, str(Path(__file__).parent))
 
-import yaml
-import ccxt
+import ccxt  # noqa: F401 - 间接使用（create_exchange内部）
 from dotenv import load_dotenv
 
-from config_loader import check_env, RISK_CFG, SCANNER_CFG, TRADE_MGR_CFG
+from config_loader import check_env, RISK_CFG, SCANNER_CFG, TRADE_MGR_CFG, TRADING_CFG
 check_env()
 
-MAX_POSITIONS    = RISK_CFG.get("max_open_positions", 3)
-FORCE_CLOSE_PCT  = TRADE_MGR_CFG.get("force_close_loss_pct", -10.0)
+MAX_POSITIONS       = RISK_CFG.get("max_open_positions", 3)
+FORCE_CLOSE_PCT     = TRADE_MGR_CFG.get("force_close_loss_pct", -10.0)
+TOP_N_SYMBOLS       = SCANNER_CFG.get("top_n_symbols", 20)
+MIN_SIGNAL_STRENGTH = TRADING_CFG.get("min_signal_strength", 7)
+MIN_RR_RATIO        = TRADING_CFG.get("min_rr_ratio", 2.0)
 
 # 导入各模块
 from fetch_kline import (
@@ -33,7 +33,7 @@ from fetch_kline import (
 )
 from generate_chart import generate_multi_chart
 from ai_analysis import analyze_symbol, save_decision_log, passes_risk_filter
-from risk_filter import check_daily_loss, run_full_risk_check
+from risk_filter import check_daily_loss
 from execute_trade import (
     create_exchange,
     get_open_positions,
@@ -60,13 +60,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def load_config() -> dict:
-    """加载配置文件"""
-    config_path = Path(__file__).parent.parent / "config" / "settings.yaml"
-    with open(config_path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
-
-
 from notifier import send_notification
 
 
@@ -80,24 +73,18 @@ def main():
     logger.info("第一步：初始化 & 获取合约列表")
     logger.info("=" * 50)
     
-    config = load_config()
     exchange = create_exchange()
     balance_cache = {}
     
     # 获取热门合约
-    symbols = fetch_hot_symbols(exchange, top_n=20)
+    symbols = fetch_hot_symbols(exchange, top_n=TOP_N_SYMBOLS)
     if not symbols:
         logger.warning("热门合约列表为空，使用兜底列表")
         symbols = _load_fallback_symbols()
 
     logger.info(f"本轮扫描合约数量：{len(symbols)}")
     logger.info(f"前5个合约：{symbols[:5]}")
-
-    # 日线趋势预过滤：在进入主循环前剔除横盘合约，节省AI调用
-    logger.info("趋势预过滤中（日线横盘合约将被剔除）...")
-    from fetch_kline import filter_symbols_by_trend
-    symbols = filter_symbols_by_trend(symbols, exchange, exclude_sideways=True)
-    logger.info(f"预过滤后合约数量：{len(symbols)}")
+    # 注：日线趋势过滤已由 indicator_engine.rule_engine_filter 在逐品种分析时处理
     
     # ── 第二步：日亏损预检 ──
     logger.info("=" * 50)
@@ -188,11 +175,10 @@ def main():
                         f"mode={decision.get('_analysis_mode', 'visual')}")
             
             # 5.5 风控过滤
-            # 构建风控检查项
             risk_checks = {
                 "信号方向明确": decision.get("signal") in ["long", "short"],
                 "置信度为high": decision.get("confidence") == "high",
-                "信号强度>=7": decision.get("signal_strength", 0) >= 7,
+                f"信号强度>={MIN_SIGNAL_STRENGTH}": decision.get("signal_strength", 0) >= MIN_SIGNAL_STRENGTH,
                 "成交量确认": decision.get("volume_confirmed", False) is True,
                 "无背离风险": decision.get("divergence_risk", True) is False,
             }
@@ -247,7 +233,7 @@ def main():
         f"已扫描：{scanned} | "
         f"跳过横盘：{skipped_sideways} | "
         f"触发交易：{triggered_trades} | "
-        f"当前持仓：{final_position_count}/3"
+        f"当前持仓：{final_position_count}/{MAX_POSITIONS}"
     )
     logger.info(summary)
     
