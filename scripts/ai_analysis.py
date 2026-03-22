@@ -369,6 +369,164 @@ def save_decision_log(
     return log_path
 
 
+# ═══════════════════════════════════════════════════════════════════════
+# 文本LLM分析（规则引擎 + 文本模型，替代视觉模式）
+# ═══════════════════════════════════════════════════════════════════════
+
+TEXT_ANALYSIS_PROMPT = """
+你是一位精通裸K趋势追踪的专业量化分析师，专注加密货币合约单边行情交易。
+
+以下是系统规则引擎计算出的多周期技术指标数据：
+
+{market_snapshot}
+
+**分析要求：**
+1. 这是一个单边行情策略，只在15分钟、1小时、4小时级别出现明确单边趋势时才开仓
+2. 使用自上而下分析法：日线定大方向 → 4H确认结构 → 1H寻找信号 → 15M确认入场
+3. 多周期共振对齐评分<3时，signal必须填wait
+4. entry_price/stop_loss/take_profit必须基于支撑阻力结构位，不可凭空设置
+5. confidence=high 仅在 signal_strength>=7 且 volume_confirmed=true 且多周期对齐>=3 时使用
+
+**只输出如下JSON，不要输出任何其他内容：**
+{{
+  "timeframe_alignment": {{
+    "1d": "up或down或sideways",
+    "4h": "up或down或sideways",
+    "1h": "up或down或sideways",
+    "15m": "up或down或sideways"
+  }},
+  "alignment_score": 整数0到4,
+  "trend": "up或down或sideways",
+  "trend_phase": "early或mid或late",
+  "trend_strength": 整数1到10,
+  "signal": "long或short或wait或close",
+  "signal_type": "engulfing或hammer或inside_bar或morning_star或pullback或none",
+  "signal_strength": 整数1到10,
+  "volume_confirmed": true或false,
+  "volume_note": "成交量说明",
+  "key_support": 数字,
+  "key_resistance": 数字,
+  "entry_price": 数字,
+  "stop_loss": 数字,
+  "take_profit": 数字,
+  "risk_reward": "1:X.X",
+  "divergence_risk": true或false,
+  "structure_broken": true或false,
+  "confidence": "high或medium或low",
+  "reason": "不少于100字的多周期综合分析",
+  "warning": "风险提示或null"
+}}
+"""
+
+
+def _get_text_llm_cfg() -> dict:
+    """读取文本LLM配置（避免模块级循环导入）"""
+    from config_loader import ANALYSIS_CFG
+    return ANALYSIS_CFG.get("text_llm", {})
+
+
+def analyze_with_text_llm(market_snapshot: str) -> dict:
+    """
+    使用文本LLM分析市场快照。
+    调用链：qwen-plus（主力）→ qwen-max（兜底）
+    """
+    from openai import OpenAI
+    import os
+
+    text_cfg = _get_text_llm_cfg()
+    primary_model  = text_cfg.get("primary_model",  "qwen-plus")
+    fallback_model = text_cfg.get("fallback_model", "qwen-max")
+    max_tokens     = text_cfg.get("max_tokens", 2000)
+    timeout        = text_cfg.get("timeout", 30)
+    base_url       = text_cfg.get("base_url",
+                        "https://dashscope.aliyuncs.com/compatible-mode/v1")
+
+    api_key = os.getenv("DASHSCOPE_API_KEY", "")
+    client  = OpenAI(api_key=api_key, base_url=base_url)
+
+    prompt = TEXT_ANALYSIS_PROMPT.format(market_snapshot=market_snapshot)
+    messages = [{"role": "user", "content": prompt}]
+
+    for model_name in [primary_model, fallback_model]:
+        try:
+            logger.info(f"[文本LLM] 调用 {model_name} 分析市场快照...")
+            resp = client.chat.completions.create(
+                model=model_name,
+                messages=messages,
+                max_tokens=max_tokens,
+                timeout=timeout,
+            )
+            text = resp.choices[0].message.content or ""
+            result = parse_ai_response(text)
+            result["_model_used"] = model_name
+            result["_analysis_mode"] = "text_llm"
+            logger.info(f"[文本LLM] {model_name} 返回：signal={result.get('signal')}, "
+                        f"confidence={result.get('confidence')}, "
+                        f"strength={result.get('signal_strength')}")
+            return result
+        except Exception as e:
+            logger.warning(f"[文本LLM] {model_name} 调用失败：{e}")
+
+    logger.error("[文本LLM] 所有文本模型均失败")
+    return _default_wait_response("文本LLM所有模型均失败")
+
+
+def analyze_symbol(
+    multi_tf_data: dict,
+    symbol: str,
+    support_levels: list = None,
+    resistance_levels: list = None,
+    image_paths: dict = None,
+) -> dict:
+    """
+    统一分析入口。根据 settings.yaml analysis.mode 自动路由：
+      - mode="text" : 规则引擎预过滤 → 文本LLM分析
+      - mode="visual": 生成图表 → 视觉LLM分析（原有逻辑）
+
+    返回标准决策 dict，格式与 analyze_with_fallback 完全一致。
+    """
+    from config_loader import ANALYSIS_CFG
+    from indicator_engine import generate_market_snapshot, rule_engine_filter
+
+    mode = ANALYSIS_CFG.get("mode", "visual")
+    logger.info(f"[分析入口] {symbol} 使用模式：{mode}")
+
+    if mode == "text":
+        # ── 1. 计算指标 & 生成快照
+        snapshot, tf_indicators = generate_market_snapshot(
+            multi_tf_data, symbol, support_levels, resistance_levels
+        )
+        logger.info(f"[市场快照]\n{snapshot}")
+
+        # ── 2. 规则引擎预过滤（节省token）
+        passed, direction, filter_reason = rule_engine_filter(tf_indicators, symbol)
+        if not passed:
+            logger.info(f"[分析入口] {symbol} 规则引擎未通过，跳过LLM | 原因：{filter_reason}")
+            resp = _default_wait_response(filter_reason)
+            resp["_analysis_mode"] = "rule_filter_rejected"
+            resp["_filter_reason"] = filter_reason
+            return resp
+
+        # ── 3. 通过规则过滤，调用文本LLM
+        logger.info(f"[分析入口] {symbol} 规则引擎通过（{direction}），调用文本LLM")
+        result = analyze_with_text_llm(snapshot)
+        result["_rule_direction"] = direction
+        result["_filter_reason"]  = filter_reason
+        return result
+
+    else:
+        # ── 视觉模式（原有逻辑）
+        if not image_paths:
+            logger.error(f"[分析入口] visual模式但未传入image_paths")
+            return _default_wait_response("视觉模式缺少图表文件")
+        valid_images = [
+            p for p in image_paths.values()
+            if isinstance(p, str) and p.lower().endswith((".png", ".jpg", ".jpeg"))
+            and __import__("os").path.exists(p)
+        ]
+        return analyze_with_fallback(valid_images, multi_tf=True)
+
+
 # ── 测试入口 ──────────────────────────────────
 if __name__ == "__main__":
     import sys

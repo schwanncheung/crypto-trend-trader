@@ -31,8 +31,16 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-from config_loader import check_env, RISK_CFG
+from config_loader import check_env, RISK_CFG, TRADE_MGR_CFG
 check_env()
+
+# ── 持仓管理阈值（全部从 settings.yaml trade_manager 节点读取）
+TRAILING_STOP_PCT    = TRADE_MGR_CFG.get("trailing_stop_trigger_pct",  15.0)
+PARTIAL_PROFIT_PCT   = TRADE_MGR_CFG.get("partial_profit_trigger_pct", 25.0)
+PARTIAL_PROFIT_RATIO = TRADE_MGR_CFG.get("partial_profit_ratio",       0.5)
+FORCE_CLOSE_PCT      = TRADE_MGR_CFG.get("force_close_loss_pct",      -10.0)
+STRUCTURE_TF         = TRADE_MGR_CFG.get("structure_check_timeframe",  "1h")
+SUPPORT_BUFFER_PCT   = TRADE_MGR_CFG.get("support_buffer_pct",          0.3)
 
 from execute_trade import (
     create_exchange,
@@ -43,11 +51,6 @@ from fetch_kline import (
     fetch_multi_timeframe,
     detect_trend_structure,
 )
-from fetch_kline import (
-    fetch_multi_timeframe,
-    detect_trend_structure,
-)
-
 
 from notifier import send_notification
 
@@ -94,9 +97,9 @@ def main():
             
             # ── 2.2 盈亏状态判断 ──
             
-            # 情况A：浮盈超过15%，移动止损至保本
-            if pnl_pct > 15:
-                logger.info(f"  ✅ 浮盈{pnl_pct:.1f}%，移动止损至保本位")
+            # 情况A：浮盈超过阈值，移动止损至保本
+            if pnl_pct > TRAILING_STOP_PCT:
+                logger.info(f"  浮盈{pnl_pct:.1f}%（>{TRAILING_STOP_PCT}%），移动止损至保本位")
                 try:
                     # 撤销原止损单
                     exchange.cancel_all_orders(symbol)
@@ -119,51 +122,51 @@ def main():
                 except Exception as e:
                     logger.error(f"  ⚠️ 移动止损失败：{e}")
             
-            # 情况B：浮盈超过25%，部分止盈50%
-            if pnl_pct > 25:
-                logger.info(f"  💰 浮盈{pnl_pct:.1f}%，执行部分止盈50%")
-                half_contracts = int(contracts / 2)
+            # 情况B：浮盈超过阈值，部分止盈
+            if pnl_pct > PARTIAL_PROFIT_PCT:
+                partial_contracts = int(contracts * PARTIAL_PROFIT_RATIO)
+                logger.info(f"  浮盈{pnl_pct:.1f}%（>{PARTIAL_PROFIT_PCT}%），执行部分止盈{int(PARTIAL_PROFIT_RATIO*100)}%")
                 try:
                     # 市价平掉一半
                     exchange.create_order(
                         symbol=symbol,
                         type="market",
                         side="sell" if side == "long" else "buy",
-                        amount=half_contracts,
+                        amount=partial_contracts,
                         params={"tdMode": "cross"},
                     )
                     send_notification(
-                        f"💰 {symbol} 浮盈{pnl_pct:.1f}%，已部分止盈50%（{half_contracts}张），剩余持仓继续运行"
+                        f"{symbol} 浮盈{pnl_pct:.1f}%，已部分止盈{int(PARTIAL_PROFIT_RATIO*100)}%（{partial_contracts}张），剩余持仓继续运行"
                     )
                     closed_count += 1
                 except Exception as e:
                     logger.error(f"  ⚠️ 部分止盈失败：{e}")
             
-            # 情况C：亏损超过-10%，强制平仓
-            if pnl_pct < -10:
-                logger.info(f"  🛑 亏损{pnl_pct:.1f}%，触发动态止损")
+            # 情况C：亏损超过阈值，强制平仓
+            if pnl_pct < FORCE_CLOSE_PCT:
+                logger.info(f"  亏损{pnl_pct:.1f}%（<{FORCE_CLOSE_PCT}%），触发动态止损")
                 try:
                     close_position(exchange, symbol, reason=f"动态止损：亏损{pnl_pct:.1f}%")
-                    send_notification(f"🛑 {symbol} 亏损{pnl_pct:.1f}%，触发动态止损，已强制平仓")
+                    send_notification(f"{symbol} 亏损{pnl_pct:.1f}%，触发动态止损，已强制平仓")
                     closed_count += 1
                 except Exception as e:
-                    logger.error(f"  ⚠️ 强制平仓失败：{e}")
-            
+                    logger.error(f"  强制平仓失败：{e}")
+
             # 情况D：盈亏在正常范围内
-            if -10 <= pnl_pct <= 15:
+            if FORCE_CLOSE_PCT <= pnl_pct <= TRAILING_STOP_PCT:
                 logger.info(f"  持仓状态正常，盈亏{pnl_pct:.1f}%")
-            
+
             # ── 2.3 趋势反转检测（纯价格结构，不调用AI）──
-            if "1h" in data and not data["1h"].empty:
-                structure_1h = detect_trend_structure(data["1h"])
-                structure_broken = structure_1h.get("structure_broken", False)
+            if STRUCTURE_TF in data and not data[STRUCTURE_TF].empty:
+                structure_tf = detect_trend_structure(data[STRUCTURE_TF])
+                structure_broken = structure_tf.get("structure_broken", False)
 
                 # 获取当前价格（最新K线收盘价）
-                current_price = float(data["1h"].iloc[-1]["close"])
+                current_price = float(data[STRUCTURE_TF].iloc[-1]["close"])
 
                 # 计算支撑阻力位
                 from fetch_kline import calculate_support_resistance
-                support_levels, resistance_levels = calculate_support_resistance(data["1h"])
+                support_levels, resistance_levels = calculate_support_resistance(data[STRUCTURE_TF])
 
                 should_close = False
                 close_reason = ""
@@ -171,29 +174,31 @@ def main():
                 if structure_broken:
                     # 结构已破坏，直接平仓
                     should_close = True
-                    close_reason = f"1H结构破坏（structure_broken=True），当前价：{current_price}"
+                    close_reason = f"{STRUCTURE_TF.upper()}结构破坏（structure_broken=True），当前价：{current_price}"
 
                 elif side == "long" and support_levels:
-                    # 做多：跌破最近支撑位（允许0.3%缓冲）
+                    # 做多：跌破最近支撑位（允许缓冲区）
                     nearest_support = support_levels[0]
-                    if current_price < nearest_support * 0.997:
+                    buffer = 1 - SUPPORT_BUFFER_PCT / 100
+                    if current_price < nearest_support * buffer:
                         should_close = True
-                        close_reason = f"做多跌破支撑位 {nearest_support:.4f}，当前价：{current_price}"
+                        close_reason = f"做多跌破支撑位 {nearest_support:.4f}（缓冲{SUPPORT_BUFFER_PCT}%），当前价：{current_price}"
 
                 elif side == "short" and resistance_levels:
-                    # 做空：突破最近阻力位（允许0.3%缓冲）
+                    # 做空：突破最近阻力位（允许缓冲区）
                     nearest_resistance = resistance_levels[0]
-                    if current_price > nearest_resistance * 1.003:
+                    buffer = 1 + SUPPORT_BUFFER_PCT / 100
+                    if current_price > nearest_resistance * buffer:
                         should_close = True
-                        close_reason = f"做空突破阻力位 {nearest_resistance:.4f}，当前价：{current_price}"
+                        close_reason = f"做空突破阻力位 {nearest_resistance:.4f}（缓冲{SUPPORT_BUFFER_PCT}%），当前价：{current_price}"
 
                 if should_close:
-                    logger.warning(f"  📉 {symbol} 触发结构平仓：{close_reason}")
+                    logger.warning(f"  {symbol} 触发结构平仓：{close_reason}")
                     close_position(exchange, symbol, reason=close_reason)
-                    send_notification(f"📉 {symbol} 结构平仓\n原因：{close_reason}")
+                    send_notification(f"{symbol} 结构平仓\n原因：{close_reason}")
                     closed_count += 1
                 else:
-                    logger.info(f"  ✅ {symbol} 结构完好，持仓继续 | 当前价：{current_price}")
+                    logger.info(f"  {symbol} 结构完好，持仓继续 | 当前价：{current_price}")
             
             # 2.4 更新持仓日志
             _save_position_log(pos, pnl_pct)

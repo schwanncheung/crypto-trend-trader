@@ -18,20 +18,21 @@ import yaml
 import ccxt
 from dotenv import load_dotenv
 
-from config_loader import check_env, RISK_CFG, SCANNER_CFG
+from config_loader import check_env, RISK_CFG, SCANNER_CFG, TRADE_MGR_CFG
 check_env()
+
+MAX_POSITIONS    = RISK_CFG.get("max_open_positions", 3)
+FORCE_CLOSE_PCT  = TRADE_MGR_CFG.get("force_close_loss_pct", -10.0)
 
 # 导入各模块
 from fetch_kline import (
-    fetch_hot_symbols, 
+    fetch_hot_symbols,
     _load_fallback_symbols,
     fetch_multi_timeframe,
     calculate_support_resistance,
-    calculate_volume_ma,
-    detect_trend_structure
 )
 from generate_chart import generate_multi_chart
-from ai_analysis import analyze_with_fallback, save_decision_log, passes_risk_filter
+from ai_analysis import analyze_symbol, save_decision_log, passes_risk_filter
 from risk_filter import check_daily_loss, run_full_risk_check
 from execute_trade import (
     create_exchange,
@@ -116,18 +117,18 @@ def main():
     positions = get_open_positions(exchange)
     current_position_count = len(positions)
     
-    if current_position_count >= 3:
-        logger.warning(f"当前持仓已达上限（3/3），跳过本轮扫描")
-        send_notification("持仓已满3个，等待现有持仓触及止盈/止损后再开新仓")
+    if current_position_count >= MAX_POSITIONS:
+        logger.warning(f"当前持仓已达上限（{current_position_count}/{MAX_POSITIONS}），跳过本轮扫描")
+        send_notification(f"持仓已满{MAX_POSITIONS}个，等待现有持仓触及止盈/止损后再开新仓")
     else:
-        logger.info(f"当前持仓：{current_position_count}/3")
+        logger.info(f"当前持仓：{current_position_count}/{MAX_POSITIONS}")
     
     # ── 第四步：持仓健康检查 ──
     logger.info("=" * 50)
     logger.info("第四步：持仓健康检查")
     logger.info("=" * 50)
     
-    unhealthy = check_position_health(exchange, max_loss_pct=-10.0)
+    unhealthy = check_position_health(exchange, max_loss_pct=FORCE_CLOSE_PCT)
     if unhealthy:
         logger.warning(f"发现 {len(unhealthy)} 个超亏持仓，强制平仓")
         for pos in unhealthy:
@@ -148,104 +149,43 @@ def main():
         positions = get_open_positions(exchange)
         current_position_count = len(positions)
         
-        if current_position_count >= 3:
-            logger.warning(f"持仓已达3个上限，终止本轮剩余品种扫描")
+        if current_position_count >= MAX_POSITIONS:
+            logger.warning(f"持仓已达上限（{current_position_count}/{MAX_POSITIONS}），终止本轮剩余品种扫描")
             break
-        
+
         logger.info(f"\n--- 扫描 [{idx+1}/{len(symbols)}] {symbol} ---")
         scanned += 1
-        
+
         try:
             # 5.1 获取多周期K线数据
             data = fetch_multi_timeframe(symbol, exchange=exchange)
             if data["1d"].empty:
                 logger.warning(f"{symbol} 数据获取失败，跳过")
                 continue
-            
+
             # 计算支撑阻力
             support, resistance = calculate_support_resistance(data["4h"])
-            volume_ma = calculate_volume_ma(data["1h"])
-            
-            # 趋势结构
-            trend_structure = detect_trend_structure(data["1d"])
-            
-            # 打印详细趋势信息
-            ts = trend_structure
-            logger.info(f"{symbol} 趋势分析: trend={ts.get('trend')}, HH={ts.get('hh')}, HL={ts.get('hl')}, LH={ts.get('lh')}, LL={ts.get('ll')}, 结构破坏={ts.get('structure_broken')}")
-            
-            # 5.2 日线趋势预过滤（仅当使用AI分析时）
-            if os.getenv("SKIP_AI_ANALYSIS", "false").lower() != "true":
-                if trend_structure["trend"] == "sideways":
-                    logger.info(f"{symbol} 日线横盘，跳过扫描")
-                    skipped_sideways += 1
-                    continue
-            
-            # 5.3 生成四周期K线图
+
+            # 5.2 生成图表（用于日志存档，不影响分析路径）
             chart_paths = generate_multi_chart(
                 multi_tf_data=data,
                 symbol=symbol,
                 support_levels=support,
                 resistance_levels=resistance
             )
-            
-            # ✅ 正确：取字典的 values（真实文件路径），而不是 keys
-            image_list = list(chart_paths.values())
-            
-            # 传入前再做一次路径验证，彻底避免 No such file 错误
-            valid_images = []
-            for path in image_list:
-                if isinstance(path, str) and os.path.exists(path):
-                    valid_images.append(path)
-                else:
-                    logger.warning(f"图片路径无效，已跳过：{path}")
-            
-            if not valid_images:
-                logger.error(f"{symbol} 无有效图片，跳过AI分析")
-                continue
-            
-            # 5.4 AI多周期分析 或 规则引擎
-            if os.getenv("SKIP_AI_ANALYSIS", "false").lower() == "true":
-                # 规则引擎：根据趋势和结构生成信号
-                current_price = float(data["1h"]["close"].iloc[-1])
-                
-                # 判断趋势方向：优先看结构破坏方向
-                if ts.get('structure_broken'):
-                    # 结构已打破，按突破方向做
-                    if ts.get('hh') and ts.get('hl'):
-                        signal = "long"
-                    elif ts.get('lh') and ts.get('ll'):
-                        signal = "short"
-                    else:
-                        signal = None
-                else:
-                    # 结构未破，按常规趋势判断
-                    if ts.get('trend') == 'bullish' or (ts.get('hh') and ts.get('hl')):
-                        signal = "long"
-                    elif ts.get('trend') == 'bearish' or (ts.get('lh') and ts.get('ll')):
-                        signal = "short"
-                    else:
-                        signal = None
-                
-                if not signal:
-                    logger.warning(f"{symbol} 趋势不明确，跳过 | HH={ts.get('hh')}, HL={ts.get('hl')}, LH={ts.get('lh')}, LL={ts.get('ll')}")
-                    continue
-                
-                logger.info(f"{symbol} 规则信号: {signal} | 入场={current_price}, 止损={current_price*0.97:.6f}, 止盈={current_price*1.06:.6f}")
-                
-                decision = {
-                    "signal": signal,
-                    "confidence": "high",  # 规则引擎默认高置信度
-                    "signal_strength": 8,  # 满足 >=7 要求
-                    "volume_confirmed": True,  # 满足成交量确认
-                    "divergence_risk": False,  # 满足无背离风险
-                    "entry_price": current_price,
-                    "stop_loss": support[0] if support else current_price * 0.97,
-                    "take_profit": resistance[0] if resistance else current_price * 1.06,
-                    "reason": f"规则引擎：{trend_structure['trend']}趋势，日线结构={trend_structure.get('structure', 'N/A')}"
-                }
-                logger.info(f"{symbol} 跳过AI，使用规则信号: {decision['signal']}")
-            else:
-                decision = analyze_with_fallback(valid_images, multi_tf=True)
+
+            # 5.3 统一分析入口（text模式=规则引擎+文本LLM；visual模式=视觉LLM）
+            decision = analyze_symbol(
+                multi_tf_data=data,
+                symbol=symbol,
+                support_levels=support,
+                resistance_levels=resistance,
+                image_paths=chart_paths,
+            )
+            logger.info(f"{symbol} 分析结果: signal={decision.get('signal')}, "
+                        f"confidence={decision.get('confidence')}, "
+                        f"strength={decision.get('signal_strength')}, "
+                        f"mode={decision.get('_analysis_mode', 'visual')}")
             
             # 5.5 风控过滤
             # 构建风控检查项
