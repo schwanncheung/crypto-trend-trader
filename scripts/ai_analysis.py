@@ -40,6 +40,7 @@ from config_loader import (
     AI_CFG,
     DASHSCOPE_API_KEY,
     TRADING_CFG,
+    TIMEFRAMES,
 )
 
 check_env()
@@ -90,27 +91,39 @@ SINGLE_TF_PROMPT = """
 """
 
 
-MULTI_TF_PROMPT = """
-你是一位精通裸K交易的专业量化分析师。
-我将给你4张K线图，顺序为：第1张=日线，第2张=4小时，第3张=1小时，第4张=15分钟
+def _build_multi_tf_prompt(timeframes: list) -> str:
+    """
+    根据时间框架列表动态生成多周期视觉分析 Prompt。
+    timeframes 顺序为高→低（如 ["4h", "1h", "15m"]）。
+    """
+    total = len(timeframes)
+    tf_list = "、".join(f"第{i+1}张={tf}" for i, tf in enumerate(timeframes))
+    tf_roles = "\n".join(
+        f"{i+1}. {tf} {'定宏观方向（最高权重）' if i == 0 else '确认中期结构' if i == 1 else '寻找入场信号' if i == 2 else '确认精确入场'}"
+        for i, tf in enumerate(timeframes)
+    )
+    tf_alignment_fields = "\n".join(
+        f'    "{tf}": "up或down或sideways",' for tf in timeframes
+    )
+    strong_score = total
+    mid_score = total - 1
+    return f"""你是一位精通裸K交易的专业量化分析师。
+我将给你{total}张K线图，顺序为：{tf_list}
 
 使用自上而下分析法：
-1. 日线判断大趋势（最高权重）
-2. 4小时确认中期结构
-3. 1小时寻找入场信号
-4. 15分钟确认精确入场点
+{tf_roles}
 
-共振标准：alignment_score=4为强信号，3为中信号，小于等于2等待
+共振标准：alignment_score={strong_score}为强信号，{mid_score}为中信号，小于等于{total//2}等待
 
 只输出如下JSON，不要输出其他任何内容：
-{
-  "timeframe_alignment": {
-    "1d": "up或down或sideways",
-    "4h": "up或down或sideways",
-    "1h": "up或down或sideways",
-    "15m": "up或down或sideways"
-  },
-  "alignment_score": 整数0到4,
+{{
+  "timeframe_alignment": {{
+{tf_alignment_fields}
+  }},
+  "alignment_score": 整数0到{total},"""
+
+
+MULTI_TF_PROMPT_SUFFIX = """
   "trend": "up或down或sideways",
   "trend_phase": "early或mid或late",
   "trend_strength": 整数1到10,
@@ -132,6 +145,10 @@ MULTI_TF_PROMPT = """
   "warning": "风险提示或null"
 }
 """
+
+
+# 废弃：保留变量名避免外部引用报错，实际内容由 _build_multi_tf_prompt 动态生成
+MULTI_TF_PROMPT_TEMPLATE_NOTE = "(dynamic — use _build_multi_tf_prompt)"
 
 
 def encode_image(image_path: str) -> str:
@@ -170,7 +187,10 @@ def _default_wait_response(reason: str) -> dict:
 
 def _build_qwen_messages(image_paths: list, multi_tf: bool) -> list:
     """构建千问VL的消息体"""
-    prompt = MULTI_TF_PROMPT if multi_tf else SINGLE_TF_PROMPT
+    if multi_tf:
+        prompt = _build_multi_tf_prompt(TIMEFRAMES) + MULTI_TF_PROMPT_SUFFIX
+    else:
+        prompt = SINGLE_TF_PROMPT
     content = []
     for path in image_paths:
         content.append({
@@ -385,21 +405,20 @@ TEXT_ANALYSIS_PROMPT = """
 {market_snapshot}
 
 **分析要求：**
-1. 这是一个单边行情策略，只在15分钟、1小时、4小时级别出现明确单边趋势时才开仓
-2. 使用自上而下分析法：日线定大方向 → 4H确认结构 → 1H寻找信号 → 15M确认入场
-3. 多周期共振对齐评分<3时，signal必须填wait
+1. 这是一个短线单边行情策略，只在 4小时、1小时、15分钟级别出现明确单边趋势时才开仓
+2. 使用自上而下分析法：4H定宏观方向 → 1H确认结构 → 15M确认入场信号
+3. 多周期共振对齐评分<2时，signal必须填wait
 4. entry_price/stop_loss/take_profit必须基于支撑阻力结构位，不可凭空设置
-5. confidence=high 仅在 signal_strength>=7 且 volume_confirmed=true 且多周期对齐>=3 时使用
+5. confidence=high 仅在 signal_strength>=7 且 volume_confirmed=true 且多周期对齐>=2 时使用
 
 **只输出如下JSON，不要输出任何其他内容：**
 {{
   "timeframe_alignment": {{
-    "1d": "up或down或sideways",
     "4h": "up或down或sideways",
     "1h": "up或down或sideways",
     "15m": "up或down或sideways"
   }},
-  "alignment_score": 整数0到4,
+  "alignment_score": 整数0到3,
   "trend": "up或down或sideways",
   "trend_phase": "early或mid或late",
   "trend_strength": 整数1到10,
