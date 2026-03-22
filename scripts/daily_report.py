@@ -76,14 +76,15 @@ def main():
     # AI模型统计
     model_stats = defaultdict(lambda: {"count": 0, "wins": 0})
     for d in decisions:
-        model = d.get("_model_used", "unknown")
-        signal = d.get("signal", "wait")
-        pnl = d.get("unrealized_pnl", 0)
-        
+        dec = d.get("decision", {})
+        model = dec.get("_model_used", "unknown")
+        signal = dec.get("signal", "wait")
+        pnl = dec.get("unrealized_pnl", 0)
+
         model_stats[model]["count"] += 1
         if signal in ["long", "short"] and pnl > 0:
             model_stats[model]["wins"] += 1
-    
+
     # 计算各模型准确率
     model_acc = {}
     for model, stats in model_stats.items():
@@ -91,9 +92,9 @@ def main():
             model_acc[model] = stats["wins"] / stats["count"] * 100
         else:
             model_acc[model] = 0
-    
+
     # 平均信号强度
-    signal_strengths = [d.get("signal_strength", 0) for d in decisions if d.get("signal_strength")]
+    signal_strengths = [d.get("decision", {}).get("signal_strength", 0) for d in decisions if d.get("decision", {}).get("signal_strength")]
     avg_strength = sum(signal_strengths) / len(signal_strengths) if signal_strengths else 0
     
     # ── 第三步：获取账户状态 ──
