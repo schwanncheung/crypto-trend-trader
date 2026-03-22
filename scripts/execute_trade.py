@@ -19,6 +19,7 @@ from config_loader import (
     EXCHANGE_API_KEY,
     EXCHANGE_API_SECRET,
     EXCHANGE_PASSPHRASE,
+    RISK_CFG,
     TRADING_CFG,
     setup_logging,
 )
