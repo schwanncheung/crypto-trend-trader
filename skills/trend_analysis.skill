@@ -1,111 +1,64 @@
 # 名称：trend_analysis
 # 描述：对单个合约执行完整的多周期趋势分析，可单独调用也可被 market_scanner 调用
-# 触发方式：手动触发，接收参数 symbol（合约名称）
+# 触发方式：手动触发，接收参数 symbol
+# 入口：通过 ai_analysis.analyze_symbol() 调用
 
 ## 输入参数：
 - symbol: string，例如 "BTC/USDT:USDT"
-- save_chart: bool，是否保存K线图，默认 true
-- notify: bool，是否发送通知，默认 true
+- mode: string，"text"（默认）或 "visual"，读自 settings.yaml analysis.mode
 
 ## 执行步骤：
 
 ### 第一步：获取多周期数据
-- 调用 fetch_kline.py 中的 fetch_multi_timeframe(symbol)
-- 如果获取失败，返回错误信息并终止
+- 调用 `fetch_kline.fetch_multi_timeframe(symbol, exchange)`
+- 调用 `calculate_support_resistance(data["4h"])` 获取支撑阻力位
+- 数据获取失败则返回错误并终止
 
-### 第二步：计算技术指标
-- 调用 calculate_support_resistance(df["4h"])
-  获取支撑阻力位列表
-- 调用 calculate_volume_ma(df["1h"], period=5)
-  获取1小时成交量5均线
-- 分别对四个周期调用 detect_trend_structure()
-  获取各周期趋势结构，存入字典：
-  {
-    "1d":  trend_structure_daily,
-    "4h":  trend_structure_4h,
-    "1h":  trend_structure_1h,
-    "15m": trend_structure_15m
-  }
+### 第二步：生成图表（日志存档）
+- 调用 `generate_chart.generate_multi_chart()` 生成四周期 PNG
+- 两种模式下均生成，text 模式仅用于日志存档
 
-### 第三步：快速多周期共振预判
-- 统计四个周期中趋势方向相同的数量
-- 如果四个周期趋势方向均为 sideways：
-  * 记录日志："{symbol} 全周期横盘，无交易机会"
-  * 如果 notify=true，发送通知
-  * 终止执行，返回 {"signal": "wait", "reason": "全周期横盘"}
-- 如果共振数量 < 2：
-  * 记录日志："{symbol} 周期方向分歧，等待方向明确"
-  * 终止执行，返回 {"signal": "wait", "reason": "周期方向分歧"}
+### 第三步：调用统一分析入口
+调用 `ai_analysis.analyze_symbol(multi_tf_data, symbol, support_levels, resistance_levels, image_paths)`
 
-### 第四步：生成K线图
-- 如果 save_chart=true：
-  * 调用 generate_chart.py 中的 generate_multi_chart()
-  * 传入四周期数据、支撑阻力位
-  * 记录四张图片路径
-- 如果 save_chart=false：
-  * 仅生成图片不保存（用于快速测试）
+**text 模式内部流程：**
+1. `indicator_engine.generate_market_snapshot()` 计算全部指标并生成结构化文本快照
+   - EMA(20/50/200) 排列、ADX/+DI/-DI、RSI(14)、成交量/MA5 比值
+   - 裸K形态识别（吞没线/锤子线/内包线/Pin Bar/十字星）
+   - 各周期趋势结构（HH/HL/LH/LL）
+2. `indicator_engine.rule_engine_filter()` 单边趋势预过滤门卫
+   - 规则一：日线趋势必须非横盘（ADX >= adx_trending_threshold）
+   - 规则二：15m/1h/4h 中至少 min_trending_timeframes 个周期与日线方向对齐
+   - 规则三：至少一个周期量比 >= volume_ratio_threshold
+   - 任一不通过：返回 signal=wait，_analysis_mode=rule_filter_rejected，节省 token
+3. 规则通过后调用文本LLM：qwen3.5-plus → kimi-k2.5（兜底）
+   - 发送结构化快照文本，要求输出标准 JSON 决策
 
-### 第五步：AI深度分析
-- 调用 ai_analysis.py 中的 analyze_with_fallback(
-    image_paths=四张图片路径,
-    multi_tf=True
-  )
-- 记录以下信息到日志：
-  * 使用的模型名称（decision["_model_used"]）
-  * 多周期共振得分（decision["alignment_score"]）
-  * 信号方向和置信度
+**visual 模式内部流程：**
+- 将四张图表路径传入视觉LLM降级链：qwen3-vl-flash → qwen3-vl-plus → qwen-vl-max
 
-### 第六步：构建分析报告
-将以下信息整合为报告字典：
+### 第四步：返回决策
+标准决策 JSON 格式（两种模式输出一致）：
+```json
 {
-  "symbol": symbol,
-  "timestamp": 当前UTC时间,
-  "structure": {
-    "1d":  各周期趋势方向和强度,
-    "4h":  ...,
-    "1h":  ...,
-    "15m": ...
-  },
-  "support_levels": 支撑位列表,
-  "resistance_levels": 阻力位列表,
-  "ai_decision": AI完整决策字典,
-  "chart_paths": 四张图片路径字典
+  "signal": "long/short/wait/close",
+  "confidence": "high/medium/low",
+  "signal_strength": 1-10,
+  "alignment_score": 0-4,
+  "entry_price": 数字,
+  "stop_loss": 数字,
+  "take_profit": 数字,
+  "risk_reward": "1:X.X",
+  "volume_confirmed": true/false,
+  "divergence_risk": true/false,
+  "structure_broken": true/false,
+  "reason": "不少于100字的分析",
+  "_model_used": "模型名称",
+  "_analysis_mode": "text_llm/visual/rule_filter_rejected"
 }
-
-### 第七步：发送通知
-- 如果 notify=true，根据 AI 决策内容发送不同级别通知：
-
-  情况A：signal 为 long 或 short 且 confidence 为 high：
-  发送高优先级通知，内容：
-  "🚨 【{symbol}】发现高置信度{信号方向}信号
-   共振得分：{alignment_score}/4
-   入场价：{entry_price}
-   止损价：{stop_loss}（风险：{止损距离%}）
-   止盈价：{take_profit}（盈亏比：{risk_reward}）
-   信号类型：{signal_type}
-   成交量确认：{volume_confirmed}
-   分析：{reason前100字}
-   模型：{_model_used}"
-
-  情况B：signal 为 long 或 short 且 confidence 为 medium：
-  发送普通通知，内容：
-  "⚠️ 【{symbol}】发现中置信度{信号方向}信号（需人工确认）
-   共振得分：{alignment_score}/4
-   入场价：{entry_price} | 止损：{stop_loss} | 止盈：{take_profit}
-   分析：{reason前80字}"
-
-  情况C：signal 为 wait 或 close：
-  仅记录日志，不发送通知
-
-### 第八步：保存分析日志
-- 调用 ai_analysis.py 中的 save_decision_log()
-- 保存完整报告字典为JSON文件
-
-## 返回值：
-- 返回完整报告字典，供 market_scanner 或手动调用使用
+```
 
 ## 错误处理：
-- K线数据获取失败：返回错误，发送告警通知
-- K线图生成失败：跳过图表，直接用文字描述请求AI分析（降级处理）
-- AI分析超时或全部模型失败：返回 {"signal": "wait", "reason": "AI服务不可用"}
-- 任何未预期错误：记录完整错误堆栈，发送告警通知
+- K线数据获取失败：返回 signal=wait，发送告警通知
+- 规则引擎异常：降级为直接调用LLM
+- LLM 全部模型失败：返回 signal=wait，reason 说明原因

@@ -1,45 +1,48 @@
 # 名称：daily_report
-# 描述：每日自动生成交易报告，统计当日盈亏、胜率、AI模型表现等数据
+# 描述：每日自动生成交易报告，统计当日盈亏、胜率、模型表现、风控数据
 # 触发方式：定时触发，每天 UTC 00:00 执行一次
+# 入口：python scripts/daily_report.py
 
 ## 执行步骤：
 
-### 第一步：读取当日交易记录
-- 扫描 logs/trades/ 目录下当日所有 JSON 文件
-- 扫描 logs/decisions/ 目录下当日所有 JSON 文件
-- 分别解析为交易记录列表和决策记录列表
+### 第一步：读取当日记录
+- 扫描 `logs/trades/` 下当日所有 JSON 文件（交易记录）
+- 扫描 `logs/decisions/` 下当日所有 JSON 文件（决策记录）
+- 文件读取失败跳过，不中断统计
 
 ### 第二步：统计交易数据
-计算以下指标：
 
-基础统计：
-- 总交易次数
-- 盈利交易次数 / 亏损交易次数
+**基础统计：**
+- 总交易次数、盈利次数、亏损次数
 - 胜率 = 盈利次数 / 总次数
-- 总盈利 USDT / 总亏损 USDT / 净盈亏 USDT
+- 总盈利 / 总亏损 / 净盈亏（USDT）
 - 最大单笔盈利 / 最大单笔亏损
-- 平均持仓时间
 
-AI模型统计：
-- 各模型使用次数（qwen-vl-max / qwen-vl-plus / gpt-4o）
-- 各模型信号准确率（以实际盈亏判断）
+**分析模式统计：**
+- text_llm 模式使用次数（`_analysis_mode == "text_llm"`）
+- rule_filter_rejected 次数（规则引擎拒绝，未消耗token）
+- visual 模式使用次数
+- 各文本模型使用次数（qwen3.5-plus / kimi-k2.5）
+- 各视觉模型使用次数（qwen3-vl-flash / qwen3-vl-plus / qwen-vl-max）
 - 平均信号强度得分
-- 平均多周期共振得分
+- 平均多周期共振得分（alignment_score）
 
-风控统计：
-- 风控过滤拦截次数
-- 拦截最多的原因 Top3
+**风控统计：**
+- 风控过滤拦截次数及主要原因 Top3
+- 规则引擎拦截次数（节省的 token 调用数）
 - 强制平仓次数
+- 移动止损触发次数
+- 部分止盈触发次数
 
-### 第三步：计算账户状态
-- 调用 exchange.fetch_balance() 获取当前余额
-- 计算当日账户净值变化
-- 计算当日收益率
+### 第三步：获取账户状态
+- 调用 `exchange.fetch_balance()` 获取当前余额
+- 计算当日账户净值变化及收益率
+- 余额获取失败标记为「数据获取异常」，不影响报告发送
 
 ### 第四步：生成报告文本
-按以下格式生成报告：
 
-"📊 每日交易报告 {日期}
+```
+📊 每日交易报告 {日期}
 ━━━━━━━━━━━━━━━━━
 💼 账户状态
   期初余额：{start_balance} USDT
@@ -52,12 +55,11 @@ AI模型统计：
   胜率：{win_rate}%
   最大盈利：+{max_win} USDT
   最大亏损：-{max_loss} USDT
-  平均持仓：{avg_hold_time}
 
-🤖 AI模型表现
-  qwen-vl-max：{count}次，准确率{acc}%
-  qwen-vl-plus：{count}次，准确率{acc}%
-  gpt-4o（兜底）：{count}次，准确率{acc}%
+🤖 分析模式
+  text_llm（规则通过后调用）：{text_count}次
+  rule_filter_rejected（规则拒绝节省token）：{rejected_count}次
+  visual（视觉LLM）：{visual_count}次
   平均信号强度：{avg_strength}/10
   平均共振得分：{avg_alignment}/4
 
@@ -65,24 +67,22 @@ AI模型统计：
   风控拦截：{filter_count}次
   主要拦截原因：{top3_reasons}
   强制平仓：{force_close}次
+  移动止损触发：{trailing_count}次
+  部分止盈触发：{partial_count}次
 
-📌 今日持仓
-  {当前持仓列表，包含品种/方向/盈亏}
+📌 当前持仓
+  {持仓列表：品种/方向/盈亏}
 ━━━━━━━━━━━━━━━━━
-"
+```
 
 ### 第五步：保存报告
-- 将报告保存为 logs/daily_report_{日期}.txt
-- 同时保存原始数据为 logs/daily_report_{日期}.json
+- 保存文本报告：`logs/daily_report_{日期}.txt`
+- 保存原始数据：`logs/daily_report_{日期}.json`
 
-### 第六步：发送报告通知
-- 发送完整报告文本通知
-
-### 第七步：重置日计数
-- 更新 balance_cache 中的起始余额为当前余额
-- 为新的一天做好准备
+### 第六步：发送飞书通知
+- 调用 `notifier.send_notification()` 发送完整报告
 
 ## 错误处理：
-- 交易记录文件读取失败，跳过该文件继续统计
-- 余额获取失败，标记为"数据获取异常"
-- 任何错误不影响报告发送，以现有数据生成报告
+- 单个文件读取失败：跳过，继续统计其他文件
+- 余额获取失败：报告中标记异常，仍正常发送
+- 通知发送失败：记录错误日志，报告已保存到本地
