@@ -15,8 +15,9 @@ sys.path.insert(0, str(Path(__file__).parent))
 import ccxt  # noqa: F401 - 间接使用（create_exchange内部）
 from dotenv import load_dotenv
 
-from config_loader import check_env, RISK_CFG, SCANNER_CFG, TRADE_MGR_CFG, TRADING_CFG, ANALYSIS_CFG, CHART_CFG, TIMEFRAMES
+from config_loader import check_env, RISK_CFG, SCANNER_CFG, TRADE_MGR_CFG, TRADING_CFG, ANALYSIS_CFG, CHART_CFG, TIMEFRAMES, setup_logging
 check_env()
+setup_logging("market_scanner")
 
 MAX_POSITIONS       = RISK_CFG.get("max_open_positions", 3)
 FORCE_CLOSE_PCT     = TRADE_MGR_CFG.get("force_close_loss_pct", -10.0)
@@ -49,18 +50,8 @@ from execute_trade import (
 load_dotenv()
 
 # 配置日志：同时输出到控制台和文件
-log_dir = Path(__file__).parent.parent / "logs"
-log_dir.mkdir(exist_ok=True)
-log_file = log_dir / "market_scanner.log"
+logger = logging.getLogger(__name__)
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler(log_file, encoding="utf-8")
-    ]
-)
 logger = logging.getLogger(__name__)
 
 

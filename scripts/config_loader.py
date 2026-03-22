@@ -7,8 +7,10 @@ config_loader.py
 """
 
 import os
+import sys
 import yaml
 import logging
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -26,6 +28,40 @@ def load_settings() -> dict:
     cfg_path = ROOT_DIR / "config" / "settings.yaml"
     with open(cfg_path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
+
+
+def setup_logging(log_name: str, max_bytes: int = 10 * 1024 * 1024, backup_count: int = 20) -> None:
+    """
+    统一日志配置：控制台 + 按大小滚动的文件日志
+
+    参数：
+        log_name:     日志文件名（不含 .log），如 "market_scanner"
+        max_bytes:    单文件最大字节数，默认 10MB
+        backup_count: 保留的历史文件数，默认 20（即最多占用 200MB）
+    """
+    log_dir = ROOT_DIR / "logs"
+    log_dir.mkdir(exist_ok=True)
+    log_file = log_dir / f"{log_name}.log"
+
+    fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+
+    file_handler = RotatingFileHandler(
+        log_file,
+        maxBytes=max_bytes,
+        backupCount=backup_count,
+        encoding="utf-8",
+    )
+    file_handler.setFormatter(fmt)
+
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(fmt)
+
+    root = logging.getLogger()
+    # 避免重复添加 handler（脚本被多次 import 时）
+    if not root.handlers:
+        root.setLevel(logging.INFO)
+        root.addHandler(file_handler)
+        root.addHandler(console_handler)
 
 
 # ── 业务配置 ──────────────────────────────────

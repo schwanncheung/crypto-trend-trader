@@ -17,22 +17,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # 配置日志：同时输出到控制台和文件
-log_dir = Path(__file__).parent.parent / "logs"
-log_dir.mkdir(exist_ok=True)
-log_file = log_dir / "trade_manager.log"
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler(log_file, encoding="utf-8")
-    ]
-)
-logger = logging.getLogger(__name__)
-
-from config_loader import check_env, RISK_CFG, TRADE_MGR_CFG
+from config_loader import check_env, RISK_CFG, TRADE_MGR_CFG, setup_logging
 check_env()
+setup_logging("trade_manager")
+logger = logging.getLogger(__name__)
 
 # ── 持仓管理阈值（全部从 settings.yaml trade_manager 节点读取）
 TRAILING_STOP_PCT    = TRADE_MGR_CFG.get("trailing_stop_trigger_pct",  15.0)

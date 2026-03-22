@@ -12,22 +12,10 @@ import sys
 import yaml
 
 # 配置日志：同时输出到控制台和文件
-log_dir = Path(__file__).parent.parent / "logs"
-log_dir.mkdir(exist_ok=True)
-log_file = log_dir / "risk_filter.log"
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler(log_file, encoding="utf-8")
-    ]
-)
-logger = logging.getLogger(__name__)
-
-from config_loader import check_env, RISK_CFG, TRADING_CFG
+from config_loader import check_env, RISK_CFG, TRADING_CFG, setup_logging
 check_env()
+setup_logging("risk_filter")
+logger = logging.getLogger(__name__)
 
 
 # ── 单笔交易风控 ───────────────────────────────

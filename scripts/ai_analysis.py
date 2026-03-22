@@ -18,32 +18,17 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # 配置日志：同时输出到控制台和文件
-import sys
-from pathlib import Path
-log_dir = Path(__file__).parent.parent / "logs"
-log_dir.mkdir(exist_ok=True)
-log_file = log_dir / "ai_analysis.log"
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler(log_file, encoding="utf-8")
-    ]
-)
-logger = logging.getLogger(__name__)
-
-
 from config_loader import (
     check_env,
     AI_CFG,
     DASHSCOPE_API_KEY,
     TRADING_CFG,
     TIMEFRAMES,
+    setup_logging,
 )
-
 check_env()
+setup_logging("ai_analysis")
+logger = logging.getLogger(__name__)
 
 _MIN_SIGNAL_STRENGTH = TRADING_CFG.get("min_signal_strength", 7)
 _MIN_RR_RATIO        = TRADING_CFG.get("min_rr_ratio", 2.0)

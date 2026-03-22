@@ -17,30 +17,17 @@ from typing import Optional
 from pathlib import Path
 import sys
 
-# 配置日志：同时输出到控制台和文件
-log_dir = Path(__file__).parent.parent / "logs"
-log_dir.mkdir(exist_ok=True)
-log_file = log_dir / "fetch_kline.log"
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler(log_file, encoding="utf-8")
-    ]
-)
-logger = logging.getLogger(__name__)
-
 # 加载环境变量
 load_dotenv()
 
 # 项目根目录
 PROJECT_ROOT = Path(__file__).parent.parent
 
-from config_loader import CFG, SCANNER_CFG, KLINE_CFG, TIMEFRAMES
+from config_loader import CFG, SCANNER_CFG, KLINE_CFG, TIMEFRAMES, setup_logging
+setup_logging("fetch_kline")
+logger = logging.getLogger(__name__)
 
-# 各周期K线拉取数量（可在 settings.yaml kline.limits 配置）
+
 _DEFAULT_LIMITS = {"15m": 300, "1h": 200, "4h": 200}
 _KLINE_LIMITS = {**_DEFAULT_LIMITS, **KLINE_CFG.get("limits", {})}
 

@@ -13,32 +13,18 @@ import sys
 import ccxt
 
 # 配置日志：同时输出到控制台和文件
-log_dir = Path(__file__).parent.parent / "logs"
-log_dir.mkdir(exist_ok=True)
-log_file = log_dir / "execute_trade.log"
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler(log_file, encoding="utf-8")
-    ]
-)
-logger = logging.getLogger(__name__)
-
-
 from config_loader import (
     check_env,
     EXCHANGE_CFG,
     EXCHANGE_API_KEY,
     EXCHANGE_API_SECRET,
     EXCHANGE_PASSPHRASE,
-    RISK_CFG,
     TRADING_CFG,
+    setup_logging,
 )
-
-check_env()  # 启动即校验
+check_env()
+setup_logging("execute_trade")
+logger = logging.getLogger(__name__)
 
 
 # ── 交易所连接 ─────────────────────────────────
