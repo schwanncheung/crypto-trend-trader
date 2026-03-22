@@ -15,11 +15,13 @@ pip install ccxt
 # 数据处理
 pip install pandas numpy
 
-# K线图绘制
+# K线图绘制（用于日志存档）
 pip install mplfinance
 
-# AI视觉分析
-pip install dashscope
+# 阿里云百炼 AI 接口
+# dashscope: 视觉模型（qwen-vl 系列）原生 SDK
+# openai:    文本模型（qwen3.5-plus / kimi-k2.5）OpenAI 兼容接口
+pip install dashscope openai
 
 # 配置管理
 pip install pyyaml python-dotenv
@@ -27,13 +29,10 @@ pip install pyyaml python-dotenv
 # HTTP请求
 pip install requests
 
-# 异步支持（可选，用于高性能场景）
-pip install aiohttp asyncio-atexit
-
 echo "✅ 依赖安装完成"
 echo ""
 echo "📝 下一步："
 echo "1. 复制 .env.example 为 .env 并填写 API Key"
-echo "2. 配置 config/settings.yaml"
+echo "2. 检查 config/settings.yaml（analysis.mode / exchange.testnet）"
 echo "3. 运行 python scripts/fetch_kline.py 测试数据获取"
-pip install dashscope
+echo "4. 运行 python scripts/market_scanner.py 启动主扫描"
