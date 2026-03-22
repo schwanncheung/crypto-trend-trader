@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import ccxt  # noqa: F401 - 间接使用（create_exchange内部）
 from dotenv import load_dotenv
 
-from config_loader import check_env, RISK_CFG, SCANNER_CFG, TRADE_MGR_CFG, TRADING_CFG
+from config_loader import check_env, RISK_CFG, SCANNER_CFG, TRADE_MGR_CFG, TRADING_CFG, ANALYSIS_CFG, CHART_CFG
 check_env()
 
 MAX_POSITIONS       = RISK_CFG.get("max_open_positions", 3)
@@ -23,6 +23,8 @@ FORCE_CLOSE_PCT     = TRADE_MGR_CFG.get("force_close_loss_pct", -10.0)
 TOP_N_SYMBOLS       = SCANNER_CFG.get("top_n_symbols", 20)
 MIN_SIGNAL_STRENGTH = TRADING_CFG.get("min_signal_strength", 7)
 MIN_RR_RATIO        = TRADING_CFG.get("min_rr_ratio", 2.0)
+_ANALYSIS_MODE      = ANALYSIS_CFG.get("mode", "text")
+_SAVE_CHART_IN_TEXT = CHART_CFG.get("save_in_text_mode", False)
 
 # 导入各模块
 from fetch_kline import (
@@ -153,13 +155,16 @@ def main():
             # 计算支撑阻力
             support, resistance = calculate_support_resistance(data["4h"])
 
-            # 5.2 生成图表（用于日志存档，不影响分析路径）
-            chart_paths = generate_multi_chart(
-                multi_tf_data=data,
-                symbol=symbol,
-                support_levels=support,
-                resistance_levels=resistance
-            )
+            # 5.2 生成图表（visual模式必须；text模式按配置决定是否存档）
+            if _ANALYSIS_MODE == "visual" or _SAVE_CHART_IN_TEXT:
+                chart_paths = generate_multi_chart(
+                    multi_tf_data=data,
+                    symbol=symbol,
+                    support_levels=support,
+                    resistance_levels=resistance
+                )
+            else:
+                chart_paths = []
 
             # 5.3 统一分析入口（text模式=规则引擎+文本LLM；visual模式=视觉LLM）
             decision = analyze_symbol(

@@ -38,7 +38,11 @@ load_dotenv()
 # 项目根目录
 PROJECT_ROOT = Path(__file__).parent.parent
 
-from config_loader import CFG, SCANNER_CFG
+from config_loader import CFG, SCANNER_CFG, KLINE_CFG
+
+# 各周期K线拉取数量（可在 settings.yaml kline.limits 配置）
+_DEFAULT_LIMITS = {"15m": 300, "1h": 200, "4h": 150, "1d": 100}
+_KLINE_LIMITS = {**_DEFAULT_LIMITS, **KLINE_CFG.get("limits", {})}
 
 
 def get_exchange():
@@ -120,7 +124,8 @@ def fetch_multi_timeframe(
     result = {}
     for tf in timeframes:
         try:
-            df = fetch_ohlcv(exchange, symbol, tf)
+            limit = _KLINE_LIMITS.get(tf, 200)
+            df = fetch_ohlcv(exchange, symbol, tf, limit=limit)
             result[tf] = df
             logger.info(f"  [{tf}] {symbol} 获取 {len(df)} 根K线 ✅")
         except Exception as e:
