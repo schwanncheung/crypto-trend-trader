@@ -5,6 +5,7 @@ exchange:
   name: "okx"
   testnet: false
 
+# ── AI 视觉模型（visual模式用）────────────────────────────────────────
 ai:
   primary:
     provider: "qwen"
@@ -12,7 +13,6 @@ ai:
     thinking_mode: false
     max_tokens: 1500
     timeout: 30
-    # api_key 从 .env 读取
 
   secondary:
     provider: "qwen"
@@ -28,22 +28,78 @@ ai:
     max_tokens: 1500
     timeout: 30
 
+# ── 分析模式 ─────────────────────────────────────────────────────────
+analysis:
+  # mode: "visual" = AI视觉分析（需要图表图片）
+  # mode: "text"   = 规则引擎预过滤 + LLM文本分析（推荐，省token）
+  mode: "text"
+
+  text_llm:
+    primary_model: "qwen-plus"
+    fallback_model: "qwen-max"
+    max_tokens: 2000
+    timeout: 30
+    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+
+  # 规则引擎预过滤（进入LLM分析前必须通过）
+  rule_filter:
+    # 15m/1h/4h 中至少几个周期趋势与信号方向一致
+    min_trending_timeframes: 2
+    # 日线是否必须与信号方向对齐
+    require_daily_aligned: true
+    # ADX >= 此值视为趋势明确（< 此值 = 横盘）
+    adx_trending_threshold: 20
+    # 成交量 / MA5 >= 此值视为量能确认
+    volume_ratio_threshold: 1.2
+    # RSI 超买超卖过滤
+    rsi_overbought: 75
+    rsi_oversold: 25
+
+  # 指标计算参数
+  indicator:
+    ema_periods: [20, 50, 200]
+    adx_period: 14
+    rsi_period: 14
+    volume_ma_period: 5
+    swing_lookback: 5
+    swing_count: 3
+
+# ── 交易参数 ────────────────────────────────────────────────────────
 trading:
   allowed_confidence: ["high"]
   min_signal_strength: 7
   min_rr_ratio: 2.0
   default_leverage: 10
+  max_position_pct: 0.06
 
+# ── 账户风控 ────────────────────────────────────────────────────────
 risk:
-  max_positions: 3
+  max_open_positions: 3
   max_loss_pct: -5.0
   leverage: 10
   min_risk_reward: 2.0
 
+# ── 持仓管理阈值 ─────────────────────────────────────────────────────
+trade_manager:
+  # 浮盈达到此百分比时，移动止损至保本位
+  trailing_stop_trigger_pct: 15.0
+  # 浮盈达到此百分比时，执行部分止盈
+  partial_profit_trigger_pct: 25.0
+  # 部分止盈平仓比例（0.5 = 平一半）
+  partial_profit_ratio: 0.5
+  # 浮亏超过此百分比时强制平仓（负数）
+  force_close_loss_pct: -10.0
+  # 结构判断使用的时间框架
+  structure_check_timeframe: "1h"
+  # 突破支撑/阻力位的缓冲区（百分比，如 0.3 = 0.3%）
+  support_buffer_pct: 0.3
+
+# ── 图表配置 ────────────────────────────────────────────────────────
 chart:
   save_dir: "logs/decisions"
   timeframes: ["15m", "1h", "4h", "1d"]
 
+# ── 扫描器配置 ──────────────────────────────────────────────────────
 scanner:
   top_n_symbols: 20
   min_volume_usdt: 50000000
