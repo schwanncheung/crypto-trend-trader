@@ -35,11 +35,11 @@ analysis:
   mode: "text"
 
   text_llm:
-    primary_model: "qwen-plus"
-    fallback_model: "qwen-max"
+    primary_model: "qwen3.5-plus"
+    fallback_model: "kimi-k2.5"
     max_tokens: 2000
     timeout: 30
-    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    base_url: "https://coding.dashscope.aliyuncs.com/v1"
 
   # 规则引擎预过滤（进入LLM分析前必须通过）
   rule_filter:
