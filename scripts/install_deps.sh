@@ -32,7 +32,7 @@ pip install requests
 echo "✅ 依赖安装完成"
 echo ""
 echo "📝 下一步："
-echo "1. 复制 .env.example 为 .env 并填写 API Key"
+echo "1. 创建 .env 并填写 API Key"
 echo "2. 检查 config/settings.yaml（analysis.mode / exchange.testnet）"
 echo "3. 运行 python scripts/fetch_kline.py 测试数据获取"
 echo "4. 运行 python scripts/market_scanner.py 启动主扫描"
