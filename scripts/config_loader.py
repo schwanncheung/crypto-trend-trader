@@ -1,0 +1,68 @@
+"""
+config_loader.py
+统一配置加载入口
+- 业务参数从 config/settings.yaml 读取
+- 敏感密钥从 .env 读取
+- 启动时校验必要配置是否齐全
+"""
+
+import os
+import yaml
+import logging
+from pathlib import Path
+from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
+
+# 项目根目录
+ROOT_DIR = Path(__file__).parent.parent
+
+# 加载 .env（明确指定路径，避免工作目录不同导致找不到）
+load_dotenv(dotenv_path=ROOT_DIR / ".env", override=True)
+
+
+def load_settings() -> dict:
+    """读取 settings.yaml"""
+    cfg_path = ROOT_DIR / "config" / "settings.yaml"
+    with open(cfg_path, "r", encoding="utf-8") as f:
+        return yaml.safe_load(f)
+
+
+# ── 业务配置 ──────────────────────────────────
+CFG = load_settings()
+
+# ── 敏感配置（从 .env 读取）──────────────────
+EXCHANGE_API_KEY    = os.getenv("EXCHANGE_API_KEY", "")
+EXCHANGE_API_SECRET = os.getenv("EXCHANGE_API_SECRET", "")
+EXCHANGE_PASSPHRASE = os.getenv("EXCHANGE_PASSPHRASE", "")
+DASHSCOPE_API_KEY   = os.getenv("DASHSCOPE_API_KEY", "")
+
+
+def check_env():
+    """
+    启动时校验必要环境变量
+    缺少任何一个直接抛出异常，避免程序带着空配置运行
+    """
+    required = {
+        "EXCHANGE_API_KEY":    EXCHANGE_API_KEY,
+        "EXCHANGE_API_SECRET": EXCHANGE_API_SECRET,
+        "EXCHANGE_PASSPHRASE": EXCHANGE_PASSPHRASE,
+        "DASHSCOPE_API_KEY":   DASHSCOPE_API_KEY,
+    }
+
+    missing = [k for k, v in required.items() if not v]
+
+    if missing:
+        raise EnvironmentError(
+            f"\n❌ 以下环境变量未配置：{missing}\n"
+            f"请检查项目根目录下的 .env 文件\n"
+            f".env 路径：{ROOT_DIR / '.env'}"
+        )
+
+# ── 便捷访问 ──────────────────────────────────
+EXCHANGE_CFG = CFG.get("exchange", {})
+AI_CFG       = CFG.get("ai", {})
+RISK_CFG     = CFG.get("risk", {})
+SCANNER_CFG  = CFG.get("scanner", {})
+CHART_CFG    = CFG.get("chart", {})
+TRADING_CFG  = CFG.get("trading", {})

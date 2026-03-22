@@ -1,0 +1,49 @@
+# config/settings.yaml
+# ⚠️ 所有 API Key 均从 .env 文件读取，此处不填写任何密钥
+
+exchange:
+  name: "okx"
+  testnet: false
+
+ai:
+  primary:
+    provider: "qwen"
+    model: "qwen3-vl-flash"
+    thinking_mode: false
+    max_tokens: 1500
+    timeout: 30
+    # api_key 从 .env 读取
+
+  secondary:
+    provider: "qwen"
+    model: "qwen3-vl-plus"
+    thinking_mode: true
+    max_tokens: 2000
+    timeout: 60
+
+  fallback:
+    provider: "qwen"
+    model: "qwen-vl-max"
+    thinking_mode: false
+    max_tokens: 1500
+    timeout: 30
+
+trading:
+  allowed_confidence: ["high"]
+  min_signal_strength: 7
+  min_rr_ratio: 2.0
+  default_leverage: 10
+
+risk:
+  max_positions: 3
+  max_loss_pct: -5.0
+  leverage: 10
+  min_risk_reward: 2.0
+
+chart:
+  save_dir: "logs/decisions"
+  timeframes: ["15m", "1h", "4h", "1d"]
+
+scanner:
+  top_n_symbols: 20
+  min_volume_usdt: 50000000

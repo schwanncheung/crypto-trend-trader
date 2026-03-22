@@ -1,0 +1,18 @@
+# symbols.yaml
+# 注意：此文件仅作为 fetch_hot_symbols() 失败时的兜底使用
+# 正常情况下合约列表由 OKX API 实时动态获取
+
+priority:
+  - "XRP/USDT:USDT"
+  - "DOGE/USDT:USDT"
+  - "ADA/USDT:USDT"
+  - "AVAX/USDT:USDT"
+  - "LINK/USDT:USDT"
+  - "DOT/USDT:USDT"
+  - "ENJ/USDT:USDT"
+  - "KAT/USDT:USDT"
+  - "ZEC/USDT:USDT"
+  - "PEPE/USDT:USDT"
+  - "ZAMA/USDT:USDT"
+  - "ANIME/USDT:USDT"
+  - "FARTCOIN/USDT:USDT"

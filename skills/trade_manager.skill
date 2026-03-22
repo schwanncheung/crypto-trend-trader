@@ -1,0 +1,69 @@
+# 名称：trade_manager
+# 描述：持仓管理技能，负责追踪现有持仓状态、动态调整止损、识别出场信号
+# 触发方式：定时触发，每15分钟执行一次（与 market_scanner 错开5分钟）
+
+## 执行步骤：
+
+### 第一步：获取当前所有持仓
+- 调用 execute_trade.py 中的 get_open_positions(exchange)
+- 如果持仓列表为空：
+  * 记录日志："无持仓，跳过本轮管理"
+  * 直接终止
+
+### 第二步：逐个处理持仓
+对每个持仓执行以下检查：
+
+#### 2.1 获取最新1小时K线数据
+- 调用 fetch_kline.py 中的 fetch_multi_timeframe(symbol)
+
+#### 2.2 盈亏状态判断
+计算当前盈亏百分比（unrealized_pnl / 保证金）：
+
+情况A：浮盈超过 15%
+- 执行移动止损：将止损上移至入场价（保本止损）
+- 调用 exchange.cancel_all_orders(symbol) 撤销原止损单
+- 重新挂止损单在入场价位置
+- 发送通知："✅ {symbol} 浮盈{pnl%}，已将止损移至保本位 {entry_price}"
+
+情况B：浮盈超过 25%
+- 执行部分止盈：平掉50%仓位锁定利润
+- 调用 close_position() 平掉一半合约数量
+- 剩余仓位继续持有，止损继续保持保本位
+- 发送通知："💰 {symbol} 浮盈{pnl%}，已部分止盈50%，剩余持仓继续运行"
+
+情况C：亏损超过 -10%
+- 调用 execute_trade.py 中的 close_position() 强制平仓
+- 发送通知："🛑 {symbol} 亏损{pnl%}，触发动态止损，已强制平仓"
+
+情况D：盈亏在正常范围内
+- 记录日志：持仓状态正常
+- 不做任何操作
+
+#### 2.3 趋势反转检测
+- 调用 detect_trend_structure(df["1h"]) 获取1小时趋势结构
+- 如果 structure_broken == true（结构被打破）：
+  * 生成1小时K线图
+  * 调用 analyze_with_fallback([chart_path], multi_tf=False)
+  * 如果 AI 返回 signal == "close" 且 confidence 为 high：
+    - 调用 close_position() 平仓
+    - 发送通知："📉 {symbol} 1H结构破坏，AI建议平仓，已执行"
+  * 如果 confidence 为 medium：
+    - 仅发送通知，不自动平仓，等待人工确认
+    - 通知内容："⚠️ {symbol} 1H结构疑似破坏，建议人工检查"
+
+#### 2.4 更新持仓日志
+- 将当前持仓状态记录到 logs/trades/ 目录
+- 包含：品种、方向、持仓时间、当前盈亏、止损位置
+
+### 第三步：汇总报告
+- 汇总所有持仓的当前状态
+- 记录日志：
+  "持仓巡检完成 | 持仓数：N | 
+   总浮盈：+X USDT | 总浮亏：-Y USDT | 
+   净盈亏：Z USDT"
+- 如果总净亏损超过账户余额5%，发送高优先级告警通知
+
+## 错误处理：
+- 单个持仓处理失败，记录错误后继续处理其他持仓
+- 撤单或重新挂单失败，发送告警通知请求人工介入
+- 交易所连接失败，发送告警通知并终止

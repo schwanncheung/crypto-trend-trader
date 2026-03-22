@@ -1,0 +1,92 @@
+名称：market_scanner
+描述：每15分钟动态获取 OKX 最热门的20个永续合约，生成K线图并调用AI分析，通过风控后自动执行交易
+触发方式：定时触发，每15分钟执行一次
+
+## 配置项（可选）
+
+在 `.env` 中添加以下配置：
+
+| 变量 | 值 | 说明 |
+|------|-----|------|
+| `SKIP_AI_ANALYSIS` | `true` | 跳过 AI 图像分析，改用规则引擎生成信号（适用于 token 限额不足时） |
+
+---
+
+执行步骤：
+
+第一步：初始化 & 动态获取合约列表
+- 加载 config/settings.yaml
+- 调用 execute_trade.py 中的 create_exchange() 创建交易所连接
+- 初始化 balance_cache = {} 用于日亏损追踪
+- 调用 fetch_kline.py 中的 fetch_hot_symbols(exchange, top_n=20) 获取热门合约列表
+- 如果返回列表为空，调用 _load_fallback_symbols() 读取 symbols.yaml 兜底
+- 记录日志：本轮扫描合约数量及前5个合约名称
+
+第二步：日亏损预检
+- 调用 risk_filter.py 中的 check_daily_loss(exchange, balance_cache)
+- 如果未通过，发送通知"今日亏损超限，已停止自动交易"，终止本次执行
+
+第三步：持仓数量预检
+- 调用 execute_trade.py 中的 get_open_positions(exchange)
+- 统计当前持仓数量 current_position_count
+- 如果 current_position_count >= 3：
+  * 记录日志："当前持仓已达上限（3/3），跳过本轮扫描"
+  * 发送通知："持仓已满3个，等待现有持仓触及止盈/止损后再开新仓"
+  * 直接跳转到第四步（持仓健康检查）
+
+第四步：持仓健康检查
+- 调用 execute_trade.py 中的 check_position_health(exchange, max_loss_pct=-10.0)
+- 如果返回列表不为空，对每个超亏持仓调用 close_position() 强制平仓
+- 发送通知说明强制平仓原因
+
+第五步：逐个扫描合约（使用第一步动态获取的列表）
+按成交量排名顺序遍历，对每个 symbol 执行前，先做持仓数量检查：
+
+  【每个品种扫描前】
+  - 重新获取当前持仓数量 current_position_count
+  - 如果 current_position_count >= 3：
+    * 记录日志："持仓已达3个上限，终止本轮剩余品种扫描"
+    * 跳出循环，进入第六步
+
+  【继续扫描当前品种】
+
+  5.1 获取多周期K线数据
+  - 调用 fetch_kline.py 中的 fetch_multi_timeframe(symbol)
+  - 调用 calculate_support_resistance(df["4h"])
+  - 调用 calculate_volume_ma(df["1h"])
+  - 调用 detect_trend_structure(df["1d"])
+
+  5.2 日线趋势预过滤
+  - 如果 trend_structure["trend"] == "sideways"，跳过该品种
+  - 记录日志："{symbol} 日线横盘，跳过扫描"
+
+  5.3 生成四周期K线图
+  - 调用 generate_chart.py 中的 generate_multi_chart()
+
+  5.4 AI多周期分析
+  - 调用 ai_analysis.py 中的 analyze_with_fallback(image_paths, multi_tf=True)
+
+  5.5 风控过滤
+  - 调用 risk_filter.py 中的 run_full_risk_check(exchange, symbol, decision, balance_cache)
+  - 如果未通过，记录原因，继续下一个品种
+
+  5.6 执行交易
+  - 调用 execute_trade.py 中的 execute_from_decision()
+  - 如果开仓成功，current_position_count += 1
+
+  5.7 保存决策日志
+  - 调用 ai_analysis.py 中的 save_decision_log()
+
+  5.8 发送通知
+  - 通知内容包含：品种名称、24h成交额排名、信号方向、入场价、
+    止损价、止盈价、风险回报比、当前持仓数量（X/3）
+
+第六步：本轮扫描完成
+- 记录日志：本轮扫描完成 | 热门合约数：20 | 已扫描：N | 
+  跳过横盘：M | 触发交易：K | 当前持仓：X/3
+- 发送汇总通知
+
+错误处理：
+- fetch_hot_symbols 失败，自动使用 symbols.yaml 兜底，不中断执行
+- 单个品种处理失败，记录错误后继续处理下一个
+- 交易所连接失败，发送告警通知并终止
