@@ -128,7 +128,7 @@ def main():
     logger.info("=" * 50)
     
     scanned = 0
-    skipped_sideways = 0
+    rule_filtered = 0   # 规则引擎拒绝的数量（横盘/趋势不对齐）
     triggered_trades = 0
     
     for idx, symbol in enumerate(symbols):
@@ -173,8 +173,11 @@ def main():
                         f"confidence={decision.get('confidence')}, "
                         f"strength={decision.get('signal_strength')}, "
                         f"mode={decision.get('_analysis_mode', 'visual')}")
-            
-            # 5.5 风控过滤
+
+            # 规则引擎拒绝的直接跳过，不再走风控
+            if decision.get("_analysis_mode") == "rule_filter_rejected":
+                rule_filtered += 1
+                continue
             risk_checks = {
                 "信号方向明确": decision.get("signal") in ["long", "short"],
                 "置信度为high": decision.get("confidence") == "high",
@@ -231,7 +234,7 @@ def main():
         f"本轮扫描完成 | "
         f"热门合约数：{len(symbols)} | "
         f"已扫描：{scanned} | "
-        f"跳过横盘：{skipped_sideways} | "
+        f"规则过滤：{rule_filtered} | "
         f"触发交易：{triggered_trades} | "
         f"当前持仓：{final_position_count}/{MAX_POSITIONS}"
     )

@@ -39,9 +39,13 @@ from config_loader import (
     check_env,
     AI_CFG,
     DASHSCOPE_API_KEY,
+    TRADING_CFG,
 )
 
 check_env()
+
+_MIN_SIGNAL_STRENGTH = TRADING_CFG.get("min_signal_strength", 7)
+_MIN_RR_RATIO        = TRADING_CFG.get("min_rr_ratio", 2.0)
 
 
 SINGLE_TF_PROMPT = """
@@ -309,16 +313,16 @@ def passes_risk_filter(decision: dict) -> bool:
             decision.get("signal") in ["long", "short"],
         "置信度为high":
             decision.get("confidence") == "high",
-        "信号强度>=7":
-            decision.get("signal_strength", 0) >= 7,
+        f"信号强度>={_MIN_SIGNAL_STRENGTH}":
+            decision.get("signal_strength", 0) >= _MIN_SIGNAL_STRENGTH,
         "成交量确认":
             decision.get("volume_confirmed", False) is True,
         "无背离风险":
             decision.get("divergence_risk", True) is False,
-         "结构未打破":
+        "结构未打破":
             decision.get("structure_broken", True) is False,
-         "风险回报比>=2":
-            _parse_rr(decision.get("risk_reward", "1:0")) >= 2.0,
+        f"风险回报比>={_MIN_RR_RATIO}":
+            _parse_rr(decision.get("risk_reward", "1:0")) >= _MIN_RR_RATIO,
     }
 
     failed = [k for k, v in checks.items() if not v]
