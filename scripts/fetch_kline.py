@@ -38,10 +38,10 @@ load_dotenv()
 # 项目根目录
 PROJECT_ROOT = Path(__file__).parent.parent
 
-from config_loader import CFG, SCANNER_CFG, KLINE_CFG
+from config_loader import CFG, SCANNER_CFG, KLINE_CFG, TIMEFRAMES
 
 # 各周期K线拉取数量（可在 settings.yaml kline.limits 配置）
-_DEFAULT_LIMITS = {"15m": 300, "1h": 200, "4h": 150, "1d": 100}
+_DEFAULT_LIMITS = {"15m": 300, "1h": 200, "4h": 200}
 _KLINE_LIMITS = {**_DEFAULT_LIMITS, **KLINE_CFG.get("limits", {})}
 
 
@@ -119,7 +119,7 @@ def fetch_multi_timeframe(
         logger.warning("fetch_multi_timeframe：未传入 exchange，内部临时创建")
 
     if timeframes is None:
-        timeframes = ["15m", "1h", "4h", "1d"]
+        timeframes = TIMEFRAMES
 
     result = {}
     for tf in timeframes:

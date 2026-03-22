@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 from typing import Optional
 
-from config_loader import ANALYSIS_CFG
+from config_loader import ANALYSIS_CFG, TIMEFRAMES
 
 logger = logging.getLogger(__name__)
 
@@ -19,19 +19,24 @@ logger = logging.getLogger(__name__)
 _IND_CFG  = ANALYSIS_CFG.get("indicator", {})
 _RULE_CFG = ANALYSIS_CFG.get("rule_filter", {})
 
-EMA_PERIODS       = _IND_CFG.get("ema_periods", [20, 50, 200])
+EMA_PERIODS       = _IND_CFG.get("ema_periods", [21, 55, 200])
 ADX_PERIOD        = _IND_CFG.get("adx_period", 14)
 RSI_PERIOD        = _IND_CFG.get("rsi_period", 14)
 VOL_MA_PERIOD     = _IND_CFG.get("volume_ma_period", 5)
 SWING_LOOKBACK    = _IND_CFG.get("swing_lookback", 5)
 SWING_COUNT       = _IND_CFG.get("swing_count", 3)
 
+# 方向锚周期（用于规则引擎宏观方向判断）
+ANCHOR_TF         = _RULE_CFG.get("anchor_timeframe", "4h")
+REQUIRE_ANCHOR    = _RULE_CFG.get("require_anchor_aligned", True)
 MIN_TRENDING_TF   = _RULE_CFG.get("min_trending_timeframes", 2)
-REQUIRE_DAILY     = _RULE_CFG.get("require_daily_aligned", True)
 ADX_THRESHOLD     = _RULE_CFG.get("adx_trending_threshold", 20)
 VOL_RATIO_THRESH  = _RULE_CFG.get("volume_ratio_threshold", 1.2)
 RSI_OVERBOUGHT    = _RULE_CFG.get("rsi_overbought", 75)
 RSI_OVERSOLD      = _RULE_CFG.get("rsi_oversold", 25)
+
+# 快捷引用：第一个EMA周期（最短，用于价格位置判断）
+_EMA_FAST = EMA_PERIODS[0] if EMA_PERIODS else 21
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -246,7 +251,7 @@ def assess_trend_direction(df: pd.DataFrame, adx_info: dict, ema_info: dict) -> 
     plus_di  = adx_info.get("plus_di",  0)
     minus_di = adx_info.get("minus_di", 0)
     alignment = ema_info.get("alignment", "mixed")
-    ema20 = ema_info.get("ema20", 0)
+    ema_fast = ema_info.get(f"ema{_EMA_FAST}", 0)
     current_price = float(df["close"].iloc[-1])
 
     if adx < ADX_THRESHOLD:
@@ -265,7 +270,7 @@ def assess_trend_direction(df: pd.DataFrame, adx_info: dict, ema_info: dict) -> 
     else:
         bearish_signals += 1
 
-    if current_price > ema20:
+    if current_price > ema_fast:
         bullish_signals += 1
     else:
         bearish_signals += 1
@@ -320,26 +325,24 @@ def rule_engine_filter(
     只有通过后才值得花 token 调用 LLM。
 
     参数：
-        tf_indicators: {"1d": {...}, "4h": {...}, "1h": {...}, "15m": {...}}
+        tf_indicators: 各周期指标字典，key 为时间框架字符串
         symbol: 合约名称（仅用于日志）
 
     返回：
         (passed: bool, signal_direction: str, reason: str)
         signal_direction: "long" / "short" / "wait"
     """
-    results = []
+    # ── 1. 方向锚周期必须有明确方向（非横盘）
+    anchor = tf_indicators.get(ANCHOR_TF, {})
+    anchor_trend = anchor.get("trend", "sideways") if anchor.get("valid") else "sideways"
 
-    # ── 1. 日线必须有明确方向（非横盘）
-    daily = tf_indicators.get("1d", {})
-    daily_trend = daily.get("trend", "sideways") if daily.get("valid") else "sideways"
-
-    if REQUIRE_DAILY and daily_trend == "sideways":
-        reason = f"{symbol} 日线横盘（ADX<{ADX_THRESHOLD}），规则引擎拒绝"
+    if REQUIRE_ANCHOR and anchor_trend == "sideways":
+        reason = f"{symbol} 锚周期 {ANCHOR_TF} 横盘（ADX<{ADX_THRESHOLD}），规则引擎拒绝"
         logger.info(f"[规则过滤] {reason}")
         return False, "wait", reason
 
-    # ── 2. 统计 15m/1h/4h 中单边趋势周期数
-    check_tfs = ["15m", "1h", "4h"]
+    # ── 2. 统计非锚周期的单边趋势数量
+    check_tfs = [tf for tf in TIMEFRAMES if tf != ANCHOR_TF]
     up_count   = 0
     down_count = 0
     tf_summary = []
@@ -356,20 +359,20 @@ def rule_engine_filter(
         elif t == "down":
             down_count += 1
 
-    logger.info(f"[规则过滤] {symbol} 趋势统计: 日线={daily_trend} | {' '.join(tf_summary)}")
+    logger.info(f"[规则过滤] {symbol} 趋势统计: 锚={ANCHOR_TF}:{anchor_trend} | {' '.join(tf_summary)}")
 
-    # ── 3. 判断信号方向：小周期趋势达标且与日线对齐
+    # ── 3. 判断信号方向：非锚周期达标且与锚周期对齐
     signal_direction = "wait"
 
-    if up_count >= MIN_TRENDING_TF and (not REQUIRE_DAILY or daily_trend == "up"):
+    if up_count >= MIN_TRENDING_TF and (not REQUIRE_ANCHOR or anchor_trend == "up"):
         signal_direction = "long"
-    elif down_count >= MIN_TRENDING_TF and (not REQUIRE_DAILY or daily_trend == "down"):
+    elif down_count >= MIN_TRENDING_TF and (not REQUIRE_ANCHOR or anchor_trend == "down"):
         signal_direction = "short"
     else:
         reason = (
             f"{symbol} 趋势不一致，多头周期={up_count}/{len(check_tfs)}，"
-            f"空头周期={down_count}/{len(check_tfs)}，日线={daily_trend}，"
-            f"需要{MIN_TRENDING_TF}个小周期对齐"
+            f"空头周期={down_count}/{len(check_tfs)}，{ANCHOR_TF}锚={anchor_trend}，"
+            f"需要{MIN_TRENDING_TF}个非锚周期对齐"
         )
         logger.info(f"[规则过滤] {reason}")
         return False, "wait", reason
@@ -402,7 +405,7 @@ def rule_engine_filter(
 
     reason = (
         f"{symbol} 规则引擎通过：方向={signal_direction}，"
-        f"日线={daily_trend}，对齐周期={'多头' if signal_direction=='long' else '空头'}{max(up_count,down_count)}/{len(check_tfs)}"
+        f"{ANCHOR_TF}锚={anchor_trend}，对齐周期={'多头' if signal_direction=='long' else '空头'}{max(up_count,down_count)}/{len(check_tfs)}"
     )
     logger.info(f"[规则过滤] {reason}")
     return True, signal_direction, reason
@@ -412,7 +415,13 @@ def rule_engine_filter(
 # 五、多周期市场快照生成（LLM 输入文本）
 # ═══════════════════════════════════════════════════════════════════════
 
-TF_LABELS = {"1d": "日线 1D", "4h": "4小时 4H", "1h": "1小时 1H", "15m": "15分钟 15M"}
+TF_LABELS = {
+    "15m": "15分钟 15M",
+    "30m": "30分钟 30M",
+    "1h":  "1小时 1H",
+    "4h":  "4小时 4H",
+    "1d":  "日线 1D",
+}
 
 
 def generate_market_snapshot(
@@ -432,7 +441,7 @@ def generate_market_snapshot(
     lines = []
 
     current_price = None
-    for tf in ["15m", "1h", "4h", "1d"]:
+    for tf in TIMEFRAMES:
         df = multi_tf_data.get(tf)
         if df is not None and not df.empty:
             current_price = float(df["close"].iloc[-1])
@@ -441,7 +450,7 @@ def generate_market_snapshot(
     lines.append(f"【合约】{symbol}  当前价格：{current_price:,.6g}")
     lines.append("")
 
-    for tf in ["1d", "4h", "1h", "15m"]:
+    for tf in TIMEFRAMES:
         df = multi_tf_data.get(tf)
         label = TF_LABELS.get(tf, tf)
         ind = compute_timeframe_indicators(df, tf)
@@ -478,13 +487,14 @@ def generate_market_snapshot(
         lines.append("")
 
     # 多周期共振汇总
-    trends = {tf: tf_indicators[tf].get("trend", "sideways") for tf in ["1d", "4h", "1h", "15m"]}
+    trends = {tf: tf_indicators[tf].get("trend", "sideways") for tf in TIMEFRAMES}
     up_cnt   = sum(1 for t in trends.values() if t == "up")
     down_cnt = sum(1 for t in trends.values() if t == "down")
     align_score = max(up_cnt, down_cnt)
+    total_tfs = len(TIMEFRAMES)
     dominant = "多头" if up_cnt >= down_cnt else "空头"
-    lines.append(f"【多周期共振】{dominant}对齐 {align_score}/4 | 各周期：" +
-                 " ".join(f"{tf}={trends[tf]}" for tf in ["1d", "4h", "1h", "15m"]))
+    lines.append(f"【多周期共振】{dominant}对齐 {align_score}/{total_tfs} | 各周期：" +
+                 " ".join(f"{tf}={trends[tf]}" for tf in TIMEFRAMES))
 
     snapshot = "\n".join(lines)
     return snapshot, tf_indicators

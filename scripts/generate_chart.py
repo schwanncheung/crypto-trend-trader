@@ -221,7 +221,7 @@ def generate_multi_chart(
 ) -> dict:
     """
     生成四周期K线图
-    返回：{"15m": "/path/to/15m.png", "1h": "...", "4h": "...", "1d": "..."}
+    返回：各周期 {tf: "/path/to/file.png"} 字典
     """
     from pathlib import Path
     import os
@@ -249,12 +249,14 @@ def generate_multi_chart(
             # 计算成交量均线
             volume_ma = calculate_volume_ma(df, period=5)
             
-            # 计算支撑阻力（如果未传入）
+            # 计算支撑阻力（如果未传入，使用 multi_tf_data 中第一个有效周期）
             ref_support = support_levels
             ref_resistance = resistance_levels
-            if not support_levels and "4h" in multi_tf_data and not multi_tf_data["4h"].empty:
-                from fetch_kline import calculate_support_resistance
-                ref_support, ref_resistance = calculate_support_resistance(multi_tf_data["4h"])
+            if not support_levels:
+                ref_tf = next((tf for tf, d in multi_tf_data.items() if d is not None and not d.empty), None)
+                if ref_tf:
+                    from fetch_kline import calculate_support_resistance
+                    ref_support, ref_resistance = calculate_support_resistance(multi_tf_data[ref_tf])
 
             # 绘制K线图（直接调用 generate_kline_chart）
             path = generate_kline_chart(

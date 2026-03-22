@@ -3,7 +3,11 @@
 
 exchange:
   name: "okx"
-  testnet: false
+  testnet: true # 是否模拟盘
+
+# ── 全局时间框架（所有模块统一使用）────────────────────────────────────
+# 从高到低排列：最高周期作为方向锚，最低周期用于入场确认
+timeframes: ["4h", "1h", "15m"]
 
 # ── AI 视觉模型（visual模式用）────────────────────────────────────────
 ai:
@@ -43,10 +47,12 @@ analysis:
 
   # 规则引擎预过滤（进入LLM分析前必须通过）
   rule_filter:
-    # 15m/1h/4h 中至少几个周期趋势与信号方向一致
+    # 方向锚周期：此周期趋势必须明确（非横盘），作为宏观方向依据
+    anchor_timeframe: "4h"
+    # 方向锚周期是否必须与信号方向对齐
+    require_anchor_aligned: true
+    # 非锚周期中至少几个趋势与信号方向一致
     min_trending_timeframes: 2
-    # 日线是否必须与信号方向对齐
-    require_daily_aligned: true
     # ADX >= 此值视为趋势明确（< 此值 = 横盘）
     adx_trending_threshold: 20
     # 成交量 / MA5 >= 此值视为量能确认
@@ -57,7 +63,7 @@ analysis:
 
   # 指标计算参数
   indicator:
-    ema_periods: [20, 50, 200]
+    ema_periods: [21, 55, 200]
     adx_period: 14
     rsi_period: 14
     volume_ma_period: 5
@@ -97,7 +103,6 @@ trade_manager:
 # ── 图表配置 ────────────────────────────────────────────────────────
 chart:
   save_dir: "logs/decisions"
-  timeframes: ["15m", "1h", "4h", "1d"]
   # text模式下是否仍生成图表（仅用于日志存档，true=生成/false=跳过）
   save_in_text_mode: false
 
@@ -107,8 +112,7 @@ kline:
   limits:
     "15m": 300   # 300根 = 约75小时，覆盖近3天
     "1h":  200   # 200根 = 约8天
-    "4h":  150   # 150根 = 约25天
-    "1d":  100   # 100根 = 约100天（近3个月结构）
+    "4h":  200   # 200根 = 约33天，保证EMA(200)有效
 
 # ── 扫描器配置 ──────────────────────────────────────────────────────
 scanner:

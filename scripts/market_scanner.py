@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import ccxt  # noqa: F401 - 间接使用（create_exchange内部）
 from dotenv import load_dotenv
 
-from config_loader import check_env, RISK_CFG, SCANNER_CFG, TRADE_MGR_CFG, TRADING_CFG, ANALYSIS_CFG, CHART_CFG
+from config_loader import check_env, RISK_CFG, SCANNER_CFG, TRADE_MGR_CFG, TRADING_CFG, ANALYSIS_CFG, CHART_CFG, TIMEFRAMES
 check_env()
 
 MAX_POSITIONS       = RISK_CFG.get("max_open_positions", 3)
@@ -148,12 +148,14 @@ def main():
         try:
             # 5.1 获取多周期K线数据
             data = fetch_multi_timeframe(symbol, exchange=exchange)
-            if data["1d"].empty:
+            anchor_tf = TIMEFRAMES[0]  # 最高周期作为数据有效性校验
+            if data[anchor_tf].empty:
                 logger.warning(f"{symbol} 数据获取失败，跳过")
                 continue
 
-            # 计算支撑阻力
-            support, resistance = calculate_support_resistance(data["4h"])
+            # 计算支撑阻力（使用最高周期作为锚）
+            anchor_tf = TIMEFRAMES[0]
+            support, resistance = calculate_support_resistance(data[anchor_tf])
 
             # 5.2 生成图表（visual模式必须；text模式按配置决定是否存档）
             if _ANALYSIS_MODE == "visual" or _SAVE_CHART_IN_TEXT:
