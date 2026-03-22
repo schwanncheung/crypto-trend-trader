@@ -40,20 +40,20 @@
 每个品种前先检查持仓是否已满，满则终止循环。
 
 **5.1 获取多周期K线**
-- 调用 `fetch_kline.fetch_multi_timeframe(symbol, exchange)`
+- 调用 `fetch_kline.fetch_multi_timeframe(symbol, exchange)`，周期由 `timeframes` 配置（默认 4h/1h/15m）
 - 数据为空则跳过
-- 调用 `calculate_support_resistance(data["4h"])` 获取支撑阻力
+- 调用 `calculate_support_resistance(data[anchor_tf])` 获取支撑阻力（anchor_tf = timeframes[0]，默认 4h）
 
 **5.2 生成图表（日志存档）**
-- 调用 `generate_chart.generate_multi_chart()` 生成四周期图表
-- text 模式下图表仅用于日志存档，不参与分析
+- text 模式：仅当 `chart.save_in_text_mode: true` 时生成，默认跳过
+- visual 模式：必须生成，调用 `generate_chart.generate_multi_chart()` 生成各周期 PNG
 
 **5.3 统一分析入口**
 - 调用 `ai_analysis.analyze_symbol(multi_tf_data, symbol, support_levels, resistance_levels, image_paths)`
 - text 模式内部流程：
   1. `indicator_engine.generate_market_snapshot()` 计算所有指标并生成结构化文本
   2. `indicator_engine.rule_engine_filter()` 单边趋势预过滤
-     - 日线横盘 / 小周期趋势不足 / 量能不足 → 返回 `_analysis_mode=rule_filter_rejected`，直接 continue
+  - 日线横盘 / 小周期趋势不足 / 量能不足 → 返回 `_analysis_mode=rule_filter_rejected`，直接 continue
   3. 规则通过后调用文本LLM：`qwen3.5-plus` → `kimi-k2.5`（兜底）
 - visual 模式：直接将图表路径传给视觉LLM降级链
 - 日志输出：`signal / confidence / signal_strength / _analysis_mode`

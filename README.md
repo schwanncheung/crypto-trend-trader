@@ -4,10 +4,10 @@
 > 最后更新：2026-03-22
 
 ## 核心策略
-- 多周期共振确认（日线/4H/1H/15M）
+- 多周期共振确认（4H/1H/15M，可配置）
 - 裸K形态识别（吞没线/锤子线/内包线等）
 - 成交量确认过滤假突破
-- **规则引擎预过滤**：日线+小周期趋势不一致时直接拒绝，不消耗 token
+- **规则引擎预过滤**：4H锚周期+小周期趋势不一致时直接拒绝，不消耗 token
 - **LLM 文本分析**：规则通过后，将结构化指标快照发给文本大模型做最终决策
 - 严格风控（凯利准则仓位 + 动态止损 + 已用保证金扣除）
 - 飞书 Webhook 实时通知
@@ -24,7 +24,7 @@ text 模式（默认，推荐）：
                                           kimi-k2.5（兜底）
 
 visual 模式（可选）：
-  K线数据 → 生成4张PNG图表 → qwen3-vl-flash
+  K线数据 → 生成各周期PNG图表 → qwen3-vl-flash
                                    ↓ 失败
                                qwen3-vl-plus
                                    ↓ 失败
@@ -152,4 +152,4 @@ python scripts/market_scanner.py
 - OKX 合约止损止盈使用 `conditional` algo 订单，非标准 `stop_market`
 - 飞书 Webhook 地址配置在 `.env` 的 `FEISHU_WEBHOOK_URL`，勿硬编码
 - 日志目录：`logs/decisions/`（图表+决策JSON）、`logs/trades/`（交易记录）
-- text 模式下图表仍会生成，仅用于日志存档，不影响分析结果
+- text 模式下默认不生成图表（`chart.save_in_text_mode: false`），设为 true 可存档 PNG 用于日志回溯
