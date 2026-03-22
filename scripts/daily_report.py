@@ -76,7 +76,7 @@ def main():
     # AI模型统计
     model_stats = defaultdict(lambda: {"count": 0, "wins": 0})
     for d in decisions:
-        model = d.get("model", "unknown")
+        model = d.get("_model_used", "unknown")
         signal = d.get("signal", "wait")
         pnl = d.get("unrealized_pnl", 0)
         
@@ -154,12 +154,13 @@ def main():
     report += "━━━━━━━━━━━━━━━━━"
     
     # ── 第五步：保存报告 ──
-    report_dir = Path("logs")
-    report_txt = report_dir / f"reports/daily_report_{today}.txt"
+    report_dir = Path("logs/reports")
+    report_dir.mkdir(exist_ok=True)
+    report_txt = report_dir / f"daily_report_{today}.txt"
     with open(report_txt, "w", encoding="utf-8") as f:
         f.write(report)
     
-    report_json = report_dir / f"reports/daily_report_{today}.json"
+    report_json = report_dir / f"daily_report_{today}.json"
     with open(report_json, "w", encoding="utf-8") as f:
         json.dump({
             "date": today,
