@@ -221,7 +221,7 @@ def main():
                     f"入场：{decision.get('entry_price')}\n"
                     f"止损：{decision.get('stop_loss')}\n"
                     f"止盈：{decision.get('take_profit')}\n"
-                    f"持仓：{current_position_count + 1}/3"
+                    f"持仓：{current_position_count + 1}/{MAX_POSITIONS}"
                 )
             
             # 5.7 保存决策日志
@@ -245,9 +245,7 @@ def main():
     final_position_count = len(positions)
     
     summary = (
-        f"本轮扫描完成 | "
-        f"热门合约数：{len(symbols)} | "
-        f"已扫描：{scanned} | "
+        f"扫描完成：{scanned}/{len(symbols)} | "
         f"规则过滤：{rule_filtered} | "
         f"触发交易：{triggered_trades} | "
         f"当前持仓：{final_position_count}/{MAX_POSITIONS}"

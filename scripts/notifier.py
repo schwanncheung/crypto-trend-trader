@@ -16,39 +16,36 @@ logger = logging.getLogger(__name__)
 FEISHU_WEBHOOK_URL = os.getenv("FEISHU_WEBHOOK_URL", "")
 
 
-def send_notification(message: str, title: str = "交易系统通知") -> None:
+def send_notification(message: str, title: str = "") -> None:
     """
     发送飞书 Webhook 消息（富文本卡片）
-    未配置时降级为日志输出
+    未配置时降级为日志输出；title 为空时不显示卡片标题
     """
-    logger.info(f"📢 [{title}] {message}")
+    log_prefix = f"[{title}] " if title else ""
+    logger.info(f"📢 {log_prefix}{message}")
 
     if not FEISHU_WEBHOOK_URL:
         logger.warning("未配置 FEISHU_WEBHOOK_URL，消息仅记录到日志")
         return
 
     try:
-        payload = {
-            "msg_type": "interactive",
-            "card": {
-                "elements": [
-                    {
-                        "tag": "div",
-                        "text": {
-                            "content": message,
-                            "tag": "lark_md"
-                        }
+        card: dict = {
+            "elements": [
+                {
+                    "tag": "div",
+                    "text": {
+                        "content": message,
+                        "tag": "lark_md"
                     }
-                ],
-                "header": {
-                    "title": {
-                        "content": title,
-                        "tag": "plain_text"
-                    },
-                    "template": "blue"
                 }
-            }
+            ]
         }
+        if title:
+            card["header"] = {
+                "title": {"content": title, "tag": "plain_text"},
+                "template": "blue"
+            }
+        payload = {"msg_type": "interactive", "card": card}
         resp = requests.post(FEISHU_WEBHOOK_URL, json=payload, timeout=10)
         resp.raise_for_status()
         result = resp.json()
