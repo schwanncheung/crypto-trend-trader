@@ -66,7 +66,7 @@ def main():
     
     if not positions:
         logger.info("无持仓，跳过本轮管理")
-        send_notification("当前无持仓")
+        # send_notification("当前无持仓")
         return
     
     logger.info(f"当前持仓数量：{len(positions)}")

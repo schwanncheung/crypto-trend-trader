@@ -320,7 +320,8 @@ if __name__ == "__main__":
 def fetch_hot_symbols(
     exchange,
     top_n: int = 20,
-    min_volume_usdt: float = 50_000_000
+    min_volume_usdt: float = 50_000_000,
+    max_price_usdt: float = 0,
 ) -> list[str]:
     try:
         logger.info("正在从 OKX 获取热门合约列表...")
@@ -343,20 +344,25 @@ def fetch_hot_symbols(
             # 或者用 close * baseVolume 计算
             info = ticker.get("info", {})
             quote_volume = float(info.get("volCcy24h", 0)) or 0
-            
+
             # 如果 volCcy24h 为 0，用 close * baseVolume 估算
             if quote_volume == 0:
                 close = ticker.get("close", 0) or 0
                 base_vol = ticker.get("baseVolume", 0) or 0
                 quote_volume = close * base_vol
-            
+
             if quote_volume < min_volume_usdt:
+                continue
+
+            # 过滤价格超过上限的合约（0 = 不限制）
+            price = ticker.get("last", 0) or 0
+            if max_price_usdt > 0 and price > max_price_usdt:
                 continue
 
             hot_list.append({
                 "symbol": symbol,           # 已是 OKX 格式 "BTC/USDT:USDT"
                 "volume_usdt": quote_volume,
-                "price": ticker.get("last", 0),
+                "price": price,
                 "change_pct": ticker.get("percentage", 0),
             })
 

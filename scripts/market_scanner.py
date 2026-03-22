@@ -20,7 +20,9 @@ check_env()
 
 MAX_POSITIONS       = RISK_CFG.get("max_open_positions", 3)
 FORCE_CLOSE_PCT     = TRADE_MGR_CFG.get("force_close_loss_pct", -10.0)
-TOP_N_SYMBOLS       = SCANNER_CFG.get("top_n_symbols", 20)
+TOP_N_SYMBOLS       = SCANNER_CFG.get("top_n_symbols", 30)
+MIN_VOLUME_USDT     = SCANNER_CFG.get("min_volume_usdt", 50_000_000)
+MAX_PRICE_USDT      = SCANNER_CFG.get("max_price_usdt", 2.0)
 MIN_SIGNAL_STRENGTH = TRADING_CFG.get("min_signal_strength", 7)
 MIN_RR_RATIO        = TRADING_CFG.get("min_rr_ratio", 2.0)
 _ANALYSIS_MODE      = ANALYSIS_CFG.get("mode", "text")
@@ -79,7 +81,12 @@ def main():
     balance_cache = {}
     
     # 获取热门合约
-    symbols = fetch_hot_symbols(exchange, top_n=TOP_N_SYMBOLS)
+    symbols = fetch_hot_symbols(
+        exchange,
+        top_n=TOP_N_SYMBOLS,
+        min_volume_usdt=MIN_VOLUME_USDT,
+        max_price_usdt=MAX_PRICE_USDT,
+    )
     if not symbols:
         logger.warning("热门合约列表为空，使用兜底列表")
         symbols = _load_fallback_symbols()
