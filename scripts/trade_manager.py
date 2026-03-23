@@ -43,6 +43,7 @@ from fetch_kline import (
 )
 
 from notifier import send_notification
+from trade_report import generate_close_report
 
 
 def _cancel_all_symbol_orders(exchange, symbol: str):
@@ -190,6 +191,7 @@ def main():
                     close_position(exchange, symbol, reason=f"动态止损：亏损{pnl_pct:.1f}%")
                     send_notification(f"{symbol} 亏损{pnl_pct:.1f}%，触发动态止损，已强制平仓")
                     closed_count += 1
+                    generate_close_report(symbol, f"动态止损：亏损{pnl_pct:.1f}%", unrealized_pnl, pnl_pct)
                 except Exception as e:
                     logger.error(f"  强制平仓失败：{e}")
 
@@ -233,6 +235,7 @@ def main():
                     close_position(exchange, symbol, reason=close_reason)
                     send_notification(f"{symbol} 结构平仓\n原因：{close_reason}")
                     closed_count += 1
+                    generate_close_report(symbol, close_reason, unrealized_pnl, pnl_pct)
                 else:
                     logger.info(f"  {symbol} 结构完好，持仓继续 | 当前价：{current_price}")
 

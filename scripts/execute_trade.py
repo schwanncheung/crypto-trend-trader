@@ -132,11 +132,14 @@ def open_position(
             logger.error(f"止盈单挂单失败（请手动处理）：{e}")
 
         result = {
+            "type": "open",
             "status": "success",
             "symbol": symbol,
             "signal": signal,
             "contracts": contracts,
             "leverage": leverage,
+            "entry_price": entry_price,
+            "margin_usdt": margin_usdt,
             "entry_order_id": order["id"],
             "sl_order_id": sl_order_id,
             "tp_order_id": tp_order_id,
@@ -201,13 +204,16 @@ def close_position(
                 logger.warning(f"撤单失败 {order['id']}: {cancel_err}")
         logger.info(f"已撤销 {symbol} 所有挂单")
 
-        return {
+        close_result = {
+            "type": "close",
             "status": "success",
             "symbol": symbol,
             "reason": reason,
             "orders": results,
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
+        _save_trade_log(close_result)
+        return close_result
 
     except Exception as e:
         logger.error(f"平仓失败：{e}")
