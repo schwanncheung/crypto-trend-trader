@@ -23,11 +23,14 @@ setup_logging("trade_manager")
 logger = logging.getLogger(__name__)
 
 # ── 持仓管理阈值（全部从 settings.yaml trade_manager 节点读取）
-TRAILING_STOP_PCT    = TRADE_MGR_CFG.get("trailing_stop_trigger_pct",  15.0)
-PARTIAL_PROFIT_PCT   = TRADE_MGR_CFG.get("partial_profit_trigger_pct", 25.0)
-FORCE_CLOSE_PCT      = TRADE_MGR_CFG.get("force_close_loss_pct",      -10.0)
-STRUCTURE_TF         = TRADE_MGR_CFG.get("structure_check_timeframe",  "1h")
-SUPPORT_BUFFER_PCT   = TRADE_MGR_CFG.get("support_buffer_pct",          0.3)
+TRAILING_STOP_PCT      = TRADE_MGR_CFG.get("trailing_stop_trigger_pct",   15.0)
+PARTIAL_PROFIT_PCT     = TRADE_MGR_CFG.get("partial_profit_trigger_pct",   25.0)
+PARTIAL_PROFIT_RATIO_1 = TRADE_MGR_CFG.get("partial_profit_ratio_1",        0.3)
+PARTIAL_PROFIT_PCT_2   = TRADE_MGR_CFG.get("partial_profit_trigger_pct_2", 50.0)
+PARTIAL_PROFIT_RATIO_2 = TRADE_MGR_CFG.get("partial_profit_ratio_2",        0.5)
+FORCE_CLOSE_PCT        = TRADE_MGR_CFG.get("force_close_loss_pct",         -10.0)
+STRUCTURE_TF           = TRADE_MGR_CFG.get("structure_check_timeframe",     "1h")
+SUPPORT_BUFFER_PCT     = TRADE_MGR_CFG.get("support_buffer_pct",             0.3)
 
 from execute_trade import (
     create_exchange,
@@ -128,18 +131,17 @@ def main():
                     logger.error(f"  ⚠️ 移动止损失败：{e}")
 
             # 情况B：分两批部分止盈（使用实时持仓量，止盈后立即保本）
-            # 第二批：浮盈 > PARTIAL_PROFIT_PCT*2，平50%剩余仓位
-            # 第一批：浮盈 > PARTIAL_PROFIT_PCT，平30%仓位
-            PARTIAL_PROFIT_PCT_2 = PARTIAL_PROFIT_PCT * 2
+            # 第二批：浮盈 > PARTIAL_PROFIT_PCT_2，平 PARTIAL_PROFIT_RATIO_2 仓位
+            # 第一批：浮盈 > PARTIAL_PROFIT_PCT，平 PARTIAL_PROFIT_RATIO_1 仓位
             if pnl_pct > PARTIAL_PROFIT_PCT_2:
                 live_positions = get_open_positions(exchange)
                 live_pos = next(
                     (p for p in live_positions if p["symbol"] == symbol and p["side"] == side), None
                 )
                 live_contracts = live_pos["contracts"] if live_pos else contracts
-                partial_contracts = int(live_contracts * 0.5)
+                partial_contracts = int(live_contracts * PARTIAL_PROFIT_RATIO_2)
                 if partial_contracts > 0:
-                    logger.info(f"  浮盈{pnl_pct:.1f}%（>{PARTIAL_PROFIT_PCT_2:.0f}%），第二批止盈50%（{partial_contracts}张）")
+                    logger.info(f"  浮盈{pnl_pct:.1f}%（>{PARTIAL_PROFIT_PCT_2:.0f}%），第二批止盈{int(PARTIAL_PROFIT_RATIO_2*100)}%（{partial_contracts}张）")
                     try:
                         exchange.create_order(
                             symbol=symbol,
@@ -149,7 +151,7 @@ def main():
                             params={"tdMode": "cross", "reduceOnly": True},
                         )
                         send_notification(
-                            f"{symbol} 浮盈{pnl_pct:.1f}%，第二批止盈50%（{partial_contracts}张），剩余持仓继续运行"
+                            f"{symbol} 浮盈{pnl_pct:.1f}%，第二批止盈{int(PARTIAL_PROFIT_RATIO_2*100)}%（{partial_contracts}张），剩余持仓继续运行"
                         )
                         closed_count += 1
                         _move_stop_to_breakeven(exchange, symbol, side, live_contracts - partial_contracts, entry_price)
@@ -161,9 +163,9 @@ def main():
                     (p for p in live_positions if p["symbol"] == symbol and p["side"] == side), None
                 )
                 live_contracts = live_pos["contracts"] if live_pos else contracts
-                partial_contracts = int(live_contracts * 0.3)
+                partial_contracts = int(live_contracts * PARTIAL_PROFIT_RATIO_1)
                 if partial_contracts > 0:
-                    logger.info(f"  浮盈{pnl_pct:.1f}%（>{PARTIAL_PROFIT_PCT}%），第一批止盈30%（{partial_contracts}张）")
+                    logger.info(f"  浮盈{pnl_pct:.1f}%（>{PARTIAL_PROFIT_PCT}%），第一批止盈{int(PARTIAL_PROFIT_RATIO_1*100)}%（{partial_contracts}张）")
                     try:
                         exchange.create_order(
                             symbol=symbol,
@@ -173,7 +175,7 @@ def main():
                             params={"tdMode": "cross", "reduceOnly": True},
                         )
                         send_notification(
-                            f"{symbol} 浮盈{pnl_pct:.1f}%，第一批止盈30%（{partial_contracts}张），剩余持仓继续运行"
+                            f"{symbol} 浮盈{pnl_pct:.1f}%，第一批止盈{int(PARTIAL_PROFIT_RATIO_1*100)}%（{partial_contracts}张），剩余持仓继续运行"
                         )
                         closed_count += 1
                         _move_stop_to_breakeven(exchange, symbol, side, live_contracts - partial_contracts, entry_price)
