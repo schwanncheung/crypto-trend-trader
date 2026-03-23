@@ -119,8 +119,9 @@ def main():
 
             # ── 2.2 盈亏状态判断 ──
 
-            # 情况A：浮盈超过移动止损阈值，将止损移至保本
-            if pnl_pct > TRAILING_STOP_PCT:
+            # 情况A：浮盈在移动止损阈值和第一批止盈阈值之间，仅移止损至保本
+            # 注：浮盈超过 PARTIAL_PROFIT_PCT 时，止盈逻辑（情况B）内部会自行移止损，无需重复
+            if TRAILING_STOP_PCT < pnl_pct < PARTIAL_PROFIT_PCT:
                 logger.info(f"  浮盈{pnl_pct:.1f}%（>{TRAILING_STOP_PCT}%），移动止损至保本位")
                 try:
                     _move_stop_to_breakeven(exchange, symbol, side, contracts, entry_price)
