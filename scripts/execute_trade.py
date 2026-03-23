@@ -229,6 +229,7 @@ def get_open_positions(exchange: ccxt.Exchange) -> list:
                 "unrealized_pnl": float(p.get("unrealizedPnl", 0)),
                 "percentage": float(p.get("percentage", 0)),
                 "leverage": float(p.get("leverage", 1)),
+                "margin": float(p.get("initialMargin") or p.get("margin") or 0),
             }
             for p in positions
             if float(p.get("contracts", 0)) > 0
