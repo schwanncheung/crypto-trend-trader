@@ -184,9 +184,9 @@ def generate_close_report(
         timeline_text = "\n\n".join(timeline_lines)
 
         report = (
-            f"{'='*40}\n"
+            # f"{'='*40}\n"
             f"{symbol} 合约交易报告\n"
-            f"{'='*40}\n"
+            # f"{'='*40}\n"
             f"📊 交易概览\n"
             f"合约：{symbol}\n"
             f"方向：{side_label}\n"
