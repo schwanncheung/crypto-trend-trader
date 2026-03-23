@@ -102,8 +102,9 @@ trade_manager:
   partial_profit_trigger_pct_2: 50.0
   # 第二批止盈平仓比例（0.5 = 再平掉50%）
   partial_profit_ratio_2: 0.5
-  # 浮亏超过此百分比时强制平仓（负数，如 -10.0 = 亏损10%强制平）
-  force_close_loss_pct: -10.0
+  # 浮亏超过此百分比时强制平仓（保证金维度，10倍杠杆下=-50%对应价格反向5%）
+  # 此为最后兜底，正常止损依赖交易所挂单的止损单，force_close 仅在止损单失效时触发
+  force_close_loss_pct: -50.0
   # 结构判断使用的时间框架（用于支撑/阻力突破检测）
   structure_check_timeframe: "1h"
   # 支撑/阻力位突破判定的缓冲区（百分比，如 0.3 = 收盘价偏离0.3%内不算突破）
