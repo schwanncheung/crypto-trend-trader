@@ -9,6 +9,7 @@ import logging
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -38,62 +39,73 @@ def generate_close_report(
         symbol_safe = symbol.replace("/", "_").replace(":", "_")
         today = datetime.now(timezone.utc).strftime("%Y%m%d")
 
-        # ── 1. 读取开仓记录 ──
+        # ── 1. 读取开仓记录（优先 trades 目录，fallback 到 decisions）──
         open_log = _find_latest_log(TRADES_DIR, symbol_safe, prefix="", exclude_prefix="position_", date=today)
         open_data = _load_json(open_log) if open_log else {}
 
-        entry_price  = open_data.get("entry_price", "N/A")
+        # fallback：从 decisions 日志补全开仓信息
+        decision_log = _find_latest_log(DECISIONS_DIR, symbol_safe, prefix="", date=today)
+        decision_raw = _load_json(decision_log) if decision_log else {}
+        decision_data = decision_raw.get("decision", decision_raw)
+
+        entry_price  = open_data.get("entry_price") or decision_data.get("entry_price", "N/A")
         contracts    = open_data.get("contracts", "N/A")
         margin_usdt  = open_data.get("margin_usdt", "N/A")
         leverage     = open_data.get("leverage", 10)
-        stop_loss    = open_data.get("stop_loss", "N/A")
-        take_profit  = open_data.get("take_profit", "N/A")
-        signal       = open_data.get("signal", "N/A")
-        open_ts      = open_data.get("timestamp", "N/A")
+        stop_loss    = open_data.get("stop_loss") or decision_data.get("stop_loss", "N/A")
+        take_profit  = open_data.get("take_profit") or decision_data.get("take_profit", "N/A")
+        signal       = open_data.get("signal") or decision_data.get("signal", "N/A")
+        open_ts      = open_data.get("timestamp") or decision_raw.get("timestamp", "N/A")
+        rr_raw       = open_data.get("risk_reward") or decision_data.get("risk_reward", "")
 
         # 风险回报比
-        rr = "N/A"
-        if entry_price != "N/A" and stop_loss != "N/A" and take_profit != "N/A":
+        if rr_raw:
+            rr = rr_raw
+        elif entry_price != "N/A" and stop_loss != "N/A" and take_profit != "N/A":
             sl_dist = abs(float(entry_price) - float(stop_loss))
             tp_dist = abs(float(take_profit) - float(entry_price))
-            if sl_dist > 0:
-                rr = f"1:{tp_dist / sl_dist:.1f}"
+            rr = f"1:{tp_dist / sl_dist:.1f}" if sl_dist > 0 else "N/A"
+        else:
+            rr = "N/A"
 
-        # ── 2. 读取持仓快照（时间线）──
+        # ── 2. 读取持仓快照，仅保留开仓时间之后 contracts 减少的事件（部分止盈）──
         position_logs = sorted(
             [f for f in TRADES_DIR.glob(f"position_{symbol_safe}_*.json")],
             key=lambda f: f.name
         )
-        timeline_events = []
+        # 用开仓时间戳作为过滤基准（格式 %Y%m%d_%H%M%S）
+        open_ts_safe = ""
+        if open_ts != "N/A":
+            try:
+                if "T" in open_ts:
+                    open_ts_safe = datetime.fromisoformat(
+                        open_ts.replace("Z", "+00:00")
+                    ).strftime("%Y%m%d_%H%M%S")
+                else:
+                    open_ts_safe = open_ts
+            except Exception:
+                open_ts_safe = ""
+
+        partial_profit_events = []
         prev_contracts = None
         for plog in position_logs:
+            # 跳过开仓时间之前的快照
+            if open_ts_safe and plog.stem.split(f"{symbol_safe}_", 1)[-1] <= open_ts_safe:
+                continue
             d = _load_json(plog)
             if not d:
                 continue
-            ts  = d.get("timestamp", "")
-            ct  = d.get("contracts", 0)
-            pnl = d.get("pnl_pct", "")
-            ep  = d.get("entry_price", "")
-            event = ""
-            if prev_contracts is None:
-                event = "开仓快照"
-            elif float(ct) < float(prev_contracts or ct):
-                event = f"部分止盈（{prev_contracts}→{ct}张）"
-            else:
-                event = "持仓巡检"
-            timeline_events.append({
-                "ts": ts, "contracts": ct,
-                "entry_price": ep, "pnl_pct": pnl, "event": event
-            })
+            ct = float(d.get("contracts", 0))
+            if prev_contracts is not None and ct < prev_contracts:
+                partial_profit_events.append({
+                    "ts": d.get("timestamp", ""),
+                    "contracts": ct,
+                    "prev_contracts": prev_contracts,
+                    "pnl_pct": d.get("pnl_pct", ""),
+                })
             prev_contracts = ct
 
-        # ── 3. 读取 AI 决策 ──
-        decision_log = _find_latest_log(DECISIONS_DIR, symbol_safe, prefix="", date=today)
-        decision_data = {}
-        if decision_log:
-            raw = _load_json(decision_log)
-            decision_data = raw.get("decision", raw)
-
+        # ── 3. 从已读取的 decision_data 提取分析字段 ──
         signal_type    = decision_data.get("signal_type", "")
         volume_note    = decision_data.get("volume_note", "")
         trend_strength = decision_data.get("trend_strength", "")
@@ -103,9 +115,8 @@ def generate_close_report(
         warning_text   = decision_data.get("warning", "")
         adx_note       = ""
         if reason_text:
-            # 提取 ADX 数值（格式如 ADX59.36）
             import re
-            m = re.search(r"ADX[=\s]?([\d.]+)", reason_text)
+            m = re.search(r"ADX[=\s)?]?([\d.]+)", reason_text)
             if m:
                 adx_note = f"ADX={m.group(1)} 强势趋势"
 
@@ -114,9 +125,11 @@ def generate_close_report(
         pnl_sign   = "+" if final_pnl >= 0 else ""
         status_icon = "✅ 盈利" if final_pnl >= 0 else "❌ 亏损/止损"
 
-        tf_str = "/".join(tf_alignment.keys()) if tf_alignment else "多周期"
-        tf_vals = "/".join(tf_alignment.values()) if tf_alignment else ""
-        alignment_str = f"多周期共振 ({tf_str} 均为 {tf_vals})"
+        tf_str  = "/".join(tf_alignment.keys()) if tf_alignment else "多周期"
+        tf_vals_list = list(set(tf_alignment.values())) if tf_alignment else []
+        tf_val  = tf_vals_list[0] if len(tf_vals_list) == 1 else "/".join(tf_alignment.values())
+        tf_vals = tf_val
+        alignment_str = f"多周期共振 ({tf_str} 均为 {tf_val})" if tf_vals_list else ""
 
         # 时间线文本
         timeline_lines = []
@@ -150,15 +163,15 @@ def generate_close_report(
                 timeline_lines[0] += "\n" + "\n".join(cond_lines)
             step = 2
 
-        for ev in timeline_events:
-            if "部分止盈" in ev["event"]:
-                timeline_lines.append(
-                    f"{step}️⃣ 部分止盈 ({_fmt_ts(ev['ts'])})\n"
-                    f"浮盈: {ev['pnl_pct']}\n"
-                    f"剩余: {ev['contracts']} 张\n"
-                    f"原因: 浮盈触发部分止盈策略"
-                )
-                step += 1
+        for ev in partial_profit_events:
+            timeline_lines.append(
+                f"{step}️⃣ 部分止盈 ({_fmt_ts(ev['ts'])})\n"
+                f"浮盈: {ev['pnl_pct']}\n"
+                f"平仓: {int(ev['prev_contracts'] - ev['contracts'])} 张\n"
+                f"剩余: {int(ev['contracts'])} 张\n"
+                f"原因: 浮盈触发部分止盈策略"
+            )
+            step += 1
 
         # 平仓事件
         close_dt = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
@@ -209,7 +222,7 @@ def _find_latest_log(
     prefix: str = "",
     exclude_prefix: str = "",
     date: str = "",
-) -> Path | None:
+) -> Optional[Path]:
     """在 directory 中找匹配 symbol_safe 的最新文件"""
     pattern = f"{prefix}{symbol_safe}_*.json"
     candidates = list(directory.glob(pattern))
