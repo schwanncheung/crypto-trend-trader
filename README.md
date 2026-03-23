@@ -130,7 +130,7 @@ python scripts/market_scanner.py
 ```bash
 # crontab -e
 */15 * * * * cd /path/to/crypto-trend-trader && python scripts/market_scanner.py
-*/15 * * * * cd /path/to/crypto-trend-trader && python scripts/trade_manager.py
+*/5 * * * * cd /path/to/crypto-trend-trader && python scripts/trade_manager.py
 0 8  * * * cd /path/to/crypto-trend-trader && python scripts/daily_report.py
 ```
 

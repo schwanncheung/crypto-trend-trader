@@ -1,6 +1,6 @@
 # 名称：trade_manager
 # 描述：持仓管理，动态止损、部分止盈、结构破坏检测，每15分钟执行（与 market_scanner 错开5分钟）
-# 触发方式：定时触发，每15分钟执行一次
+# 触发方式：定时触发，每5分钟执行一次
 # 入口：python scripts/trade_manager.py
 
 ## 关键配置（settings.yaml trade_manager 节点）
