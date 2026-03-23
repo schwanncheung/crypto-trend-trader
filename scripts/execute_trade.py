@@ -192,8 +192,13 @@ def close_position(
             )
             results.append(order)
 
-        # 撤销该品种所有挂单（止盈止损）
-        exchange.cancel_all_orders(symbol)
+        # 撤销该品种所有挂单（止盈止损）（逐个取消，OKX 不支持 cancelAllOrders）
+        open_orders = exchange.fetch_orders(symbol, params={"instType": "SWAP", "state": "live"})
+        for order in open_orders:
+            try:
+                exchange.cancel_order(order["id"], symbol)
+            except Exception as cancel_err:
+                logger.warning(f"撤单失败 {order['id']}: {cancel_err}")
         logger.info(f"已撤销 {symbol} 所有挂单")
 
         return {

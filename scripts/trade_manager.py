@@ -89,8 +89,13 @@ def main():
             if pnl_pct > TRAILING_STOP_PCT:
                 logger.info(f"  浮盈{pnl_pct:.1f}%（>{TRAILING_STOP_PCT}%），移动止损至保本位")
                 try:
-                    # 撤销原止损单
-                    exchange.cancel_all_orders(symbol)
+                    # 撤销原止损单（逐个取消，OKX 不支持 cancelAllOrders）
+                    open_orders = exchange.fetch_orders(symbol, params={"instType": "SWAP", "state": "live"})
+                    for order in open_orders:
+                        try:
+                            exchange.cancel_order(order["id"], symbol)
+                        except Exception as cancel_err:
+                            logger.warning(f"  撤单失败 {order['id']}: {cancel_err}")
                     # 重新挂保本止损
                     exchange.create_order(
                         symbol=symbol,

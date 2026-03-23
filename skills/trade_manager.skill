@@ -30,7 +30,7 @@
 计算 `pnl_pct = unrealized_pnl / margin * 100`：
 
 情况A：`pnl_pct > TRAILING_STOP_PCT`（默认15%）
-- 撤销原止损单：`exchange.cancel_all_orders(symbol)`
+- 撤销原止损单：逐个取消（`fetch_orders` + `cancel_order`，OKX 不支持 `cancel_all_orders`）
 - 重新在入场价挂保本止损（OKX conditional algo 订单）
 - 通知：「{symbol} 浮盈{pnl%}，已将止损移至保本位 {entry_price}」
 
