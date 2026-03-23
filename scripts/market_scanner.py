@@ -203,7 +203,7 @@ def main():
             # 5.6 执行交易
             logger.info(f"{symbol} 准备执行交易: {decision.get('signal')} @ {decision.get('entry_price')}")
             result = execute_from_decision(exchange, symbol, decision)
-            if result.get("success"):
+            if result.get("status") == "success":
                 triggered_trades += 1
                 logger.info(f"{symbol} ✅ 开仓成功！方向: {decision.get('signal')}, 入场: {decision.get('entry_price')}, 止损: {decision.get('stop_loss')}, 止盈: {decision.get('take_profit')}")
                 send_notification(
@@ -213,6 +213,11 @@ def main():
                     f"止损：{decision.get('stop_loss')}\n"
                     f"止盈：{decision.get('take_profit')}\n"
                     f"持仓：{current_position_count + 1}/{MAX_POSITIONS}"
+                )
+            elif result.get("status") in ("error", "failed"):
+                logger.warning(f"{symbol} ❌ 开仓失败：{result.get('reason')}")
+                send_notification(
+                    f"开仓失败：{symbol}\n原因：{result.get('reason', '未知错误')}"
                 )
             
             # 5.7 保存决策日志
