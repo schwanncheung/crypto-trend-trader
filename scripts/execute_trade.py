@@ -423,7 +423,8 @@ def execute_from_decision(
         except Exception as e:
             logger.error(f"止盈单挂单失败（请手动处理）：{e}")
 
-        return {
+        result = {
+            "type":      "open",
             "status":    "success",
             "order_id":  order_id,
             "symbol":    symbol,
@@ -437,7 +438,10 @@ def execute_from_decision(
             "key_resistance":  decision.get("key_resistance"),
             "confidence":  confidence,
             "reason":    "开仓成功",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
+        _save_trade_log(result)
+        return result
 
     except Exception as e:
         logger.error(f"execute_from_decision 异常：{e}")

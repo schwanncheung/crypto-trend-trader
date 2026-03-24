@@ -49,14 +49,28 @@ def generate_close_report(
         decision_data = decision_raw.get("decision", decision_raw)
 
         entry_price  = open_data.get("entry_price") or decision_data.get("entry_price", "N/A")
-        contracts    = open_data.get("contracts", "N/A")
-        margin_usdt  = open_data.get("margin_usdt", "N/A")
         leverage     = open_data.get("leverage", 10)
         stop_loss    = open_data.get("stop_loss") or decision_data.get("stop_loss", "N/A")
         take_profit  = open_data.get("take_profit") or decision_data.get("take_profit", "N/A")
         signal       = open_data.get("signal") or decision_data.get("signal", "N/A")
         open_ts      = open_data.get("timestamp") or decision_raw.get("timestamp", "N/A")
         rr_raw       = open_data.get("risk_reward") or decision_data.get("risk_reward", "")
+
+        # contracts / margin_usdt: 优先开仓记录，兜底从最早持仓快照读取
+        contracts   = open_data.get("contracts")
+        margin_usdt = open_data.get("margin_usdt")
+        if contracts is None:
+            _first_pos_logs = sorted(
+                [f for f in TRADES_DIR.glob(f"position_{symbol_safe}_*.json")],
+                key=lambda f: f.name
+            )
+            if _first_pos_logs:
+                _first = _load_json(_first_pos_logs[0])
+                contracts = _first.get("contracts")
+        if contracts is None:
+            contracts = "N/A"
+        if margin_usdt is None:
+            margin_usdt = "N/A"
 
         # 风险回报比
         if rr_raw:
