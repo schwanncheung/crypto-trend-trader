@@ -383,28 +383,40 @@ def save_decision_log(
 # 文本LLM分析（规则引擎 + 文本模型，替代视觉模式）
 # ═══════════════════════════════════════════════════════════════════════
 
-TEXT_ANALYSIS_PROMPT = """
-你是一位精通裸K趋势追踪的专业量化分析师，专注加密货币合约单边行情交易。
+def _build_text_analysis_prompt() -> str:
+    """
+    动态生成文本LLM分析 Prompt，时间框架从 TIMEFRAMES 配置读取。
+    """
+    total = len(TIMEFRAMES)
+    tf_names = "、".join(TIMEFRAMES)
+    tf_roles = " → ".join(
+        f"{tf}{'定宏观方向' if i == 0 else '确认结构' if i == 1 else '确认入场信号'}"
+        for i, tf in enumerate(TIMEFRAMES)
+    )
+    tf_alignment_fields = "\n".join(
+        f'    "{tf}": "up或down或sideways",' for tf in TIMEFRAMES
+    )
+    min_alignment = total - 1
+
+    return f"""你是一位精通裸K趋势追踪的专业量化分析师，专注加密货币合约单边行情交易。
 
 以下是系统规则引擎计算出的多周期技术指标数据：
 
-{market_snapshot}
+{{market_snapshot}}
 
 **分析要求：**
-1. 这是一个短线单边行情策略，只在 4小时、1小时、15分钟级别出现明确单边趋势时才开仓
-2. 使用自上而下分析法：4H定宏观方向 → 1H确认结构 → 15M确认入场信号
-3. 多周期共振对齐评分<2时，signal必须填wait
+1. 这是一个短线单边行情策略，只在 {tf_names} 级别出现明确单边趋势时才开仓
+2. 使用自上而下分析法：{tf_roles}
+3. 多周期共振对齐评分<{min_alignment}时，signal必须填wait
 4. entry_price/stop_loss/take_profit必须基于支撑阻力结构位，不可凭空设置
-5. confidence=high 仅在 signal_strength>=7 且 volume_confirmed=true 且多周期对齐>=2 时使用
+5. confidence=high 仅在 signal_strength>=7 且 volume_confirmed=true 且多周期对齐>={min_alignment} 时使用
 
 **只输出如下JSON，不要输出任何其他内容：**
-{{
-  "timeframe_alignment": {{
-    "4h": "up或down或sideways",
-    "1h": "up或down或sideways",
-    "15m": "up或down或sideways"
-  }},
-  "alignment_score": 整数0到3,
+{{{{
+  "timeframe_alignment": {{{{
+{tf_alignment_fields}
+  }}}},
+  "alignment_score": 整数0到{total},
   "trend": "up或down或sideways",
   "trend_phase": "early或mid或late",
   "trend_strength": 整数1到10,
@@ -424,8 +436,11 @@ TEXT_ANALYSIS_PROMPT = """
   "confidence": "high或medium或low",
   "reason": "不少于100字的多周期综合分析",
   "warning": "风险提示或null"
-}}
+}}}}
 """
+
+
+TEXT_ANALYSIS_PROMPT = _build_text_analysis_prompt()
 
 
 def _get_text_llm_cfg() -> dict:
