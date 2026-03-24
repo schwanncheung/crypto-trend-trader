@@ -211,14 +211,17 @@ def generate_close_report(
             f"{timeline_text}\n"
         )
 
+        if reason_text:
+            report += f"\n🤖 AI 分析\n{reason_text}\n"
+
         if warning_text:
             report += f"\n⚠️ AI 警告\n{warning_text}\n"
 
-        # ── 5. 存储报告 ──
+        # ── 5. 存储报告（每次平仓生成独立文件，避免多次追加混淆）──
         REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-        report_path = REPORTS_DIR / f"trade_report_{symbol_safe}_{today}.md"
-        # 同一天同品种可能有多笔，追加写入
-        with open(report_path, "a", encoding="utf-8") as f:
+        close_ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        report_path = REPORTS_DIR / f"trade_report_{symbol_safe}_{close_ts}.md"
+        with open(report_path, "w", encoding="utf-8") as f:
             f.write(report + "\n")
         logger.info(f"交易报告已保存：{report_path}")
 
