@@ -52,8 +52,6 @@ load_dotenv()
 # 配置日志：同时输出到控制台和文件
 logger = logging.getLogger(__name__)
 
-logger = logging.getLogger(__name__)
-
 
 from notifier import send_notification
 

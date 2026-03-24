@@ -222,6 +222,29 @@ def close_position(
 
 # ── 持仓查询 ───────────────────────────────────
 
+def _load_ai_key_levels(symbol: str) -> dict:
+    """从最新 decision log 加载 key_support / key_resistance"""
+    import json
+    decisions_dir = Path("logs/decisions")
+    if not decisions_dir.exists():
+        return {}
+    symbol_safe = symbol.replace("/", "_").replace(":", "_")
+    candidates = list(decisions_dir.glob(f"{symbol_safe}_*.json"))
+    if not candidates:
+        return {}
+    latest = max(candidates, key=lambda f: f.name)
+    try:
+        with open(latest, encoding="utf-8") as f:
+            data = json.load(f)
+        decision = data.get("decision", data)
+        return {
+            "key_support":    decision.get("key_support"),
+            "key_resistance": decision.get("key_resistance"),
+        }
+    except Exception:
+        return {}
+
+
 def get_open_positions(exchange: ccxt.Exchange) -> list:
     """获取所有当前持仓信息"""
     try:
@@ -236,6 +259,7 @@ def get_open_positions(exchange: ccxt.Exchange) -> list:
                 "percentage": float(p.get("percentage", 0)),
                 "leverage": float(p.get("leverage", 1)),
                 "margin": float(p.get("initialMargin") or p.get("margin") or 0),
+                **_load_ai_key_levels(p["symbol"]),
             }
             for p in positions
             if float(p.get("contracts", 0)) > 0
@@ -409,6 +433,8 @@ def execute_from_decision(
             "entry_price": entry_price,
             "stop_loss":   stop_loss,
             "take_profit": take_profit,
+            "key_support":    decision.get("key_support"),
+            "key_resistance":  decision.get("key_resistance"),
             "confidence":  confidence,
             "reason":    "开仓成功",
         }

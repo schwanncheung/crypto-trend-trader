@@ -207,7 +207,19 @@ def main():
                 current_price = float(data[STRUCTURE_TF].iloc[-1]["close"])
 
                 from fetch_kline import calculate_support_resistance
-                support_levels, resistance_levels = calculate_support_resistance(data[STRUCTURE_TF])
+                rt_supports, rt_resistances = calculate_support_resistance(data[STRUCTURE_TF])
+
+                # 优先使用开仓时 AI 标注的 key_support/key_resistance
+                ai_support = pos.get("key_support")
+                ai_resistance = pos.get("key_resistance")
+                if ai_support and float(ai_support) > 0:
+                    support_levels = [float(ai_support)] + [s for s in rt_supports if s != float(ai_support)]
+                else:
+                    support_levels = rt_supports
+                if ai_resistance and float(ai_resistance) > 0:
+                    resistance_levels = [float(ai_resistance)] + [r for r in rt_resistances if r != float(ai_resistance)]
+                else:
+                    resistance_levels = rt_resistances
 
                 should_close = False
                 close_reason = ""
@@ -221,14 +233,14 @@ def main():
                     buffer = 1 - SUPPORT_BUFFER_PCT / 100
                     if current_price < nearest_support * buffer:
                         should_close = True
-                        close_reason = f"做多跌破支撑位 {nearest_support:.4f}（缓冲{SUPPORT_BUFFER_PCT}%），当前价：{current_price}"
+                        close_reason = f"做多跌破支撑位 {nearest_support:.6g}（缓冲{SUPPORT_BUFFER_PCT}%），当前价：{current_price}"
 
                 elif side == "short" and resistance_levels:
                     nearest_resistance = resistance_levels[0]
                     buffer = 1 + SUPPORT_BUFFER_PCT / 100
                     if current_price > nearest_resistance * buffer:
                         should_close = True
-                        close_reason = f"做空突破阻力位 {nearest_resistance:.4f}（缓冲{SUPPORT_BUFFER_PCT}%），当前价：{current_price}"
+                        close_reason = f"做空突破阻力位 {nearest_resistance:.6g}（缓冲{SUPPORT_BUFFER_PCT}%），当前价：{current_price}"
 
                 if should_close:
                     logger.warning(f"  {symbol} 触发结构平仓：{close_reason}")
@@ -279,6 +291,8 @@ def _save_position_log(position: dict, pnl_pct: float):
         "entry_price": position.get("entry_price"),
         "unrealized_pnl": position.get("unrealized_pnl"),
         "pnl_pct": f"{pnl_pct:.2f}%",
+        "key_support": position.get("key_support"),
+        "key_resistance": position.get("key_resistance"),
     }
 
     log_path = log_dir / f"position_{symbol_safe}_{ts}.json"

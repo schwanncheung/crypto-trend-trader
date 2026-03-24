@@ -45,23 +45,33 @@ def setup_logging(log_name: str, max_bytes: int = 10 * 1024 * 1024, backup_count
 
     fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
 
-    file_handler = RotatingFileHandler(
-        log_file,
-        maxBytes=max_bytes,
-        backupCount=backup_count,
-        encoding="utf-8",
-    )
-    file_handler.setFormatter(fmt)
-
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setFormatter(fmt)
-
     root = logging.getLogger()
-    # 避免重复添加 handler（脚本被多次 import 时）
-    if not root.handlers:
-        root.setLevel(logging.INFO)
+
+    # 检查是否已有相同路径的 FileHandler，避免重复添加
+    existing_files = {
+        getattr(h, "baseFilename", None)
+        for h in root.handlers
+        if isinstance(h, RotatingFileHandler)
+    }
+    if str(log_file) not in existing_files:
+        file_handler = RotatingFileHandler(
+            log_file,
+            maxBytes=max_bytes,
+            backupCount=backup_count,
+            encoding="utf-8",
+        )
+        file_handler.setFormatter(fmt)
         root.addHandler(file_handler)
+
+    # console handler：只加一个
+    has_console = any(isinstance(h, logging.StreamHandler) and not isinstance(h, RotatingFileHandler)
+                      for h in root.handlers)
+    if not has_console:
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setFormatter(fmt)
         root.addHandler(console_handler)
+
+    root.setLevel(logging.INFO)
 
 
 # ── 业务配置 ──────────────────────────────────

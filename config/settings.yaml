@@ -79,9 +79,16 @@ analysis:
 trading:
   allowed_confidence: ["high"]  # 只有 confidence=high 的信号才允许交易
   min_signal_strength: 7        # 最低信号强度（1-10），低于此值不交易
+  min_trend_strength: 7         # 最低趋势强度（1-10），低于此值不交易（独立于信号强度）
   min_rr_ratio: 2.0             # 最低盈亏比（risk:reward），低于此值不交易
   default_leverage: 10          # 默认杠杆倍数
   max_position_pct: 0.1        # 单笔最大仓位占账户净值比例（10%）
+  adx_edge_min: 20              # ADX边缘区间下限：低于此值为横盘
+  adx_edge_max: 25              # ADX边缘区间上限：处于20-25边缘时提高信号强度门槛至8
+  adx_edge_min_signal_strength: 8  # ADX边缘区间内要求的最低信号强度
+  warning_position_ratio: 0.5   # AI返回 warning 时仓位折减比例（0.5=标准仓位的50%）
+  # 触发仓位折减的 warning 关键词列表
+  warning_keywords: ["低市值", "高波动", "插针", "流动性", "小市值", "波动大"]
 
 # ── 账户风控 ────────────────────────────────────────────────────────
 risk:
@@ -102,9 +109,9 @@ trade_manager:
   partial_profit_trigger_pct_2: 50.0
   # 第二批止盈平仓比例（0.5 = 再平掉50%）
   partial_profit_ratio_2: 0.5
-  # 浮亏超过此百分比时强制平仓（保证金维度，10倍杠杆下=-50%对应价格反向5%）
+  # 浮亏超过此百分比时强制平仓（保证金维度，10倍杠杆下=-15%对应价格反向约1.5%）
   # 此为最后兜底，正常止损依赖交易所挂单的止损单，force_close 仅在止损单失效时触发
-  force_close_loss_pct: -50.0
+  force_close_loss_pct: -15.0
   # 结构判断使用的时间框架（用于支撑/阻力突破检测）
   structure_check_timeframe: "1h"
   # 支撑/阻力位突破判定的缓冲区（百分比，如 0.3 = 收盘价偏离0.3%内不算突破）
@@ -122,8 +129,8 @@ chart:
 kline:
   limits:
     "15m": 300   # 300根 ≈ 75小时，覆盖近3天短线结构
+    "30m": 300   # 300根 ≈ 150小时，覆盖近6天结构
     "1h":  200   # 200根 ≈ 8天，覆盖近1周中线结构
-    "4h":  200   # 200根 ≈ 33天，保证 EMA(200) 计算有效
 
 # ── 扫描器配置 ──────────────────────────────────────────────────────
 scanner:

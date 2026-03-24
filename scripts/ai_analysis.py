@@ -520,6 +520,13 @@ def analyze_symbol(
         result = analyze_with_text_llm(snapshot)
         result["_rule_direction"] = direction
         result["_filter_reason"]  = filter_reason
+        # 注入锚周期 ADX 供风控 ADX 边缘检查使用
+        from config_loader import TIMEFRAMES
+        anchor_tf = TIMEFRAMES[0] if TIMEFRAMES else "1h"
+        anchor_ind = tf_indicators.get(anchor_tf, {})
+        anchor_adx = anchor_ind.get("adx", {}).get("adx", None)
+        if anchor_adx is not None:
+            result["_anchor_adx"] = anchor_adx
         return result
 
     else:

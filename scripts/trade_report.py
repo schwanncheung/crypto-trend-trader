@@ -231,10 +231,12 @@ def _find_latest_log(
     if date:
         candidates = [f for f in candidates if date in f.name]
     if not candidates:
-        # 放宽：不限日期
+        # 放宽：不限日期，但仍严格匹配 symbol_safe 前缀
         candidates = list(directory.glob(pattern))
         if exclude_prefix:
             candidates = [f for f in candidates if not f.name.startswith(exclude_prefix)]
+        # 二次校验：确保文件名确实以 symbol_safe 开头，防止跨品种串数据
+        candidates = [f for f in candidates if f.name.startswith(symbol_safe + "_")]
     return max(candidates, key=lambda f: f.name) if candidates else None
 
 

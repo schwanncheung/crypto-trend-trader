@@ -479,8 +479,8 @@ def generate_market_snapshot(
         lines.append(f"RSI：{rsi} | 成交量/MA5：{vol_cn}")
         lines.append(f"K线形态：{pat_cn}")
 
-        # 支撑阻力（仅 4h 层面显示传入值，其余显示空）
-        if tf == "4h" and support_levels and resistance_levels:
+        # 支撑阻力（仅最高周期显示传入值）
+        if tf == TIMEFRAMES[0] and support_levels and resistance_levels:
             sup_str = " / ".join(f"{v:,.6g}" for v in support_levels[:2])
             res_str = " / ".join(f"{v:,.6g}" for v in resistance_levels[:2])
             lines.append(f"支撑：{sup_str} | 阻力：{res_str}")

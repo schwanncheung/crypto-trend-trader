@@ -28,6 +28,7 @@ def check_signal_quality(decision: dict) -> tuple[bool, str]:
     signal = decision.get("signal", "wait")
     confidence = decision.get("confidence", "low")
     signal_strength = decision.get("signal_strength", 0)
+    trend_strength = decision.get("trend_strength", 0)
     volume_confirmed = decision.get("volume_confirmed", False)
     rr = _parse_rr(decision.get("risk_reward", "1:0"))
     divergence = decision.get("divergence_risk", True)
@@ -41,6 +42,10 @@ def check_signal_quality(decision: dict) -> tuple[bool, str]:
 
     if signal_strength < TRADING_CFG.get("min_signal_strength", 7):
         return False, f"信号强度不足：{signal_strength}/10"
+
+    min_trend_strength = TRADING_CFG.get("min_trend_strength", 7)
+    if trend_strength > 0 and trend_strength < min_trend_strength:
+        return False, f"趋势强度不足：{trend_strength}/10（要求≥{min_trend_strength}）"
 
     if not volume_confirmed:
         return False, "成交量未确认，可能为假突破"
@@ -157,29 +162,48 @@ def check_daily_loss(
         return True, f"日亏损检查异常，保守放行：{e}"
 
 
+def _check_warning_reduction(warning: str) -> float:
+    """
+    检查 AI warning 是否包含高波动/低市值关键词，返回仓位折减比例。
+    无 warning 或不含关键词时返回 1.0（不折减）。
+    """
+    if not warning or warning in ("null", "None", ""):
+        return 1.0
+    keywords = TRADING_CFG.get("warning_keywords", ["低市值", "高波动", "插针", "流动性", "小市值", "波动大"])
+    if any(kw in warning for kw in keywords):
+        ratio = TRADING_CFG.get("warning_position_ratio", 0.5)
+        logger.warning(f"AI warning 触发仓位折减（×{ratio}）：{warning}")
+        return ratio
+    return 1.0
+
+
 def calculate_position_size(
     balance_usdt: float,
     entry_price: float,
     stop_loss: float,
-    leverage: int = None
+    leverage: int = None,
+    warning: str = None
 ) -> dict:
     """
     基于凯利准则计算仓位大小
     单笔最大风险 = 账户余额 * max_position_pct
+    若 AI warning 含高波动/低市值关键词，自动折减仓位。
 
     返回：
     {
         "contracts": 0.01,       # 合约张数
         "margin_usdt": 100.0,    # 所需保证金
         "risk_usdt": 60.0,       # 实际风险金额
-        "leverage": 10           # 使用杠杆
+        "leverage": 10,          # 使用杠杆
+        "warning_reduced": False # 是否触发了 warning 折减
     }
     """
     if leverage is None:
         leverage = TRADING_CFG.get("default_leverage", 10)
 
     max_risk_pct = TRADING_CFG.get("max_position_pct", 0.06)
-    max_risk_usdt = balance_usdt * max_risk_pct
+    reduction = _check_warning_reduction(warning)
+    max_risk_usdt = balance_usdt * max_risk_pct * reduction
 
     # 单位价格变动的风险
     price_risk = abs(entry_price - stop_loss)
@@ -201,7 +225,8 @@ def calculate_position_size(
         "contracts": contracts,
         "margin_usdt": round(margin_usdt, 2),
         "risk_usdt": round(risk_usdt, 2),
-        "leverage": leverage
+        "leverage": leverage,
+        "warning_reduced": reduction < 1.0
     }
 
 
@@ -215,40 +240,59 @@ def run_full_risk_check(
     执行完整风控检查流程
     返回 (是否通过, 原因, 仓位信息)
     """
-    # 1. 信号质量检查
+    # 1. 信号质量检查（含 trend_strength）
     passed, reason = check_signal_quality(decision)
     if not passed:
         return False, reason, {}
 
-    # 2. 日亏损检查
+    # 2. ADX 边缘区间加严：ADX 处于 20-25 时要求信号强度提高到 8
+    adx_edge_min = TRADING_CFG.get("adx_edge_min", 20)
+    adx_edge_max = TRADING_CFG.get("adx_edge_max", 25)
+    adx_edge_min_ss = TRADING_CFG.get("adx_edge_min_signal_strength", 8)
+    anchor_adx = decision.get("_anchor_adx", None)
+    if anchor_adx is not None:
+        try:
+            adx_val = float(anchor_adx)
+            if adx_edge_min <= adx_val < adx_edge_max:
+                ss = decision.get("signal_strength", 0)
+                if ss < adx_edge_min_ss:
+                    return False, f"ADX边缘区间({adx_val:.1f})，信号强度需≥{adx_edge_min_ss}，当前{ss}", {}
+                logger.info(f"ADX边缘区间({adx_val:.1f})，信号强度{ss}≥{adx_edge_min_ss}，通过加严检查")
+        except (TypeError, ValueError):
+            pass
+
+    # 3. 日亏损检查
     passed, reason = check_daily_loss(exchange, balance_cache)
     if not passed:
         return False, reason, {}
 
-    # 3. 账户持仓检查
+    # 4. 账户持仓检查
     passed, reason = check_account_risk(exchange, symbol, decision)
     if not passed:
         return False, reason, {}
 
-    # 4. 计算仓位
+    # 5. 计算仓位（传入 warning 自动折减高波动仓位）
     balance = exchange.fetch_balance()
     balance_usdt = float(balance["free"].get("USDT", 0))
 
+    warning = decision.get("warning") or ""
     position = calculate_position_size(
         balance_usdt=balance_usdt,
         entry_price=decision.get("entry_price", 0),
-        stop_loss=decision.get("stop_loss", 0)
+        stop_loss=decision.get("stop_loss", 0),
+        warning=warning
     )
 
     if not position:
         return False, "仓位计算失败", {}
 
+    reduced_note = "（warning折减50%）" if position.get("warning_reduced") else ""
     logger.info(
-        f"风控全部通过 | 仓位：{position['contracts']} 张 | "
+        f"风控全部通过{reduced_note} | 仓位：{position['contracts']} 张 | "
         f"保证金：{position['margin_usdt']} USDT | "
         f"最大风险：{position['risk_usdt']} USDT"
     )
-    return True, "风控全部通过", position
+    return True, f"风控全部通过{reduced_note}", position
 
 
 def _parse_rr(rr_str: str) -> float:
