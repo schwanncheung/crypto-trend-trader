@@ -7,7 +7,7 @@ K线图生成脚本
 import os
 import base64
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -58,7 +58,7 @@ def format_symbol_for_filename(symbol: str) -> str:
 
 def generate_timestamp() -> str:
     """生成时间戳字符串"""
-    return datetime.now().strftime("%Y%m%d_%H%M%S")
+    return datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 
 
 def generate_kline_chart(
@@ -174,7 +174,7 @@ def generate_kline_chart(
             )
     
     # 标题
-    title = f"{symbol} - {timeframe} - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+    title = f"{symbol} - {timeframe} - {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')} UTC"
     
     # 绘制图表
     try:
@@ -218,7 +218,7 @@ def generate_multi_chart(
     save_path.mkdir(parents=True, exist_ok=True)
 
     # 时间戳前缀，避免文件名冲突
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     # 合约名去掉特殊字符，适合做文件名
     safe_symbol = symbol.replace("/", "").replace(":", "")
 
