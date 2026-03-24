@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # 配置日志：同时输出到控制台和文件
-from config_loader import check_env, RISK_CFG, TRADE_MGR_CFG, setup_logging
+from config_loader import check_env, RISK_CFG, TRADE_MGR_CFG, setup_logging, now_cst_str
 check_env()
 setup_logging("trade_manager")
 logger = logging.getLogger(__name__)
@@ -280,7 +280,7 @@ def _save_position_log(position: dict, pnl_pct: float):
     log_dir = Path("logs/trades")
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    ts = now_cst_str()
     symbol_safe = position.get("symbol", "UNKNOWN").replace("/", "_").replace(":", "_")
 
     log_data = {

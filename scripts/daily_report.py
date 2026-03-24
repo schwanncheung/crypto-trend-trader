@@ -8,6 +8,7 @@ import sys
 import json
 import logging
 from datetime import datetime, timezone
+from config_loader import now_cst_str
 from pathlib import Path
 from collections import defaultdict
 
@@ -36,7 +37,7 @@ def main():
     """主执行流程"""
     logger.info("🚀 Daily Report 启动")
     
-    today = datetime.now(timezone.utc).strftime("%Y%m%d")
+    today = now_cst_str("%Y%m%d")
     log_dir = Path("logs/trades")
     decisions_dir = Path("logs/decisions")
     

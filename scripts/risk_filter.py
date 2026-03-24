@@ -12,7 +12,7 @@ import sys
 import yaml
 
 # 配置日志：同时输出到控制台和文件
-from config_loader import check_env, RISK_CFG, TRADING_CFG, setup_logging
+from config_loader import check_env, RISK_CFG, TRADING_CFG, setup_logging, now_cst_str
 check_env()
 setup_logging("risk_filter")
 logger = logging.getLogger(__name__)
@@ -109,7 +109,7 @@ def check_daily_loss(
     balance_cache: {"start_balance": 10000, "date": "2026-03-19"}
     """
     try:
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        today = now_cst_str("%Y-%m-%d")
         balance = exchange.fetch_balance()
 
         # 兼容 OKX 多种余额格式

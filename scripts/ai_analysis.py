@@ -357,9 +357,10 @@ def save_decision_log(
 ) -> str:
     """保存AI决策日志为JSON文件"""
     from datetime import datetime, timezone
+    from config_loader import now_cst_str
     Path(log_dir).mkdir(parents=True, exist_ok=True)
 
-    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    ts = now_cst_str()
     safe_symbol = symbol.replace("/", "_").replace(":", "_")
     log_path = f"{log_dir}/{safe_symbol}_{timeframe}_{ts}.json"
 

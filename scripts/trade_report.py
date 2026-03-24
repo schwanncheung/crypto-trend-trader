@@ -8,6 +8,7 @@ import json
 import logging
 import sys
 from datetime import datetime, timezone
+from config_loader import now_cst, now_cst_str
 from pathlib import Path
 from typing import Optional
 
@@ -37,7 +38,7 @@ def generate_close_report(
     """
     try:
         symbol_safe = symbol.replace("/", "_").replace(":", "_")
-        today = datetime.now(timezone.utc).strftime("%Y%m%d")
+        today = now_cst_str("%Y%m%d")
 
         # ── 1. 读取开仓记录（优先 trades 目录，fallback 到 decisions）──
         open_log = _find_latest_log(TRADES_DIR, symbol_safe, prefix="", exclude_prefix="position_", date=today)
@@ -188,7 +189,7 @@ def generate_close_report(
             step += 1
 
         # 平仓事件
-        close_dt = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        close_dt = now_cst_str("%Y-%m-%d %H:%M:%S")
         timeline_lines.append(
             f"{step}️⃣ 平仓 ({close_dt})\n"
             f"盈亏: {pnl_sign}{final_pnl:.2f} USDT ({pnl_sign}{final_pnl_pct:.1f}%)\n"
@@ -219,7 +220,7 @@ def generate_close_report(
 
         # ── 5. 存储报告（每次平仓生成独立文件，避免多次追加混淆）──
         REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-        close_ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        close_ts = now_cst_str()
         report_path = REPORTS_DIR / f"trade_report_{symbol_safe}_{close_ts}.md"
         with open(report_path, "w", encoding="utf-8") as f:
             f.write(report + "\n")

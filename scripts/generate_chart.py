@@ -8,6 +8,7 @@ import os
 import base64
 import logging
 from datetime import datetime, timezone
+from config_loader import now_cst, now_cst_str
 from pathlib import Path
 
 import pandas as pd
@@ -58,7 +59,7 @@ def format_symbol_for_filename(symbol: str) -> str:
 
 def generate_timestamp() -> str:
     """生成时间戳字符串"""
-    return datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    return now_cst_str()
 
 
 def generate_kline_chart(
@@ -174,7 +175,7 @@ def generate_kline_chart(
             )
     
     # 标题
-    title = f"{symbol} - {timeframe} - {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')} UTC"
+    title = f"{symbol} - {timeframe} - {now_cst_str('%Y-%m-%d %H:%M')} CST"
     
     # 绘制图表
     try:
@@ -218,7 +219,7 @@ def generate_multi_chart(
     save_path.mkdir(parents=True, exist_ok=True)
 
     # 时间戳前缀，避免文件名冲突
-    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    ts = now_cst_str()
     # 合约名去掉特殊字符，适合做文件名
     safe_symbol = symbol.replace("/", "").replace(":", "")
 

@@ -117,3 +117,17 @@ TRADE_MGR_CFG    = CFG.get("trade_manager", {})
 KLINE_CFG        = CFG.get("kline", {})
 # 全局时间框架列表（高周期→低周期），所有模块统一使用
 TIMEFRAMES       = CFG.get("timeframes", ["4h", "1h", "15m"])
+
+
+# ── 时间工具（统一使用北京时间 CST = UTC+8）────────────────────
+from datetime import datetime, timezone, timedelta
+
+_CST = timezone(timedelta(hours=8))
+
+def now_cst() -> datetime:
+    """返回当前北京时间（带时区信息）"""
+    return datetime.now(_CST)
+
+def now_cst_str(fmt: str = "%Y%m%d_%H%M%S") -> str:
+    """返回当前北京时间字符串，默认格式 YYYYmmdd_HHMMSS"""
+    return now_cst().strftime(fmt)

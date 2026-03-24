@@ -22,6 +22,8 @@ from config_loader import (
     RISK_CFG,
     TRADING_CFG,
     setup_logging,
+    now_cst,
+    now_cst_str,
 )
 check_env()
 setup_logging("execute_trade")
@@ -145,7 +147,7 @@ def open_position(
             "tp_order_id": tp_order_id,
             "stop_loss": stop_loss,
             "take_profit": take_profit,
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "timestamp": now_cst().isoformat()
         }
 
         _save_trade_log(result)
@@ -210,7 +212,7 @@ def close_position(
             "symbol": symbol,
             "reason": reason,
             "orders": results,
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "timestamp": now_cst().isoformat()
         }
         _save_trade_log(close_result)
         return close_result
@@ -438,7 +440,7 @@ def execute_from_decision(
             "key_resistance":  decision.get("key_resistance"),
             "confidence":  confidence,
             "reason":    "开仓成功",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_cst().isoformat(),
         }
         _save_trade_log(result)
         return result
@@ -559,7 +561,7 @@ def _save_trade_log(trade_result: dict) -> None:
     log_dir = Path("logs/trades")
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    ts = now_cst_str()
     symbol_safe = trade_result.get(
         "symbol", "UNKNOWN"
     ).replace("/", "_").replace(":", "_")
