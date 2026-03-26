@@ -9,7 +9,7 @@ exchange:
 # ── 全局时间框架（所有模块统一使用）────────────────────────────────────
 # 从高到低排列：最高周期作为方向锚，最低周期用于入场确认
 # 修改此处后，规则引擎、K线获取、图表生成、Prompt 均自动适配
-timeframes: ["4h", "1h", "15m"]
+timeframes: ["1h", "30m", "15m"]
 
 # ── AI 视觉模型（visual模式用）────────────────────────────────────────
 # 三级降级链：primary → secondary → fallback
@@ -52,7 +52,7 @@ analysis:
   # 规则引擎预过滤（进入LLM分析前必须通过，不通过直接返回 wait，节省 token）
   rule_filter:
     # 方向锚周期：此周期趋势必须非横盘，作为宏观方向依据（建议与 timeframes[0] 一致）
-    anchor_timeframe: "4h"
+    anchor_timeframe: "1h"
     # true = 锚周期趋势必须与信号方向一致才放行；false = 仅作参考不强制
     require_anchor_aligned: true
     # 非锚周期中至少几个周期的趋势方向与信号方向一致（不含锚周期）
