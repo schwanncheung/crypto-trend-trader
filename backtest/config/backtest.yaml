@@ -1,0 +1,55 @@
+# 回测系统配置文件
+# 与生产 config/settings.yaml 解耦，回测专用参数在此设置
+# override 节点中的参数会覆盖 settings.yaml 对应值，用于参数优化
+
+backtest:
+  # ── 回测时间区间 ──────────────────────────────
+  start_date: "2024-01-01"
+  end_date:   "2025-01-01"
+
+  # ── 回测账户 ──────────────────────────────────
+  initial_balance: 10000.0     # 初始资金 (USDT)
+  leverage: 10                  # 杠杆倍数（与生产一致）
+
+  # ── 成本模型 ──────────────────────────────────
+  fee_rate: 0.0005              # taker 手续费率 (OKX 合约 0.05%)
+  slippage_pct: 0.001           # 滑点百分比 (0.1%，保守估计)
+
+  # ── 信号触发频率 ──────────────────────────────
+  # 每隔多少根最低周期 bar 触发一次信号检查
+  # 例：最低周期=15m，signal_interval_bars=4 → 每1h检查一次（与生产一致）
+  signal_interval_bars: 4
+
+  # ── AI 替代模式 ───────────────────────────────
+  # rule_only : 纯规则引擎构造伪AI决策（推荐，可重复执行，无API成本）
+  # llm_mock  : 读取预缓存的LLM响应JSON（用于验证AI效果）
+  ai_mode: "rule_only"
+
+  # ── 数据缓存 ──────────────────────────────────
+  data_cache_dir: "backtest/data/cache"
+
+  # ── 报告输出 ──────────────────────────────────
+  results_dir: "backtest/results"
+
+  # ── 日志级别 ──────────────────────────────────
+  log_level: "INFO"             # DEBUG / INFO / WARNING
+
+# ── 参数覆盖（覆盖 settings.yaml 对应值，用于单次回测调参）──────────────
+# 不填则使用 settings.yaml 中的值
+override:
+  # timeframes: ["1h", "30m", "15m"]
+  # adx_trending_threshold: 20
+  # volume_ratio_threshold: 1.2
+  # min_trending_timeframes: 2
+  # require_anchor_aligned: true
+  # min_signal_strength: 7
+  # min_rr_ratio: 2.0
+  # min_trend_strength: 7
+  # trailing_stop_trigger_pct: 15.0
+  # partial_profit_trigger_pct: 25.0
+  # partial_profit_trigger_pct_2: 50.0
+  # partial_profit_ratio_1: 0.3
+  # partial_profit_ratio_2: 0.5
+  # force_close_loss_pct: -15.0
+  # max_open_positions: 3
+  # risk_per_trade_pct: 1.0
