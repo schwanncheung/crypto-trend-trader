@@ -92,7 +92,7 @@ trading:
 
 # ── 账户风控 ────────────────────────────────────────────────────────
 risk:
-  max_open_positions: 3    # 最大同时持仓数，达到上限后停止开新仓
+  max_open_positions: 5    # 最大同时持仓数，达到上限后停止开新仓
   max_loss_pct: -5.0       # 日亏损上限（%），超过后当日停止自动交易
   leverage: 10             # 风控模块使用的杠杆（与 trading.default_leverage 保持一致）
   min_risk_reward: 2.0     # 风控模块使用的最低盈亏比（与 trading.min_rr_ratio 保持一致）
