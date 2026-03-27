@@ -94,6 +94,7 @@ def compute_adx(df: pd.DataFrame, period: int = ADX_PERIOD) -> dict:
         "adx":      round(float(adx.iloc[-1]),      2),
         "plus_di":  round(float(plus_di.iloc[-1]),  2),
         "minus_di": round(float(minus_di.iloc[-1]), 2),
+        "atr":      round(float(atr.iloc[-1]),      6),  # 添加 ATR 值用于止损计算
     }
 
 
@@ -242,7 +243,7 @@ def detect_candlestick_patterns(df: pd.DataFrame) -> list:
 # 三、单边趋势判断（核心过滤逻辑）
 # ═══════════════════════════════════════════════════════════════════════
 
-def assess_trend_direction(df: pd.DataFrame, adx_info: dict, ema_info: dict) -> str:
+def assess_trend_direction(df: pd.DataFrame, adx_info: dict, ema_info: dict, symbol: str = None) -> str:
     """
     综合 EMA 排列 + ADX + 收盘价位置 判断单边趋势方向
     返回 "up" / "down" / "sideways"
@@ -275,6 +276,15 @@ def assess_trend_direction(df: pd.DataFrame, adx_info: dict, ema_info: dict) -> 
     else:
         bearish_signals += 1
 
+    # ── 调试日志：详细记录趋势判断得分 ──────────────────────
+    symbol_tag = f"{symbol} " if symbol else ""
+    logger.debug(
+        f"[{symbol_tag}趋势判断] ADX={adx:.2f} | EMA={alignment} | "
+        f"+DI={plus_di:.2f} vs -DI={minus_di:.2f} | 价格={current_price:.6f} vs EMA{ema_fast:.6f} | "
+        f"得分：多={bullish_signals} / 空={bearish_signals} → 结果={'up' if bullish_signals>=3 else 'down' if bearish_signals>=3 else 'sideways'}"
+    )
+    # ───────────────────────────────────────────────────────
+
     if bullish_signals >= 3:
         return "up"
     elif bearish_signals >= 3:
@@ -282,7 +292,7 @@ def assess_trend_direction(df: pd.DataFrame, adx_info: dict, ema_info: dict) -> 
     return "sideways"
 
 
-def compute_timeframe_indicators(df: pd.DataFrame, tf_label: str) -> dict:
+def compute_timeframe_indicators(df: pd.DataFrame, tf_label: str, symbol: str = None) -> dict:
     """
     对单个时间框架计算所有指标，返回完整的指标字典
     """
@@ -294,7 +304,7 @@ def compute_timeframe_indicators(df: pd.DataFrame, tf_label: str) -> dict:
     adx_info    = compute_adx(df)
     rsi         = compute_rsi(df["close"])
     vol_ratio   = compute_volume_ratio(df)
-    trend       = assess_trend_direction(df, adx_info, ema_info)
+    trend       = assess_trend_direction(df, adx_info, ema_info, symbol)
     patterns    = detect_candlestick_patterns(df)
 
     current_price = float(df["close"].iloc[-1])
@@ -453,7 +463,7 @@ def generate_market_snapshot(
     for tf in TIMEFRAMES:
         df = multi_tf_data.get(tf)
         label = TF_LABELS.get(tf, tf)
-        ind = compute_timeframe_indicators(df, tf)
+        ind = compute_timeframe_indicators(df, tf, symbol)
         tf_indicators[tf] = ind
 
         if not ind.get("valid"):

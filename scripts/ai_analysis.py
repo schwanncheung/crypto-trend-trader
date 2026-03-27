@@ -408,8 +408,10 @@ def _build_text_analysis_prompt() -> str:
 1. 这是一个短线单边行情策略，只在 {tf_names} 级别出现明确单边趋势时才开仓
 2. 使用自上而下分析法：{tf_roles}
 3. 多周期共振对齐评分<{min_alignment}时，signal必须填wait
-4. entry_price/stop_loss/take_profit必须基于支撑阻力结构位，不可凭空设置
-5. confidence=high 仅在 signal_strength>=7 且 volume_confirmed=true 且多周期对齐>={min_alignment} 时使用
+4. entry_price 基于支撑阻力结构位
+5. stop_loss 必须使用 ATR 动态止损：long=entry-2.5×ATR，short=entry+2.5×ATR
+6. take_profit 必须使用盈亏比 1:2 设置：long=entry+2×(entry-stop_loss)，short=entry-2×(entry-stop_loss)
+7. confidence=high 仅在 signal_strength>=7 且 volume_confirmed=true 且多周期对齐>={min_alignment} 时使用
 
 **只输出如下JSON，不要输出任何其他内容：**
 {{{{
