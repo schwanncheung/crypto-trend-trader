@@ -26,9 +26,11 @@ class RuleOnlyMock:
 
     def __init__(self, config: dict):
         trading = config.get("trading", {})
-        self.min_signal_strength = trading.get("min_signal_strength", 7)
-        self.min_rr_ratio        = trading.get("min_rr_ratio", 2.0)
-        self.timeframes          = config.get("timeframes", ["1h", "30m", "15m"])
+        rule_engine = config.get("analysis", {}).get("rule_engine", {})
+        self.min_signal_strength  = trading.get("min_signal_strength", 7)
+        self.min_rr_ratio         = trading.get("min_rr_ratio", 2.0)
+        self.timeframes           = config.get("timeframes", ["1h", "30m", "15m"])
+        self.vol_ratio_threshold  = rule_engine.get("volume_ratio_threshold", 1.2)
 
     def analyze(
         self,
@@ -84,9 +86,9 @@ class RuleOnlyMock:
         # 成交量评分（最低周期）
         base_tf = self.timeframes[-1]
         vol_ratio = tf_indicators.get(base_tf, {}).get("volume_ratio", 0)
-        volume_confirmed = vol_ratio >= 1.2
-        if vol_ratio >= 1.5:  score += 2.0
-        elif vol_ratio >= 1.2: score += 1.0
+        volume_confirmed = vol_ratio >= self.vol_ratio_threshold
+        if vol_ratio >= self.vol_ratio_threshold * 2:  score += 2.0
+        elif vol_ratio >= self.vol_ratio_threshold:    score += 1.0
 
         # K线形态评分（最低周期）
         pattern = tf_indicators.get(base_tf, {}).get("pattern", "none")
@@ -150,18 +152,22 @@ class RuleOnlyMock:
     ) -> tuple[float, float, float]:
         """基于支撑阻力位计算止损和止盈，返回 (stop_loss, take_profit, rr)"""
         if direction == "long":
-            # 止损：最近支撑位下方1%
-            sl_base = support_levels[0] if support_levels else entry * 0.97
+            # 止损：入场价以下最近支撑位（取最大，即最接近entry）下方1%
+            valid_supports = [s for s in support_levels if s < entry]
+            sl_base = max(valid_supports) if valid_supports else entry * 0.97
             stop_loss = sl_base * 0.99
-            # 止盈：最近阻力位
-            tp_base = resistance_levels[0] if resistance_levels else entry * 1.06
+            # 止盈：入场价以上最近阻力位（取最小，即最接近entry）
+            valid_resistances = [r for r in resistance_levels if r > entry]
+            tp_base = min(valid_resistances) if valid_resistances else entry * 1.06
             take_profit = tp_base * 0.995
         else:
-            # 止损：最近阻力位上方1%
-            sl_base = resistance_levels[0] if resistance_levels else entry * 1.03
+            # 止损：入场价以上最近阻力位（取最小，即最接近entry）上方1%
+            valid_resistances = [r for r in resistance_levels if r > entry]
+            sl_base = min(valid_resistances) if valid_resistances else entry * 1.03
             stop_loss = sl_base * 1.01
-            # 止盈：最近支撑位
-            tp_base = support_levels[0] if support_levels else entry * 0.94
+            # 止盈：入场价以下最近支撑位（取最大，即最接近entry）
+            valid_supports = [s for s in support_levels if s < entry]
+            tp_base = max(valid_supports) if valid_supports else entry * 0.94
             take_profit = tp_base * 1.005
 
         risk   = abs(entry - stop_loss)

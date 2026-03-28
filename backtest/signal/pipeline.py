@@ -59,6 +59,9 @@ class SignalPipeline:
         self._risk_filter      = None
         self._fetch_kline      = None
 
+        # 引擎实时余额注入（由 BacktestEngine 在每次开仓前更新）
+        self.available_balance: float = self.config.get("backtest", {}).get("initial_balance", 10000.0)
+
         logger.info(
             f"SignalPipeline 初始化：timeframes={self.timeframes}，"
             f"ai_mode={config.get('backtest', {}).get('ai_mode', 'rule_only')}"
@@ -262,12 +265,8 @@ class SignalPipeline:
         return {"bullish": "bull", "bearish": "bear", "mixed": "mixed"}.get(alignment, "mixed")
 
     def _get_available_balance(self) -> float:
-        """
-        供 calculate_position_size 使用的余额。
-        在 pipeline 层无法感知引擎实时余额，固定使用配置中的初始余额。
-        引擎层会在实际开仓时再次校验保证金是否充足。
-        """
-        return self.config.get("backtest", {}).get("initial_balance", 10000.0)
+        """供 calculate_position_size 使用的余额（由引擎实时注入）"""
+        return self.available_balance
 
     # ── 懒加载生产模块 ────────────────────────────────────────────────
 

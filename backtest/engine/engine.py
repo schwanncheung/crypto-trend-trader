@@ -61,6 +61,8 @@ class BacktestEngine:
         self._bar_counter:  dict[str, int] = {}  # {symbol: bar_count}
         self._daily_pnl:    dict[str, float] = {}  # {date_str: pnl_usdt}
         self._day_open_balance: float = self.initial_balance
+        self._current_date: str = ""  # 当前回测日期（回测时间，非真实时间）
+        self._last_price:   dict[str, float] = {}  # {symbol: latest_close}
 
     # ─────────────────────────────────────────────────────────────────
     # 主入口
@@ -136,6 +138,7 @@ class BacktestEngine:
     def _on_bar(self, ts: int, symbol: str, bar: dict) -> None:
         """处理单根 bar：先管理持仓，再检查新信号"""
         close = bar["close"]
+        self._last_price[symbol] = close
 
         # 1. 管理当前持仓（该品种）
         for pos in list(self.positions):
@@ -165,6 +168,7 @@ class BacktestEngine:
             return
 
         # 生成信号
+        self.pipeline.available_balance = self.balance
         signal = self.pipeline.generate_signal(symbol, ts, self.feed)
         if signal is None:
             return
@@ -307,17 +311,16 @@ class BacktestEngine:
     # ─────────────────────────────────────────────────────────────────
 
     def _on_new_day(self, date_str: str) -> None:
+        self._current_date = date_str
         self._daily_pnl[date_str] = 0.0
         self._day_open_balance = self.balance
 
     def _update_daily_pnl(self, pnl_usdt: float) -> None:
-        from datetime import datetime, timezone
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        self._daily_pnl[today] = self._daily_pnl.get(today, 0.0) + pnl_usdt
+        if self._current_date:
+            self._daily_pnl[self._current_date] = self._daily_pnl.get(self._current_date, 0.0) + pnl_usdt
 
     def _is_daily_loss_exceeded(self) -> bool:
-        from datetime import datetime, timezone
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        today = self._current_date
         daily_pnl = self._daily_pnl.get(today, 0.0)
         if self._day_open_balance <= 0:
             return False
@@ -329,12 +332,13 @@ class BacktestEngine:
 
     def _calc_equity(self, current_price: float) -> float:
         """当前总权益 = 可用余额 + 所有持仓的浮动盈亏 + 占用保证金"""
-        floating_pnl = sum(
-            p.contracts * (current_price - p.entry_price)
-            if p.side == 'long'
-            else p.contracts * (p.entry_price - current_price)
-            for p in self.positions
-        )
+        floating_pnl = 0.0
+        for p in self.positions:
+            price = self._last_price.get(p.symbol, p.entry_price)
+            if p.side == 'long':
+                floating_pnl += p.contracts * (price - p.entry_price)
+            else:
+                floating_pnl += p.contracts * (p.entry_price - price)
         occupied_margin = sum(p.margin_usdt for p in self.positions)
         return self.balance + occupied_margin + floating_pnl
 

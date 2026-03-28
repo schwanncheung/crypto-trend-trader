@@ -60,7 +60,7 @@ analysis:
     # ADX >= 此值视为趋势明确；低于此值视为横盘，拒绝进入
     adx_trending_threshold: 20
     # 成交量 / 量均线(MA5) >= 此值视为量能确认；低于此值视为缩量，拒绝进入
-    volume_ratio_threshold: 1.1
+    volume_ratio_threshold: 0.8
     # RSI 超买阈值：做多信号时若 RSI >= 此值，视为趋势末端，拒绝开仓
     rsi_overbought: 80
     # RSI 超卖阈值：做空信号时若 RSI <= 此值，视为趋势末端，拒绝开仓
