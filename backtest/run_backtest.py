@@ -85,7 +85,13 @@ def cmd_backtest(args: argparse.Namespace, config: dict) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     logger.info("[backtest] 加载数据...")
-    feed = DataFeed(config, data_dir=data_dir)
+    feed = DataFeed(
+        cache_dir=data_dir,
+        symbols=config.get("symbols") or _discover_symbols(data_dir),
+        timeframes=config.get("timeframes", ["1h", "30m", "15m"]),
+        start_date=config["backtest"]["start_date"],
+        end_date=config["backtest"]["end_date"],
+    )
     feed.load()
 
     logger.info("[backtest] 开始回测 %s ~ %s",
@@ -141,6 +147,24 @@ def cmd_optimize(args: argparse.Namespace, config: dict) -> None:
 # ==================================================================
 # 工具函数
 # ==================================================================
+
+def _discover_symbols(cache_dir: str) -> list[str]:
+    """从缓存目录自动发现已下载的品种（子目录名还原为 symbol 格式）"""
+    p = Path(cache_dir)
+    if not p.exists():
+        return []
+    symbols = []
+    for d in sorted(p.iterdir()):
+        if d.is_dir() and any(d.glob("*.parquet")):
+            # BTC_USDT_USDT → BTC/USDT:USDT
+            name = d.name
+            if name.count("_") >= 2:
+                idx = name.rfind("_")
+                name = name[:idx] + ":" + name[idx + 1:]
+                idx = name.find("_")
+                name = name[:idx] + "/" + name[idx + 1:]
+            symbols.append(name)
+    return symbols
 
 def _print_summary(stats: dict) -> None:
     """在终端打印关键指标摘要。"""
