@@ -120,16 +120,11 @@ pip install -r requirements.txt
 > 数据下载使用 OKX **公开接口**，无需配置 API Key。
 
 ```bash
-# 从项目根目录运行，--end 不填默认今天
+# 从项目根目录运行
 python backtest/run_backtest.py download \
     --symbols BTC/USDT:USDT ETH/USDT:USDT SOL/USDT:USDT \
     --timeframes 15m 1h 4h \
-    --start 2024-01-01
-
-# 指定结束日期
-python backtest/run_backtest.py download \
-    --symbols BTC/USDT:USDT \
-    --start 2024-01-01 --end 2025-01-01
+    --start 2024-01-01  --end 2025-01-01
 ```
 
 数据以 Parquet 格式缓存到 `backtest/data/cache/`，支持**增量更新**（重复运行只下载缺失部分）。
@@ -172,7 +167,7 @@ python backtest/run_backtest.py download [选项]
 
 选项：
   --symbols     合约列表，如 BTC/USDT:USDT ETH/USDT:USDT（空格分隔）
-  --timeframes  周期列表，默认 15m 1h 4h（空格分隔）
+  --timeframes  周期列表，如 15m 30m 1h 4h（默认读取 backtest.yaml 的 download_timeframes）
   --start       起始日期，格式 YYYY-MM-DD（必填）
   --end         结束日期，格式 YYYY-MM-DD（默认：今天）
 ```
@@ -221,6 +216,11 @@ backtest:
   slippage_pct: 0.001             # 滑点百分比（0.1%，保守估计）
   signal_interval_bars: 4         # 每隔多少根最低周期 bar 触发信号检查
   ai_mode: "rule_only"            # rule_only | llm_mock
+  download_timeframes:            # download 子命令默认下载的周期（--timeframes 可覆盖）
+    - "15m"
+    - "30m"
+    - "1h"
+    - "4h"
   data_cache_dir: "backtest/data/cache"
   results_dir: "backtest/results"
 

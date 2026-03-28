@@ -50,7 +50,8 @@ def cmd_download(args: argparse.Namespace, config: dict) -> None:
     from datetime import date
 
     symbols = args.symbols or config.get("symbols", [])
-    timeframes = args.timeframes or ["15m", "1h", "4h"]
+    # --timeframes 未指定时从 backtest.yaml 的 download_timeframes 读取，再兜底默认值
+    timeframes = args.timeframes or config["backtest"].get("download_timeframes", ["15m", "30m", "1h", "4h"])
     start = args.start or config["backtest"].get("start_date", "2024-01-01")
     # --end 未指定时默认今天，不从 backtest.yaml 取，避免固定值截断下载范围
     end = args.end or date.today().isoformat()
@@ -223,7 +224,8 @@ def build_parser() -> argparse.ArgumentParser:
     # --- download ---
     dl = sub.add_parser("download", help="下载/更新历史 K 线数据")
     dl.add_argument("--symbols", nargs="+", help="合约列表，如 BTC/USDT:USDT")
-    dl.add_argument("--timeframes", nargs="+", default=["15m", "1h", "4h"])
+    dl.add_argument("--timeframes", nargs="+", default=None,
+                    help="周期列表，如 15m 30m 1h 4h（默认读取 backtest.yaml 的 download_timeframes）")
     dl.add_argument("--start", default=None, help="起始日期 YYYY-MM-DD")
     dl.add_argument("--end", default=None,
                     help="结束日期 YYYY-MM-DD（默认：今天）")
