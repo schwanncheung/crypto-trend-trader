@@ -89,6 +89,7 @@ trading:
   warning_position_ratio: 0.5   # AI返回 warning 时仓位折减比例（0.5=标准仓位的50%）
   # 触发仓位折减的 warning 关键词列表
   warning_keywords: ["低市值", "高波动", "插针", "流动性", "小市值", "波动大"]
+  stop_loss_atr_multiplier: 2.5  # ATR动态止损倍数：止损 = entry ± atr×此倍数
 
 # ── 账户风控 ────────────────────────────────────────────────────────
 risk:
@@ -135,5 +136,5 @@ kline:
 # ── 扫描器配置 ──────────────────────────────────────────────────────
 scanner:
   top_n_symbols: 50          # 每轮扫描的热门合约数量（按24h成交量降序取前N个）
-  min_volume_usdt: 40000000  # 最低24h成交量门槛（USDT），过滤流动性不足的合约
+  min_volume_usdt: 50000000  # 最低24h成交量门槛（USDT），过滤流动性不足的合约
   max_price_usdt: 10.0        # 最高价格门槛（USDT），过滤高价币，0 = 不限制

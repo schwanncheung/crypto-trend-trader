@@ -69,11 +69,11 @@ SINGLE_TF_PROMPT = """
 }
 
 约束：
-- confidence为high仅在signal_strength>=7且volume_confirmed=true时使用
+- confidence为high仅在signal_strength>={min_signal_strength}且volume_confirmed=true时使用
 - 不确定时signal填wait
 - stop_loss和take_profit必须基于图表结构位
 - 图片模糊或信息不足时confidence填low
-"""
+""".replace("{min_signal_strength}", str(_MIN_SIGNAL_STRENGTH))
 
 
 def _build_multi_tf_prompt(timeframes: list) -> str:
@@ -397,6 +397,8 @@ def _build_text_analysis_prompt() -> str:
         f'    "{tf}": "up或down或sideways",' for tf in TIMEFRAMES
     )
     min_alignment = total - 1
+    atr_mult = TRADING_CFG.get("stop_loss_atr_multiplier", 2.5)
+    rr_ratio = _MIN_RR_RATIO
 
     return f"""你是一位精通裸K趋势追踪的专业量化分析师，专注加密货币合约单边行情交易。
 
@@ -409,9 +411,9 @@ def _build_text_analysis_prompt() -> str:
 2. 使用自上而下分析法：{tf_roles}
 3. 多周期共振对齐评分<{min_alignment}时，signal必须填wait
 4. entry_price 基于支撑阻力结构位
-5. stop_loss 必须使用 ATR 动态止损：long=entry-2.5×ATR，short=entry+2.5×ATR
-6. take_profit 必须使用盈亏比 1:2 设置：long=entry+2×(entry-stop_loss)，short=entry-2×(entry-stop_loss)
-7. confidence=high 仅在 signal_strength>=7 且 volume_confirmed=true 且多周期对齐>={min_alignment} 时使用
+5. stop_loss 必须使用 ATR 动态止损：long=entry-{atr_mult}×ATR，short=entry+{atr_mult}×ATR
+6. take_profit 必须使用盈亏比 1:{rr_ratio:.0f} 设置：long=entry+{rr_ratio}×(entry-stop_loss)，short=entry-{rr_ratio}×(entry-stop_loss)
+7. confidence=high 仅在 signal_strength>={_MIN_SIGNAL_STRENGTH} 且 volume_confirmed=true 且多周期对齐>={min_alignment} 时使用
 
 **只输出如下JSON，不要输出任何其他内容：**
 {{{{
