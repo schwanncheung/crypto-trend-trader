@@ -96,6 +96,7 @@ class Position:
             "position_id":     self.position_id,
             "symbol":          self.symbol,
             "side":            self.side,
+            "status":          "closed" if self.close_time is not None else "open",
             "entry_price":     self.entry_price,
             "contracts":       self.contracts,
             "stop_loss":       self.stop_loss,

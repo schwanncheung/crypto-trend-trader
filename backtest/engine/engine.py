@@ -140,7 +140,7 @@ class BacktestEngine:
         # 1. 管理当前持仓（该品种）
         for pos in list(self.positions):
             if pos.symbol == symbol:
-                self._process_position(pos, bar)
+                self._process_position(pos, bar, ts)
 
         # 2. 记录权益曲线快照
         equity = self._calc_equity(close)
@@ -171,13 +171,13 @@ class BacktestEngine:
 
         self._open_position(symbol, ts, signal, close)
 
-    def _process_position(self, position: Position, bar: dict) -> None:
+    def _process_position(self, position: Position, bar: dict, ts: int) -> None:
         """对单个持仓处理 bar 上的所有管理事件"""
         events = self.pos_manager.process_bar(position, bar)
         for evt in events:
             event_type = evt["event"]
             if event_type == "close":
-                self._close_position(position, evt["price"], evt["reason"])
+                self._close_position(position, evt["price"], evt["reason"], ts)
                 return
             elif event_type == "partial_close":
                 self._partial_close(position, evt["price"], evt["reason"], evt["ratio"])
@@ -229,12 +229,12 @@ class BacktestEngine:
             f"tp={signal['take_profit']:.4f} margin={margin:.2f} USDT"
         )
 
-    def _close_position(self, position: Position, price: float, reason: str) -> None:
+    def _close_position(self, position: Position, price: float, reason: str, ts: int) -> None:
         """全仓平仓，释放保证金，记录交易"""
         pnl_usdt, pnl_pct = self.pos_manager.calc_pnl(position, price, ratio=1.0)
         margin = position.margin_usdt
 
-        position.close_time   = None  # 由调用方补充当前 ts
+        position.close_time   = ts    # 记录平仓时间戳
         position.close_price  = price
         position.close_reason = reason
         position.pnl_usdt     = pnl_usdt
@@ -290,10 +290,11 @@ class BacktestEngine:
 
     def _close_all_eod(self) -> None:
         """回测结束强制平仓所有持仓"""
+        end_ts = self._end_ms()
         for pos in list(self.positions):
-            last_bar = self.feed.get_history(pos.symbol, self.feed.base_timeframe, self._end_ms(), limit=1)
+            last_bar = self.feed.get_history(pos.symbol, self.feed.base_timeframe, end_ts, limit=1)
             price = float(last_bar.iloc[-1]["close"]) if not last_bar.empty else pos.entry_price
-            self._close_position(pos, price, "eod")
+            self._close_position(pos, price, "eod", end_ts)
 
     def _end_ms(self) -> int:
         """回测截止时间戳（毫秒）"""
