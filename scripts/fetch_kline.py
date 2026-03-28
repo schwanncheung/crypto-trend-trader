@@ -327,31 +327,16 @@ def fetch_hot_symbols(
             if base in stable_coins:
                 continue
 
-            # OKX: quoteVolume 为 None，使用 info 中的 volCcy24h（24h 成交额 USDT）
-            # 增加交叉验证：volCcy24h 可能与 vol24h*price 不一致，取较小值（更可靠）
+            # OKX: quoteVolume 为 None，使用 info 中的 volCcy24h（24h成交额USDT）
+            # 或者用 close * baseVolume 计算
             info = ticker.get("info", {})
-            
-            # 方式 1: 使用 volCcy24h（名义成交额）
-            quote_volume_ccy = float(info.get("volCcy24h", 0)) or 0
-            
-            # 方式 2: 使用 vol24h * price 计算成交额
-            price = ticker.get("last", 0) or 0
-            base_vol = float(info.get("vol24h", 0)) or 0
-            quote_volume_calc = base_vol * price
-            
-            # 交叉验证：如果 volCcy24h 远大于计算值（>10 倍），说明数据异常，使用计算值
-            if quote_volume_ccy > 0 and quote_volume_calc > 0:
-                if quote_volume_ccy > quote_volume_calc * 10:
-                    logger.warning(f"{symbol} volCcy24h 异常：{quote_volume_ccy:.0f} USDT vs 计算值{quote_volume_calc:.0f} USDT（相差{quote_volume_ccy/quote_volume_calc:.0f}倍），使用计算值")
-                    quote_volume = quote_volume_calc
-                else:
-                    quote_volume = quote_volume_ccy
-            elif quote_volume_ccy > 0:
-                quote_volume = quote_volume_ccy
-            elif quote_volume_calc > 0:
-                quote_volume = quote_volume_calc
-            else:
-                quote_volume = 0
+            quote_volume = float(info.get("volCcy24h", 0)) or 0
+
+            # 如果 volCcy24h 为 0，用 close * baseVolume 估算
+            if quote_volume == 0:
+                close = ticker.get("close", 0) or 0
+                base_vol = ticker.get("baseVolume", 0) or 0
+                quote_volume = close * base_vol
 
             if quote_volume < min_volume_usdt:
                 continue
