@@ -59,9 +59,26 @@ def _cancel_all_symbol_orders(exchange, symbol: str):
         logger.warning(f"  查询挂单失败：{e}")
 
 
-def _move_stop_to_breakeven(exchange, symbol: str, side: str, contracts: float, entry_price: float):
-    """将止损移至保本位（入场价）"""
+def _move_stop_to_breakeven(exchange, symbol: str, side: str, contracts: float, entry_price: float) -> bool:
+    """
+    将止损移至保本位（入场价），若已在保本位则跳过
+    返回：True=实际执行了移动，False=已跳过（无需操作）
+    """
     try:
+        # 1. 检查当前挂单，避免重复挂单
+        open_orders = exchange.fetch_orders(symbol, params={"instType": "SWAP", "state": "live"})
+        breakeven_already = False
+        for order in open_orders:
+            sl_px = order.get("info", {}).get("slTriggerPx") or order.get("info", {}).get("stopLossPrice")
+            if sl_px and float(sl_px) == float(entry_price):
+                breakeven_already = True
+                break
+        
+        if breakeven_already:
+            logger.info(f"  止损已在保本位 {entry_price}，跳过重复操作")
+            return False
+        
+        # 2. 撤销旧挂单并创建新止损单
         _cancel_all_symbol_orders(exchange, symbol)
         exchange.create_order(
             symbol=symbol,
@@ -76,8 +93,10 @@ def _move_stop_to_breakeven(exchange, symbol: str, side: str, contracts: float, 
             },
         )
         logger.info(f"  止损已移至保本位 {entry_price}")
+        return True
     except Exception as e:
         logger.error(f"  ⚠️ 移动止损至保本失败：{e}")
+        return False
 
 
 def main():
@@ -123,12 +142,13 @@ def main():
             # 情况A：浮盈在移动止损阈值和第一批止盈阈值之间，仅移止损至保本
             # 注：浮盈超过 PARTIAL_PROFIT_PCT 时，止盈逻辑（情况B）内部会自行移止损，无需重复
             if TRAILING_STOP_PCT < pnl_pct < PARTIAL_PROFIT_PCT:
-                logger.info(f"  浮盈{pnl_pct:.1f}%（>{TRAILING_STOP_PCT}%），移动止损至保本位")
+                logger.info(f"  浮盈{pnl_pct:.1f}%（>{TRAILING_STOP_PCT}%），检查是否需要移动止损至保本位")
                 try:
-                    _move_stop_to_breakeven(exchange, symbol, side, contracts, entry_price)
-                    send_notification(
-                        f"✅ {symbol} 浮盈{pnl_pct:.1f}%，已将止损移至保本位 {entry_price}"
-                    )
+                    moved = _move_stop_to_breakeven(exchange, symbol, side, contracts, entry_price)
+                    if moved:  # 仅当真正移动时才发通知
+                        send_notification(
+                            f"✅ {symbol} 浮盈{pnl_pct:.1f}%，已将止损移至保本位 {entry_price}"
+                        )
                 except Exception as e:
                     logger.error(f"  ⚠️ 移动止损失败：{e}")
 
