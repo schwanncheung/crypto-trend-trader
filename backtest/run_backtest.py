@@ -13,7 +13,7 @@ CLI 入口：支持三种模式
   python backtest/run_backtest.py download \\
       --symbols BTC/USDT:USDT ETH/USDT:USDT \\
       --timeframes 15m 1h 4h \\
-      --start 2024-01-01
+      --start 2024-01-01 --end 2026-03-28
 
   # 单次回测
   python backtest/run_backtest.py backtest \\
@@ -193,7 +193,7 @@ def build_parser() -> argparse.ArgumentParser:
     dl.add_argument("--symbols", nargs="+", help="合约列表，如 BTC/USDT:USDT")
     dl.add_argument("--timeframes", nargs="+", default=["15m", "1h", "4h"])
     dl.add_argument("--start", default=None, help="起始日期 YYYY-MM-DD")
-    dl.add_argument("--end", default=None, help="结束日期 YYYY-MM-DD")
+    dl.add_argument("--end", required=True, help="结束日期 YYYY-MM-DD（必填，如 2026-03-28）")
 
     # --- backtest ---
     bt = sub.add_parser("backtest", help="单次回测")
