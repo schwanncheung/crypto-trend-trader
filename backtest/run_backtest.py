@@ -47,24 +47,17 @@ logger = logging.getLogger(__name__)
 def cmd_download(args: argparse.Namespace, config: dict) -> None:
     """下载/增量更新历史 K 线数据。"""
     from backtest.data.downloader import download_all
-    import ccxt
-
-    exc_cfg = config.get("exchange", {})
-    exchange = ccxt.okx({
-        "apiKey": exc_cfg.get("api_key", ""),
-        "secret": exc_cfg.get("secret_key", ""),
-        "password": exc_cfg.get("passphrase", ""),
-        "enableRateLimit": True,
-    })
 
     symbols = args.symbols or config.get("symbols", [])
     timeframes = args.timeframes or ["15m", "1h", "4h"]
     start = args.start or config["backtest"].get("start_date", "2024-01-01")
-    end = args.end or config["backtest"].get("end_date", None)
+    # --end 未指定时保持 None（下载到今天），不从 backtest.yaml 取 end_date
+    # 避免 backtest.yaml 里的固定 end_date 意外截断下载范围
+    end = args.end
     cache_dir = config["backtest"].get("data_cache_dir", "backtest/data/cache")
 
     logger.info("[download] 品种=%s 时间框架=%s 起始=%s", symbols, timeframes, start)
-    stats = download_all(exchange, symbols, timeframes, start, end, cache_dir)
+    stats = download_all(symbols, timeframes, start, end, cache_dir)
     for sym, tf_stats in stats.items():
         for tf, count in tf_stats.items():
             logger.info("  %-25s %-6s  +%d 条", sym, tf, count)
