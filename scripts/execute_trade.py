@@ -500,9 +500,11 @@ def _calculate_position(
         if price_diff == 0:
             return {"contracts": 0, "margin_usdt": 0}
 
-        # 获取合约面值
+        # 获取合约面值 & 市价单最大张数
         market        = exchange.market(symbol)
-        contract_size = market.get("contractSize", 1)
+        contract_size = float(market.get("contractSize") or 1.0)
+        info          = market.get("info", {})
+        max_mkt_sz    = float(info["maxMktSz"]) if info.get("maxMktSz") else None
 
         # 张数 = 风险金额 / (止损点数 × 合约面值)
         contracts   = int(risk_usdt / (price_diff * contract_size))
@@ -513,6 +515,14 @@ def _calculate_position(
             contracts   = int((available_usdt * 0.5 * leverage) / (contract_size * entry_price))
             margin_usdt = round((contracts * contract_size * entry_price) / leverage, 2)
             logger.warning(f"仓位超限，已按可用余额50%上限调整：{contracts}张，保证金：{margin_usdt} USDT")
+
+        # 限制不超过交易所市价单最大张数（防止低价小币超限）
+        if max_mkt_sz is not None and contracts > max_mkt_sz:
+            logger.warning(
+                f"计算张数 {contracts} 超过 maxMktSz={max_mkt_sz}，已截断至上限"
+            )
+            contracts   = int(max_mkt_sz)
+            margin_usdt = round((contracts * contract_size * entry_price) / leverage, 2)
 
         logger.info(
             f"仓位计算 | 张数：{contracts} | 保证金：{margin_usdt} USDT"

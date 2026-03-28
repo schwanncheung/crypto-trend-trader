@@ -182,12 +182,18 @@ def calculate_position_size(
     entry_price: float,
     stop_loss: float,
     leverage: int = None,
-    warning: str = None
+    warning: str = None,
+    contract_size: float = 1.0,
+    max_mkt_sz: float = None,
 ) -> dict:
     """
     基于凯利准则计算仓位大小
     单笔最大风险 = 账户余额 * max_position_pct
     若 AI warning 含高波动/低市值关键词，自动折减仓位。
+
+    参数：
+        contract_size: 每张合约面值（单位：币），如 HMSTR 为 100
+        max_mkt_sz:    交易所市价单最大张数限制（来自 market info）
 
     返回：
     {
@@ -205,21 +211,33 @@ def calculate_position_size(
     reduction = _check_warning_reduction(warning)
     max_risk_usdt = balance_usdt * max_risk_pct * reduction
 
-    # 单位价格变动的风险
+    # 单位价格变动的风险（每张合约）
     price_risk = abs(entry_price - stop_loss)
     if price_risk == 0:
         logger.error("止损位与入场价相同，无法计算仓位")
         return {}
 
-    # 合约张数（假设1张=1个合约单位）
-    contracts = max_risk_usdt / price_risk
-    contracts = round(contracts, 4)
+    # 合约张数：风险金额 / (单张止损点数 × 合约面值)
+    risk_per_contract = price_risk * contract_size
+    contracts = max_risk_usdt / risk_per_contract
+    contracts = int(contracts)  # OKX 永续合约张数必须为整数
 
-    # 所需保证金
-    margin_usdt = (contracts * entry_price) / leverage
+    # 限制不超过交易所市价单最大张数
+    if max_mkt_sz is not None and contracts > max_mkt_sz:
+        logger.warning(
+            f"计算张数 {contracts} 超过 maxMktSz={max_mkt_sz}，已截断至上限"
+        )
+        contracts = int(max_mkt_sz)
+
+    if contracts <= 0:
+        logger.warning("计算合约张数为0，仓位过小")
+        return {}
+
+    # 所需保证金 = 张数 × 合约面值 × 入场价 / 杠杆
+    margin_usdt = (contracts * contract_size * entry_price) / leverage
 
     # 实际风险
-    risk_usdt = contracts * price_risk
+    risk_usdt = contracts * risk_per_contract
 
     return {
         "contracts": contracts,
@@ -275,12 +293,30 @@ def run_full_risk_check(
     balance = exchange.fetch_balance()
     balance_usdt = float(balance["free"].get("USDT", 0))
 
+    # 获取合约面值和市价单张数上限（避免低价小币超限）
+    contract_size = 1.0
+    max_mkt_sz = None
+    try:
+        market = exchange.market(symbol)
+        contract_size = float(market.get("contractSize") or 1.0)
+        # OKX market info 中的 maxMktSz（市价单最大张数）
+        info = market.get("info", {})
+        if info.get("maxMktSz"):
+            max_mkt_sz = float(info["maxMktSz"])
+        logger.info(
+            f"合约参数 | contractSize={contract_size} | maxMktSz={max_mkt_sz}"
+        )
+    except Exception as e:
+        logger.warning(f"获取合约参数失败，使用默认值：{e}")
+
     warning = decision.get("warning") or ""
     position = calculate_position_size(
         balance_usdt=balance_usdt,
         entry_price=decision.get("entry_price", 0),
         stop_loss=decision.get("stop_loss", 0),
-        warning=warning
+        warning=warning,
+        contract_size=contract_size,
+        max_mkt_sz=max_mkt_sz,
     )
 
     if not position:
