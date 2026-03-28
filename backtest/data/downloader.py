@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 backtest/data/downloader.py
 历史K线数据下载器

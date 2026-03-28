@@ -97,7 +97,15 @@ def cmd_backtest(args: argparse.Namespace, config: dict) -> None:
     logger.info("[backtest] 开始回测 %s ~ %s",
                 config["backtest"]["start_date"],
                 config["backtest"]["end_date"])
-    engine = BacktestEngine(config, feed)
+    from backtest.signal.ai_mock import RuleOnlyMock, LLMMockCache
+    from backtest.signal.pipeline import SignalPipeline
+    ai_mode = config.get("backtest", {}).get("ai_mode", "rule_only")
+    if ai_mode == "llm_mock":
+        ai_mock = LLMMockCache(config, cache_dir=config["backtest"].get("data_cache_dir", "backtest/data/cache"))
+    else:
+        ai_mock = RuleOnlyMock(config)
+    pipeline = SignalPipeline(config, ai_mock)
+    engine = BacktestEngine(config, feed, pipeline)
     results = engine.run()
 
     logger.info("[backtest] 生成报告...")

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 backtest/engine/engine.py
 核心回测引擎

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 backtest/engine/position_manager.py
 持仓管理器（纯计算，无任何 IO 依赖）
