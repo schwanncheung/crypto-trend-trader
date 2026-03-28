@@ -1,0 +1,247 @@
+#!/usr/bin/env python3
+"""
+backtest/run_backtest.py
+
+CLI 入口：支持三种模式
+  backtest  — 单次回测 + 报告生成
+  optimize  — 网格搜索优化
+  download  — 下载/更新历史数据
+
+示例::
+
+  # 下载数据
+  python backtest/run_backtest.py download \\
+      --symbols BTC/USDT:USDT ETH/USDT:USDT \\
+      --timeframes 15m 1h 4h \\
+      --start 2024-01-01
+
+  # 单次回测
+  python backtest/run_backtest.py backtest \\
+      --start 2024-01-01 --end 2025-01-01
+
+  # 网格优化
+  python backtest/run_backtest.py optimize \\
+      --start 2024-01-01 --end 2025-01-01 --workers 4
+"""
+
+from __future__ import annotations
+
+import argparse
+import logging
+import sys
+from pathlib import Path
+
+# 确保项目根目录在 sys.path
+_PROJECT_ROOT = Path(__file__).parent.parent.resolve()
+sys.path.insert(0, str(_PROJECT_ROOT))
+
+from backtest.config_loader import load_config  # noqa: E402
+
+logger = logging.getLogger(__name__)
+
+
+# ==================================================================
+# 子命令实现
+# ==================================================================
+
+def cmd_download(args: argparse.Namespace, config: dict) -> None:
+    """下载/增量更新历史 K 线数据。"""
+    from backtest.data.downloader import download_all
+    import ccxt
+
+    exc_cfg = config.get("exchange", {})
+    exchange = ccxt.okx({
+        "apiKey": exc_cfg.get("api_key", ""),
+        "secret": exc_cfg.get("secret_key", ""),
+        "password": exc_cfg.get("passphrase", ""),
+        "enableRateLimit": True,
+    })
+
+    symbols = args.symbols or config.get("symbols", [])
+    timeframes = args.timeframes or ["15m", "1h", "4h"]
+    start = args.start or config["backtest"].get("start_date", "2024-01-01")
+    end = args.end or config["backtest"].get("end_date", None)
+    cache_dir = config["backtest"].get("data_cache_dir", "backtest/data/cache")
+
+    logger.info("[download] 品种=%s 时间框架=%s 起始=%s", symbols, timeframes, start)
+    stats = download_all(exchange, symbols, timeframes, start, end, cache_dir)
+    for sym, tf_stats in stats.items():
+        for tf, count in tf_stats.items():
+            logger.info("  %-25s %-6s  +%d 条", sym, tf, count)
+    print(f"\n下载完成，共 {sum(sum(v.values()) for v in stats.values())} 条新数据。")
+
+
+def cmd_backtest(args: argparse.Namespace, config: dict) -> None:
+    """执行单次回测并生成报告。"""
+    from backtest.data.feed import DataFeed
+    from backtest.engine.engine import BacktestEngine
+    from backtest.report.reporter import BacktestReporter
+    from backtest.report.visualizer import BacktestVisualizer
+    import datetime
+
+    # 日期覆盖
+    if args.start:
+        config["backtest"]["start_date"] = args.start
+    if args.end:
+        config["backtest"]["end_date"] = args.end
+
+    data_dir = config["backtest"].get("data_cache_dir", "backtest/data/cache")
+    results_base = config["backtest"].get("results_dir", "backtest/results")
+    run_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_dir = Path(results_base) / run_id
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    logger.info("[backtest] 加载数据...")
+    feed = DataFeed(config, data_dir=data_dir)
+    feed.load()
+
+    logger.info("[backtest] 开始回测 %s ~ %s",
+                config["backtest"]["start_date"],
+                config["backtest"]["end_date"])
+    engine = BacktestEngine(config, feed)
+    results = engine.run()
+
+    logger.info("[backtest] 生成报告...")
+    reporter = BacktestReporter(results, config, output_dir=output_dir)
+    stats = reporter.compute_stats()
+    paths = reporter.generate_all()
+
+    visualizer = BacktestVisualizer(results, stats, output_dir=output_dir)
+    chart_paths = visualizer.generate_all()
+    paths.update(chart_paths)
+
+    _print_summary(stats)
+    print(f"\n报告已保存至：{output_dir}")
+    for name, p in paths.items():
+        if p:
+            print(f"  {name:20s}: {p}")
+
+def cmd_optimize(args: argparse.Namespace, config: dict) -> None:
+    """执行网格搜索优化。"""
+    from backtest.optimizer import GridOptimizer
+    import datetime
+
+    if args.start:
+        config["backtest"]["start_date"] = args.start
+    if args.end:
+        config["backtest"]["end_date"] = args.end
+
+    data_dir = config["backtest"].get("data_cache_dir", "backtest/data/cache")
+    results_base = config["backtest"].get("results_dir", "backtest/results")
+    run_id = "opt_" + datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_dir = Path(results_base) / run_id
+
+    optimizer = GridOptimizer(config, data_dir=data_dir)
+    results = optimizer.run(
+        workers=args.workers,
+        top_n=args.top_n,
+    )
+    saved = optimizer.save_results(results, output_dir=output_dir)
+
+    print("\n=== 优化完成 ===")
+    print(f"最优参数（OOS）：{results['best_params']}")
+    print(f"结果目录：{output_dir}")
+    for name, p in saved.items():
+        print(f"  {name:20s}: {p}")
+
+
+# ==================================================================
+# 工具函数
+# ==================================================================
+
+def _print_summary(stats: dict) -> None:
+    """在终端打印关键指标摘要。"""
+    lines = [
+        "\n" + "=" * 52,
+        "  回测结果摘要",
+        "=" * 52,
+        f"  净收益        : {stats.get('net_pnl_usdt', 0):>10.2f} USDT  ({stats.get('net_pnl_pct', 0):.2f}%)",
+        f"  年化收益      : {stats.get('annualized_return_pct', 0):>10.2f} %",
+        f"  最大回撤      : {stats.get('max_drawdown_pct', 0):>10.2f} %",
+        f"  夏普比率      : {stats.get('sharpe_ratio', 0):>10.3f}",
+        f"  Calmar 比率   : {stats.get('calmar_ratio', 0):>10.3f}",
+        f"  总交易次数    : {stats.get('total_trades', 0):>10d}",
+        f"  胜率          : {stats.get('win_rate_pct', 0):>10.1f} %",
+        f"  盈亏比        : {stats.get('profit_factor', 0):>10.2f}",
+        f"  期望值        : {stats.get('expectancy_usdt', 0):>10.2f} USDT",
+        f"  平均持仓      : {stats.get('avg_hold_minutes', 0):>10.0f} min",
+        f"  最大连亏      : {stats.get('max_consecutive_losses', 0):>10d} 笔",
+        "=" * 52,
+    ]
+    print("\n".join(lines))
+
+# ==================================================================
+# Argument parser
+# ==================================================================
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="run_backtest",
+        description="Crypto Trend Trader 回测系统",
+    )
+    parser.add_argument(
+        "--config", default=None,
+        help="回测配置文件路径（默认：backtest/config/backtest.yaml）",
+    )
+    parser.add_argument(
+        "--settings", default=None,
+        help="生产配置文件路径（默认：config/settings.yaml）",
+    )
+    parser.add_argument(
+        "--log-level", default="INFO",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        help="日志级别（默认：INFO）",
+    )
+
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    # --- download ---
+    dl = sub.add_parser("download", help="下载/更新历史 K 线数据")
+    dl.add_argument("--symbols", nargs="+", help="合约列表，如 BTC/USDT:USDT")
+    dl.add_argument("--timeframes", nargs="+", default=["15m", "1h", "4h"])
+    dl.add_argument("--start", default=None, help="起始日期 YYYY-MM-DD")
+    dl.add_argument("--end", default=None, help="结束日期 YYYY-MM-DD")
+
+    # --- backtest ---
+    bt = sub.add_parser("backtest", help="单次回测")
+    bt.add_argument("--start", default=None, help="回测起始日期")
+    bt.add_argument("--end", default=None, help="回测结束日期")
+
+    # --- optimize ---
+    op = sub.add_parser("optimize", help="网格搜索参数优化")
+    op.add_argument("--start", default=None, help="回测起始日期")
+    op.add_argument("--end", default=None, help="回测结束日期")
+    op.add_argument("--workers", type=int, default=None, help="并行进程数（默认：CPU-1）")
+    op.add_argument("--top-n", type=int, default=20, dest="top_n",
+                    help="训练集 Top-N 参数组进行 OOS 验证")
+
+    return parser
+
+
+def main() -> None:
+    parser = build_parser()
+    args = parser.parse_args()
+
+    logging.basicConfig(
+        level=getattr(logging, args.log_level),
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+    config = load_config(
+        backtest_yaml=args.config,
+        settings_yaml=args.settings,
+    )
+
+    dispatch = {
+        "download": cmd_download,
+        "backtest": cmd_backtest,
+        "optimize": cmd_optimize,
+    }
+    dispatch[args.command](args, config)
+
+
+if __name__ == "__main__":
+    main()
+
+

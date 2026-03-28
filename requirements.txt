@@ -1,0 +1,19 @@
+# Core trading system
+ccxt>=4.0.0
+pyyaml>=6.0
+python-dotenv>=1.0.0
+requests>=2.31.0
+pandas>=2.0.0
+numpy>=1.24.0
+mplfinance>=0.12.9
+openai>=1.0.0
+
+# Backtest system
+pyarrow>=14.0.0          # Parquet 数据缓存
+plotly>=5.18.0           # 交互式图表
+jinja2>=3.1.0            # HTML 报告模板
+tqdm>=4.66.0             # 下载进度条
+scipy>=1.11.0            # 统计分析（可选）
+
+# Notifications
+httpx>=0.25.0

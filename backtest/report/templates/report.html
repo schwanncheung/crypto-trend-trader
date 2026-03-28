@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>回测报告 — {{ start_date }} ~ {{ end_date }}</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --card: #1a1d27;
+      --border: #2a2d3a;
+      --text: #e0e0e0;
+      --muted: #8a8fa8;
+      --green: #2ecc71;
+      --red: #e74c3c;
+      --blue: #4a90d9;
+      --yellow: #f1c40f;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', sans-serif; font-size: 14px; }
+    header { padding: 24px 32px; border-bottom: 1px solid var(--border); }
+    header h1 { font-size: 22px; font-weight: 600; }
+    header p  { color: var(--muted); margin-top: 4px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 16px; padding: 24px 32px; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px 20px; }
+    .card .label { color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+    .card .value { font-size: 22px; font-weight: 700; }
+    .pos { color: var(--green); }
+    .neg { color: var(--red); }
+    .neu { color: var(--blue); }
+    section { padding: 0 32px 32px; }
+    section h2 { font-size: 16px; font-weight: 600; margin-bottom: 16px; padding-top: 8px; border-top: 1px solid var(--border); }
+    iframe { width: 100%; border: none; border-radius: 10px; background: var(--card); margin-bottom: 16px; }
+    table { width: 100%; border-collapse: collapse; background: var(--card); border-radius: 10px; overflow: hidden; }
+    th { background: #23263a; color: var(--muted); font-weight: 500; text-align: left; padding: 10px 14px; font-size: 12px; text-transform: uppercase; }
+    td { padding: 9px 14px; border-top: 1px solid var(--border); }
+    tr:hover td { background: #20233a; }
+    .tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+    .tag-tp   { background: #1a4a2e; color: var(--green); }
+    .tag-sl   { background: #4a1a1a; color: var(--red); }
+    .tag-trail{ background: #1a3a4a; color: var(--blue); }
+    .tag-other{ background: #2a2a1a; color: var(--yellow); }
+    footer { text-align: center; color: var(--muted); padding: 24px; font-size: 12px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>回测报告</h1>
+  <p>{{ start_date }} &nbsp;→&nbsp; {{ end_date }} &nbsp;·&nbsp; 初始资金 {{ initial_balance }} USDT &nbsp;·&nbsp; 生成时间 {{ generated_at }}</p>
+</header>
+
+<!-- KPI 卡片 -->
+<div class="grid">
+  <div class="card">
+    <div class="label">净收益</div>
+    <div class="value {{ 'pos' if net_pnl_usdt >= 0 else 'neg' }}">{{ net_pnl_usdt | round(2) }} USDT</div>
+  </div>
+  <div class="card">
+    <div class="label">净收益率</div>
+    <div class="value {{ 'pos' if net_pnl_pct >= 0 else 'neg' }}">{{ net_pnl_pct | round(2) }}%</div>
+  </div>
+  <div class="card">
+    <div class="label">年化收益</div>
+    <div class="value {{ 'pos' if annualized_return_pct >= 0 else 'neg' }}">{{ annualized_return_pct | round(2) }}%</div>
+  </div>
+  <div class="card">
+    <div class="label">最大回撤</div>
+    <div class="value neg">{{ max_drawdown_pct | round(2) }}%</div>
+  </div>
+  <div class="card">
+    <div class="label">夏普比率</div>
+    <div class="value neu">{{ sharpe_ratio | round(3) }}</div>
+  </div>
+  <div class="card">
+    <div class="label">Calmar 比率</div>
+    <div class="value neu">{{ calmar_ratio | round(3) }}</div>
+  </div>
+  <div class="card">
+    <div class="label">总交易次数</div>
+    <div class="value neu">{{ total_trades }}</div>
+  </div>
+  <div class="card">
+    <div class="label">胜率</div>
+    <div class="value {{ 'pos' if win_rate_pct >= 50 else 'neg' }}">{{ win_rate_pct | round(1) }}%</div>
+  </div>
+  <div class="card">
+    <div class="label">盈亏比</div>
+    <div class="value neu">{{ profit_factor | round(2) }}</div>
+  </div>
+  <div class="card">
+    <div class="label">期望值</div>
+    <div class="value {{ 'pos' if expectancy_usdt >= 0 else 'neg' }}">{{ expectancy_usdt | round(2) }} U</div>
+  </div>
+  <div class="card">
+    <div class="label">平均持仓</div>
+    <div class="value neu">{{ avg_hold_minutes | round(0) }} min</div>
+  </div>
+  <div class="card">
+    <div class="label">最大连亏</div>
+    <div class="value neg">{{ max_consecutive_losses }} 笔</div>
+  </div>
+</div>
+
+<!-- 图表 -->
+<section>
+  <h2>权益曲线</h2>
+  <iframe src="equity_curve.html" height="520"></iframe>
+
+  <h2>逐笔 PnL</h2>
+  <iframe src="pnl_histogram.html" height="420"></iframe>
+
+  <h2>月度收益热力图</h2>
+  <iframe src="monthly_heatmap.html" height="370"></iframe>
+
+  <h2>平仓原因分布</h2>
+  <iframe src="close_reasons.html" height="420"></iframe>
+</section>
+
+<!-- 品种分析 -->
+<section>
+  <h2>品种分析</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>品种</th><th>交易次数</th><th>胜次</th><th>胜率</th><th>总 PnL (USDT)</th><th>均 PnL (USDT)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for sym, s in per_symbol.items() %}
+      <tr>
+        <td>{{ sym }}</td>
+        <td>{{ s.total_trades }}</td>
+        <td>{{ s.win_count }}</td>
+        <td class="{{ 'pos' if s.win_rate_pct >= 50 else 'neg' }}">{{ s.win_rate_pct | round(1) }}%</td>
+        <td class="{{ 'pos' if s.total_pnl_usdt >= 0 else 'neg' }}">{{ s.total_pnl_usdt }}</td>
+        <td class="{{ 'pos' if s.avg_pnl_usdt >= 0 else 'neg' }}">{{ s.avg_pnl_usdt }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<footer>Crypto Trend Trader Backtest Report &nbsp;·&nbsp; 仅供研究参考，不构成投资建议</footer>
+
+</body>
+</html>

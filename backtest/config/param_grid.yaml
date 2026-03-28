@@ -1,0 +1,60 @@
+# 参数网格搜索配置
+# 每个参数列表中的值将被逐一组合（笛卡尔积）
+# 搜索空间越大，计算时间越长；建议先用小网格快速筛选，再精细调优
+
+param_grid:
+
+  # --- 趋势过滤 ---
+  adx_trending_threshold:
+    - 20
+    - 25
+    - 30
+
+  # --- 信号质量 ---
+  min_signal_strength:
+    - 6
+    - 7
+    - 8
+
+  min_rr_ratio:
+    - 1.5
+    - 2.0
+    - 2.5
+
+  # --- 仓位管理 ---
+  partial_tp1_ratio:      # 第一批止盈触发盈亏比倍数（相对 RR）
+    - 0.5
+    - 0.75
+    - 1.0
+
+  partial_tp2_ratio:      # 第二批止盈触发盈亏比倍数
+    - 1.5
+    - 2.0
+
+  trailing_sl_activation: # 移动止损激活盈利百分比
+    - 1.0
+    - 1.5
+    - 2.0
+
+  trailing_sl_distance:   # 移动止损距峰值回撤百分比
+    - 0.5
+    - 1.0
+    - 1.5
+
+  # --- 信号间隔 ---
+  signal_interval_bars:
+    - 2
+    - 4
+    - 8
+
+# 优化目标（支持：sharpe_ratio / net_pnl_pct / calmar_ratio / expectancy_usdt）
+optimize_target: sharpe_ratio
+
+# 约束条件（所有条件同时满足才纳入结果）
+constraints:
+  min_trades: 20              # 最少交易笔数（过滤样本不足的参数组）
+  max_drawdown_pct: 30.0      # 最大允许回撤
+  min_win_rate_pct: 35.0      # 最低胜率
+
+# 训练/测试集划分比例（前 train_ratio 用于优化，后面用于 OOS 验证）
+train_ratio: 0.8
