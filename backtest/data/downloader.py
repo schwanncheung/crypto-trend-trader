@@ -179,11 +179,14 @@ def download_symbol(
     # 确定起止时间（毫秒）
     tz = timezone.utc
     since_ms = int(datetime.fromisoformat(start_date).replace(tzinfo=tz).timestamp() * 1000)
-    until_ms = int(
-        datetime.fromisoformat(end_date).replace(tzinfo=tz).timestamp() * 1000
-        if end_date
-        else datetime.now(tz).timestamp() * 1000
-    )
+    if end_date:
+        until_ms = int(datetime.fromisoformat(end_date).replace(tzinfo=tz).timestamp() * 1000)
+    else:
+        # 未指定 end 时，取当前时间截断到本周期整点
+        # 避免"最后一批不足300根"的提前退出逻辑误判为已拉完
+        tf_ms = _TF_MS.get(timeframe, 1)
+        now_ms = int(datetime.now(tz).timestamp() * 1000)
+        until_ms = (now_ms // tf_ms) * tf_ms
 
     # 增量更新：若缓存已有数据，从最新时间戳+1个周期开始
     if not existing.empty:
