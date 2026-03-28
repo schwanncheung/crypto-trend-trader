@@ -30,9 +30,6 @@ sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
 
 from config_loader import (
     EXCHANGE_CFG,
-    EXCHANGE_API_KEY,
-    EXCHANGE_API_SECRET,
-    EXCHANGE_PASSPHRASE,
     setup_logging,
 )
 
@@ -64,13 +61,10 @@ _TF_MS = {
 def _get_exchange() -> ccxt.okx:
     """创建 OKX 交易所实例（只读，不需要私钥也可拉取公开K线）"""
     exchange = ccxt.okx({
-        "apiKey":   EXCHANGE_API_KEY or "",
-        "secret":   EXCHANGE_API_SECRET or "",
-        "password": EXCHANGE_PASSPHRASE or "",
+        # 历史K线是公开接口，不传 API Key，避免测试环境Key被正式环境拒绝（错误50101）
         "options":  {"defaultType": "swap"},
         "enableRateLimit": True,
     })
-    # 历史数据使用正式环境（沙盒没有完整历史数据）
     return exchange
 
 
