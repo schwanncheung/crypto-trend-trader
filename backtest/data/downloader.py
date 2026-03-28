@@ -9,7 +9,7 @@ backtest/data/downloader.py
 用法：
   python backtest/data/downloader.py --symbols BTC/USDT:USDT ETH/USDT:USDT \
                                       --timeframes 15m 30m 1h \
-                                      --start 2024-01-01 --end 2026-03-28
+                                      --start 2024-01-01
 """
 
 import argparse
@@ -290,8 +290,8 @@ def main():
         help="起始日期 YYYY-MM-DD"
     )
     parser.add_argument(
-        "--end", required=True,
-        help="截止日期 YYYY-MM-DD（必填，如 2026-03-28）"
+        "--end", default=None,
+        help="截止日期 YYYY-MM-DD（默认：今天）"
     )
     parser.add_argument(
         "--cache-dir", default=None,
@@ -300,11 +300,12 @@ def main():
     args = parser.parse_args()
 
     cache_dir = Path(args.cache_dir) if args.cache_dir else None
+    end = args.end or datetime.now(timezone.utc).strftime("%Y-%m-%d")
     stats = download_all(
         symbols=args.symbols,
         timeframes=args.timeframes,
         start_date=args.start,
-        end_date=args.end,
+        end_date=end,
         cache_dir=cache_dir,
     )
 

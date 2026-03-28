@@ -13,7 +13,7 @@ CLI 入口：支持三种模式
   python backtest/run_backtest.py download \\
       --symbols BTC/USDT:USDT ETH/USDT:USDT \\
       --timeframes 15m 1h 4h \\
-      --start 2024-01-01 --end 2026-03-28
+      --start 2024-01-01
 
   # 单次回测
   python backtest/run_backtest.py backtest \\
@@ -47,13 +47,13 @@ logger = logging.getLogger(__name__)
 def cmd_download(args: argparse.Namespace, config: dict) -> None:
     """下载/增量更新历史 K 线数据。"""
     from backtest.data.downloader import download_all
+    from datetime import date
 
     symbols = args.symbols or config.get("symbols", [])
     timeframes = args.timeframes or ["15m", "1h", "4h"]
     start = args.start or config["backtest"].get("start_date", "2024-01-01")
-    # --end 未指定时保持 None（下载到今天），不从 backtest.yaml 取 end_date
-    # 避免 backtest.yaml 里的固定 end_date 意外截断下载范围
-    end = args.end
+    # --end 未指定时默认今天，不从 backtest.yaml 取，避免固定值截断下载范围
+    end = args.end or date.today().isoformat()
     cache_dir = config["backtest"].get("data_cache_dir", "backtest/data/cache")
 
     logger.info("[download] 品种=%s 时间框架=%s 起始=%s", symbols, timeframes, start)
@@ -193,7 +193,8 @@ def build_parser() -> argparse.ArgumentParser:
     dl.add_argument("--symbols", nargs="+", help="合约列表，如 BTC/USDT:USDT")
     dl.add_argument("--timeframes", nargs="+", default=["15m", "1h", "4h"])
     dl.add_argument("--start", default=None, help="起始日期 YYYY-MM-DD")
-    dl.add_argument("--end", required=True, help="结束日期 YYYY-MM-DD（必填，如 2026-03-28）")
+    dl.add_argument("--end", default=None,
+                    help="结束日期 YYYY-MM-DD（默认：今天）")
 
     # --- backtest ---
     bt = sub.add_parser("backtest", help="单次回测")

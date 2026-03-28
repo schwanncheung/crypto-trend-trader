@@ -120,11 +120,16 @@ pip install -r requirements.txt
 > 数据下载使用 OKX **公开接口**，无需配置 API Key。
 
 ```bash
-# 从项目根目录运行，--start 和 --end 均为必填
+# 从项目根目录运行，--end 不填默认今天
 python backtest/run_backtest.py download \
     --symbols BTC/USDT:USDT ETH/USDT:USDT SOL/USDT:USDT \
     --timeframes 15m 1h 4h \
-    --start 2024-01-01 --end 2026-03-28
+    --start 2024-01-01
+
+# 指定结束日期
+python backtest/run_backtest.py download \
+    --symbols BTC/USDT:USDT \
+    --start 2024-01-01 --end 2025-01-01
 ```
 
 数据以 Parquet 格式缓存到 `backtest/data/cache/`，支持**增量更新**（重复运行只下载缺失部分）。
@@ -169,7 +174,7 @@ python backtest/run_backtest.py download [选项]
   --symbols     合约列表，如 BTC/USDT:USDT ETH/USDT:USDT（空格分隔）
   --timeframes  周期列表，默认 15m 1h 4h（空格分隔）
   --start       起始日期，格式 YYYY-MM-DD（必填）
-  --end         结束日期，格式 YYYY-MM-DD（必填）
+  --end         结束日期，格式 YYYY-MM-DD（默认：今天）
 ```
 
 ### `backtest` — 单次回测
