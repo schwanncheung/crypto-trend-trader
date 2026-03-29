@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import ccxt  # noqa: F401 - 间接使用（create_exchange内部）
 from dotenv import load_dotenv
 
-from config_loader import check_env, RISK_CFG, SCANNER_CFG, TRADE_MGR_CFG, TRADING_CFG, ANALYSIS_CFG, CHART_CFG, TIMEFRAMES, setup_logging
+from config_loader import check_env, RISK_CFG, SCANNER_CFG, TRADE_MGR_CFG, TRADING_CFG, ANALYSIS_CFG, CHART_CFG, BLACKLIST_CFG, TIMEFRAMES, setup_logging
 check_env()
 setup_logging("market_scanner")
 
@@ -130,13 +130,32 @@ def main():
     triggered_trades = 0
     
     for idx, symbol in enumerate(symbols):
-        # 每次扫描前检查持仓数量
+        # 黑名单检查（双重保险）
+        base_name = symbol.split("/")[0]
+        if BLACKLIST_CFG and (symbol in BLACKLIST_CFG or base_name in BLACKLIST_CFG):
+            logger.info(f"⏭️  跳过黑名单合约：{symbol}")
+            continue
+        
+        # 每次扫描前检查持仓数量和是否已持有该合约
         positions = get_open_positions(exchange)
         current_position_count = len(positions)
         
         if current_position_count >= MAX_POSITIONS:
             logger.warning(f"持仓已达上限（{current_position_count}/{MAX_POSITIONS}），终止本轮剩余品种扫描")
             break
+        
+        # 检查是否已持有该合约（避免重复开仓）
+        symbol_base = symbol.split("/")[0]  # 如 "ASTER1"
+        already_held = False
+        for pos in positions:
+            pos_symbol = pos.get("symbol", "")
+            pos_base = pos_symbol.split("/")[0]
+            if pos_base == symbol_base:
+                logger.info(f"⏭️  已持有 {symbol}（持仓：{pos.get('contracts', 0)} 张 @ {pos.get('entry_price', 0)}），跳过开仓")
+                already_held = True
+                break
+        if already_held:
+            continue
 
         logger.info(f"\n--- 扫描 [{idx+1}/{len(symbols)}] {symbol} ---")
         scanned += 1
