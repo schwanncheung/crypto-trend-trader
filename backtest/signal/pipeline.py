@@ -93,6 +93,11 @@ class SignalPipeline:
         rf = self._get_risk_filter()
         fk = self._get_fetch_kline()
 
+        # 当前 bar 的北京时间字符串（UTC+8），用于日志追踪
+        import datetime as _dt
+        _bar_time_cst = _dt.datetime.utcfromtimestamp(ts_ms / 1000 + 8 * 3600).strftime("%Y-%m-%d %H:%M")
+        _bar_tag = f"[{symbol} @ {_bar_time_cst} CST]"
+
         # ── 步骤 1：从 DataFeed 取各周期历史切片 ──────────────────────
         multi_tf_data = {}
         for tf in self.timeframes:
@@ -124,10 +129,10 @@ class SignalPipeline:
             return None
 
         if not passed:
-            logger.debug(f"  {symbol} 规则引擎拒绝：{filter_reason}")
+            logger.debug(f"  {_bar_tag} 规则引擎拒绝：{filter_reason}")
             return None
 
-        logger.debug(f"  {symbol} 规则引擎通过：{direction}")
+        logger.info(f"  {_bar_tag} 规则引擎通过 → {direction}")
 
         # ── 步骤 4：AI Mock 构造决策 ────────────────────────────────────
         base_tf = self.timeframes[-1]
@@ -147,13 +152,13 @@ class SignalPipeline:
             return None
 
         if decision.get("signal") not in ("long", "short"):
-            logger.debug(f"  {symbol} AI Mock 返回 wait")
+            logger.debug(f"  {_bar_tag} AI Mock 返回 wait")
             return None
 
         # 注入规则引擎方向，作为最终方向验证
         if decision["signal"] != direction:
             logger.debug(
-                f"  {symbol} AI方向({decision['signal']}) 与规则引擎方向({direction}) 不一致，跳过"
+                f"  {_bar_tag} AI方向({decision['signal']}) 与规则引擎方向({direction}) 不一致，跳过"
             )
             return None
 
@@ -205,6 +210,7 @@ class SignalPipeline:
 
         logger.info(
             f"✅ 信号生成 {symbol} {signal['side'].upper()} "
+            f"@ {_bar_time_cst} CST "
             f"entry={signal['entry_price']:.4f} "
             f"sl={signal['stop_loss']:.4f} "
             f"tp={signal['take_profit']:.4f} "

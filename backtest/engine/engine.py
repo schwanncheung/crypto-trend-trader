@@ -169,6 +169,9 @@ class BacktestEngine:
 
         # 生成信号
         self.pipeline.available_balance = self.balance
+        import datetime as _dt
+        _bar_cst = _dt.datetime.utcfromtimestamp(ts / 1000 + 8 * 3600).strftime("%Y-%m-%d %H:%M")
+        logger.debug(f"── 扫描 {symbol} @ {_bar_cst} CST ──")
         signal = self.pipeline.generate_signal(symbol, ts, self.feed)
         if signal is None:
             return
