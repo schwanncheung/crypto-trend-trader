@@ -242,3 +242,106 @@ class LLMMockCache:
 
         logger.debug(f"LLMMockCache 未命中，降级为RuleOnly：{key}")
         return self._rule_mock.analyze(tf_indicators, current_price)
+
+
+class LLMRealAnalyzer:
+    """
+    调用生产环境的真实文本 LLM 分析逻辑。
+    直接复用 scripts/ai_analysis.py 的 analyze_with_text_llm() 函数。
+    """
+
+    def __init__(self, config: dict):
+        self.config = config
+        logger.info("LLMRealAnalyzer 初始化：将调用生产环境文本 LLM API")
+
+    def analyze(
+        self,
+        tf_indicators: dict,
+        current_price: float,
+    ) -> dict:
+        """
+        参数：
+            tf_indicators   : {tf: {trend, adx, rsi, ema_align, volume_ratio, pattern, atr, ...}}
+            current_price   : 当前价格（最低周期最新收盘价）
+
+        返回：与 risk_filter.check_signal_quality() 兼容的 decision dict
+        """
+        import sys
+        from pathlib import Path
+
+        # 确保 scripts/ 在 sys.path 中
+        _PROJECT_ROOT = Path(__file__).parent.parent.parent
+        _SCRIPTS_DIR = _PROJECT_ROOT / "scripts"
+        if str(_SCRIPTS_DIR) not in sys.path:
+            sys.path.insert(0, str(_SCRIPTS_DIR))
+
+        # 解决命名冲突：临时移除 backtest.signal 包，避免标准库 signal 被遮蔽
+        _saved_modules = {}
+        for key in list(sys.modules.keys()):
+            if key == 'signal' or key.startswith('signal.'):
+                _saved_modules[key] = sys.modules.pop(key)
+
+        try:
+            # 导入生产环境的 indicator_engine 和 ai_analysis
+            import indicator_engine as ie
+            import ai_analysis as ai
+
+            # 构造市场快照字符串（模拟 generate_market_snapshot 的输出格式）
+            snapshot = self._build_market_snapshot(tf_indicators, current_price)
+
+            # 调用生产环境的文本 LLM 分析
+            logger.info("[LLMRealAnalyzer] 调用生产环境文本 LLM 分析...")
+            result = ai.analyze_with_text_llm(snapshot)
+
+            logger.info(
+                f"[LLMRealAnalyzer] LLM 返回：signal={result.get('signal')}, "
+                f"confidence={result.get('confidence')}, "
+                f"strength={result.get('signal_strength')}"
+            )
+            return result
+
+        except Exception as e:
+            logger.error(f"[LLMRealAnalyzer] 调用失败：{e}")
+            return {
+                "signal":           "wait",
+                "signal_strength":  0,
+                "confidence":       "low",
+                "reason":           f"LLM调用失败：{e}",
+                "volume_confirmed": False,
+                "divergence_risk":  True,
+                "structure_broken": True,
+                "risk_reward":      "1:0",
+                "trend_strength":   0,
+            }
+        finally:
+            # 恢复 backtest.signal 包
+            sys.modules.update(_saved_modules)
+
+    def _build_market_snapshot(self, tf_indicators: dict, current_price: float) -> str:
+        """
+        构造市场快照字符串，格式与 indicator_engine.generate_market_snapshot() 输出一致。
+        """
+        lines = [f"当前价格：{current_price:.6f}\n"]
+
+        for tf, ind in tf_indicators.items():
+            trend = ind.get("trend", "sideways")
+            adx = ind.get("adx", 0)
+            plus_di = ind.get("plus_di", 0)
+            minus_di = ind.get("minus_di", 0)
+            rsi = ind.get("rsi", 50)
+            ema_align = ind.get("ema_align", "mixed")
+            vol_ratio = ind.get("volume_ratio", 1.0)
+            pattern = ind.get("pattern", "none")
+            atr = ind.get("atr", 0)
+
+            lines.append(f"【{tf}】")
+            lines.append(f"  趋势：{trend}")
+            lines.append(f"  ADX：{adx:.1f}  +DI：{plus_di:.1f}  -DI：{minus_di:.1f}")
+            lines.append(f"  RSI：{rsi:.1f}")
+            lines.append(f"  EMA排列：{ema_align}")
+            lines.append(f"  量比：{vol_ratio:.2f}")
+            lines.append(f"  K线形态：{pattern}")
+            lines.append(f"  ATR：{atr:.6f}")
+            lines.append("")
+
+        return "\n".join(lines)

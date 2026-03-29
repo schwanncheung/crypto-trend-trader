@@ -43,8 +43,8 @@ analysis:
 
   # 文本LLM配置（text模式使用，兼容 OpenAI 接口）
   text_llm:
-    primary_model: "glm-5"   # 主力文本模型
-    fallback_model: "kimi-k2.5"     # 兜底文本模型
+    primary_model: "kimi-k2.5"   # 主力文本模型
+    fallback_model: "glm-5"     # 兜底文本模型
     max_tokens: 2000                 # 最大输出 token 数
     timeout: 30                      # API 超时秒数
     base_url: "https://coding.dashscope.aliyuncs.com/v1"  # 阿里云百炼 Coding Plan 接口
