@@ -37,8 +37,9 @@ ai:
 
 # ── 分析模式 ─────────────────────────────────────────────────────────
 analysis:
-  # mode: "text"   = 规则引擎预过滤 + LLM文本分析（推荐，省token，速度快）
-  # mode: "visual" = 生成K线图 → 视觉LLM分析（精度更高，消耗更多token）
+  # mode: "text"      = 规则引擎预过滤 + LLM文本分析（推荐，省token，速度快）
+  # mode: "visual"    = 生成K线图 → 视觉LLM分析（精度更高，消耗更多token）
+  # mode: "rule_only" = 纯规则引擎，不调用任何LLM（速度最快，适合测试/低成本运行）
   mode: "text"
 
   # 文本LLM配置（text模式使用，兼容 OpenAI 接口）

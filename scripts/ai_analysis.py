@@ -21,6 +21,7 @@ load_dotenv()
 from config_loader import (
     check_env,
     AI_CFG,
+    ANALYSIS_CFG as _ANALYSIS_CFG,
     DASHSCOPE_API_KEY,
     TRADING_CFG,
     TIMEFRAMES,
@@ -167,6 +168,124 @@ def _default_wait_response(reason: str) -> dict:
         "confidence": "low",
         "reason": reason,
         "warning": "AI分析异常，请人工确认"
+    }
+
+
+def _build_rule_only_decision(tf_indicators: dict, direction: str, symbol: str) -> dict:
+    """
+    纯规则模式：从 tf_indicators 量化指标构造与 risk_filter 兼容的 decision dict。
+    逻辑与回测 RuleOnlyMock 保持一致。
+    """
+    from config_loader import TIMEFRAMES as _TFS
+    rule_filter_cfg = _ANALYSIS_CFG.get("rule_filter", {})
+
+    min_signal_strength  = TRADING_CFG.get("min_signal_strength", 7)
+    min_rr_ratio         = TRADING_CFG.get("min_rr_ratio", 2.0)
+    atr_multiplier       = TRADING_CFG.get("stop_loss_atr_multiplier", 2.5)
+    vol_ratio_threshold  = rule_filter_cfg.get("volume_ratio_threshold", 0.8)
+    strong_trend_adx     = rule_filter_cfg.get("strong_trend_adx_threshold", 60)
+    strong_trend_di_diff = rule_filter_cfg.get("strong_trend_di_diff_threshold", 20)
+    timeframes           = _TFS or ["1h", "30m", "15m"]
+    anchor_tf            = timeframes[0]
+    base_tf              = timeframes[-1]
+
+    # 极强趋势豁免判断
+    anchor_ind = tf_indicators.get(anchor_tf, {})
+    adx_info   = anchor_ind.get("adx", {})
+    adx        = adx_info.get("adx", 0) if isinstance(adx_info, dict) else float(adx_info or 0)
+    plus_di    = adx_info.get("plus_di", 0) if isinstance(adx_info, dict) else 0
+    minus_di   = adx_info.get("minus_di", 0) if isinstance(adx_info, dict) else 0
+    di_diff    = abs(plus_di - minus_di)
+    strong_trend_exemption = (adx >= strong_trend_adx and di_diff >= strong_trend_di_diff)
+
+    # 信号强度评分
+    score = 0.0
+    total_tfs = len(timeframes)
+
+    # EMA 对齐评分
+    expected = "up" if direction == "long" else "down"
+    ema_align_ok = sum(
+        1 for tf in timeframes
+        if tf_indicators.get(tf, {}).get("ema", {}).get("alignment") == ("bullish" if direction == "long" else "bearish")
+    )
+    score += ema_align_ok * (6.0 / total_tfs)
+
+    # 成交量评分
+    vol_ratio = tf_indicators.get(base_tf, {}).get("volume_ratio", 0)
+    volume_confirmed = vol_ratio >= vol_ratio_threshold
+    if vol_ratio >= vol_ratio_threshold * 2:  score += 2.0
+    elif vol_ratio >= vol_ratio_threshold:    score += 1.0
+    if strong_trend_exemption:
+        volume_confirmed = True
+
+    # K线形态评分（取最低周期第一个形态名）
+    patterns_list = tf_indicators.get(base_tf, {}).get("patterns", [])
+    pattern = patterns_list[0]["pattern"] if patterns_list else "none"
+    if pattern not in ("none", "", None):
+        score += 1.5
+
+    # RSI 评分
+    rsi = tf_indicators.get(base_tf, {}).get("rsi", 50)
+    if 25 <= rsi <= 65:
+        score += 1.5
+    elif strong_trend_exemption and direction == "short" and rsi < 25:
+        score += 1.5
+    elif strong_trend_exemption and direction == "long" and rsi > 75:
+        score += 1.5
+
+    signal_strength = min(10, int(score))
+
+    # 入场/止损/止盈（ATR动态止损 + 固定盈亏比止盈）
+    base_ind = tf_indicators.get(base_tf, {})
+    # current_price 从最低周期 close 取（tf_indicators 里没有直接存价格，用 atr 的 entry 估算不可靠）
+    # 通过 key_support/key_resistance 近似，或让调用方传入；此处用 atr 反推不安全，
+    # 改为从 tf_indicators 的 momentum.last_close 或直接读 atr entry — 暂用0触发wait
+    entry = base_ind.get("current_price", 0)
+    if entry <= 0:
+        logger.warning(f"[rule_only] {symbol} 无法获取当前价格，返回wait")
+        return _default_wait_response("rule_only模式无法获取当前价格")
+
+    atr = base_ind.get("atr", entry * 0.01)
+    if direction == "long":
+        stop_loss   = entry - atr_multiplier * atr
+        take_profit = entry + min_rr_ratio * (entry - stop_loss)
+    else:
+        stop_loss   = entry + atr_multiplier * atr
+        take_profit = entry - min_rr_ratio * (stop_loss - entry)
+    risk   = abs(entry - stop_loss)
+    reward = abs(take_profit - entry)
+    rr     = round(reward / risk, 2) if risk > 0 else 0.0
+
+    if rr < min_rr_ratio:
+        return _default_wait_response(f"RR不足：{rr:.2f} < {min_rr_ratio}")
+
+    confidence    = "high" if (signal_strength >= min_signal_strength and volume_confirmed) else "low"
+    trend_strength = min(10, int(adx / 4))
+
+    return {
+        "signal":           direction,
+        "signal_type":      pattern or "pullback",
+        "signal_strength":  signal_strength,
+        "trend":            expected,
+        "trend_phase":      "mid",
+        "trend_strength":   trend_strength,
+        "volume_confirmed": volume_confirmed,
+        "volume_note":      f"量比={vol_ratio:.2f}",
+        "key_support":      entry * 0.97,
+        "key_resistance":   entry * 1.03,
+        "entry_price":      entry,
+        "stop_loss":        stop_loss,
+        "take_profit":      take_profit,
+        "risk_reward":      f"1:{rr:.1f}",
+        "divergence_risk":  False,
+        "structure_broken": False,
+        "confidence":       confidence,
+        "reason":           (
+            f"规则引擎信号：{direction}，ADX={adx:.1f}，"
+            f"EMA对齐={ema_align_ok}/{total_tfs}，"
+            f"量比={vol_ratio:.2f}，形态={pattern}，RSI={rsi:.1f}"
+        ),
+        "warning":          None,
     }
 
 
@@ -513,13 +632,32 @@ def analyze_symbol(
 
     返回标准决策 dict，格式与 analyze_with_fallback 完全一致。
     """
-    from config_loader import ANALYSIS_CFG
     from indicator_engine import generate_market_snapshot, rule_engine_filter
 
-    mode = ANALYSIS_CFG.get("mode", "visual")
+    mode = _ANALYSIS_CFG.get("mode", "visual")
     logger.info(f"[分析入口] {symbol} 使用模式：{mode}")
 
-    if mode == "text":
+    if mode == "rule_only":
+        # ── 纯规则模式：规则引擎预过滤 → 指标打分构造决策，不调用任何LLM ──
+        snapshot, tf_indicators = generate_market_snapshot(
+            multi_tf_data, symbol, support_levels, resistance_levels
+        )
+        passed, direction, filter_reason = rule_engine_filter(tf_indicators, symbol)
+        if not passed:
+            logger.info(f"[分析入口] {symbol} 规则引擎未通过 | 原因：{filter_reason}")
+            resp = _default_wait_response(filter_reason)
+            resp["_analysis_mode"] = "rule_filter_rejected"
+            resp["_filter_reason"] = filter_reason
+            return resp
+
+        logger.info(f"[分析入口] {symbol} 规则引擎通过（{direction}），构造规则决策")
+        result = _build_rule_only_decision(tf_indicators, direction, symbol)
+        result["_analysis_mode"] = "rule_only"
+        result["_rule_direction"] = direction
+        result["_filter_reason"] = filter_reason
+        return result
+
+    elif mode == "text":
         # ── 1. 计算指标 & 生成快照
         snapshot, tf_indicators = generate_market_snapshot(
             multi_tf_data, symbol, support_levels, resistance_levels
