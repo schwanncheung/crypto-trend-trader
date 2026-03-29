@@ -573,10 +573,18 @@ def assess_recent_trend_momentum(df: pd.DataFrame) -> dict:
     price_end    = float(recent["close"].iloc[-1])
     total_move   = round((price_end - price_start) / price_start, 4) if price_start > 0 else 0.0
 
-    # ③ 背景中位价（判断是否突破了前期横盘区间）
-    context_mid  = float(context["close"].median())
-    breakout_up   = price_end > context_mid and total_move >= RECENT_TREND_MIN_MOVE
-    breakout_down = price_end < context_mid and total_move <= -RECENT_TREND_MIN_MOVE
+    # ③ 背景中位价 —— 判断近期是否从"相对平稳的背景"中突破
+    #    前提：背景窗口本身是低波动（横盘），否则中位价无参考意义
+    #    用背景窗口的价格振幅（(high-low)/mid）衡量背景是否平稳
+    context_amplitude = (float(context["close"].max()) - float(context["close"].min()))
+    context_mid_val   = float(context["close"].median())
+    context_volatility = (context_amplitude / context_mid_val) if context_mid_val > 0 else 1.0
+    # 背景平稳判定：振幅 < 8%（背景本身是横盘，中位价才有意义）
+    context_is_stable = context_volatility < 0.08
+
+    context_mid   = context_mid_val
+    breakout_up   = context_is_stable and price_end > context_mid and total_move >= RECENT_TREND_MIN_MOVE
+    breakout_down = context_is_stable and price_end < context_mid and total_move <= -RECENT_TREND_MIN_MOVE
 
     # ④ 综合判定近期动能方向
     if bull_pct >= RECENT_TREND_MIN_PCT and total_move >= RECENT_TREND_MIN_MOVE:
@@ -601,12 +609,14 @@ def assess_recent_trend_momentum(df: pd.DataFrame) -> dict:
                 f"区间变动{move_pct_str}，方向不明（横盘/震荡）")
 
     return {
-        "direction":   direction,
-        "bull_pct":    bull_pct,
-        "bear_pct":    bear_pct,
-        "total_move":  total_move,
-        "breakout":    breakout_up or breakout_down,
-        "description": desc,
+        "direction":          direction,
+        "bull_pct":           bull_pct,
+        "bear_pct":           bear_pct,
+        "total_move":         total_move,
+        "breakout":           breakout_up or breakout_down,
+        "context_is_stable":  context_is_stable,   # 背景是否平稳（振幅<8%）
+        "context_volatility": round(context_volatility, 4),
+        "description":        desc,
     }
 
 def assess_trend_direction(df: pd.DataFrame, adx_info: dict, ema_info: dict, symbol: str = None) -> str:
