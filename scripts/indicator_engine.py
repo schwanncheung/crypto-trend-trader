@@ -60,6 +60,15 @@ STRONG_TREND_DI_DIFF_THRESHOLD = _RULE_CFG.get("strong_trend_di_diff_threshold",
 LONG_SIGNAL_RSI_LOW         = _RULE_CFG.get("long_signal_rsi_low", 40)               # RSI低位阈值（回调买点区间上沿）
 LONG_SIGNAL_VOL_RATIO       = _RULE_CFG.get("long_signal_vol_ratio", 1.0)            # 做多量比最低要求
 
+# 方案E：RSI底背离/顶背离保护 —— 价格创新低但RSI未创新低（底背离）→ 禁止做空
+RSI_DIVERGENCE_ENABLED      = _RULE_CFG.get("rsi_divergence_enabled", True)
+RSI_DIVERGENCE_LOOKBACK     = _RULE_CFG.get("rsi_divergence_lookback", 10)   # 用于背离检测的RSI历史窗口（根）
+RSI_DIVERGENCE_MIN_DROP_PCT = _RULE_CFG.get("rsi_divergence_min_drop_pct", 0.005)  # 价格新低幅度最低要求（0.5%）
+RSI_DIVERGENCE_MIN_RSI_DIFF = _RULE_CFG.get("rsi_divergence_min_rsi_diff", 3.0)    # RSI未跟随价格创新低的最小差值
+# RSI超卖持续保护 —— RSI在超卖区停留N根以上 → 动能衰竭 → 禁止做空（即使极强趋势豁免）
+RSI_OVERSOLD_PERSIST_BARS   = _RULE_CFG.get("rsi_oversold_persist_bars", 6)   # 超卖持续根数门槛
+RSI_OVERSOLD_PERSIST_LEVEL  = _RULE_CFG.get("rsi_oversold_persist_level", 25) # 超卖判定线（锚周期）
+
 # ── 近期趋势连续性判断参数 ────────────────────────────────────────────
 # 解决EMA200惯性滞后问题：在200根K线中，单独评估最近N根的方向连续性
 # 让系统能在"趋势刚启动"时就感知到方向，而不是等EMA排列完全形成（需55+小时）
@@ -163,7 +172,115 @@ def _rsi_delta_description(rsi_series: List[float]) -> str:
     return f"RSI{direction}，当前{current}（{zone}）"
 
 
-# ── 优化1：趋势转折预警 ────────────────────────────────────────────────────
+# ── 方案E：RSI底背离/顶背离检测 + 超卖持续保护 ──────────────────────────
+def detect_rsi_divergence(
+    tf_indicators: dict,
+    signal_direction: str,
+    symbol: str = "",
+) -> Tuple[bool, str]:
+    """
+    检测两种情形（即使极强趋势豁免也执行）：
+
+    1. RSI底背离（做空保护）：
+       价格创新低，但 RSI 未跟随创新低 → 动能衰竭，禁止做空。
+
+    2. RSI超卖持续保护（做空保护）：
+       锚周期 RSI 已在超卖区（<=rsi_oversold_persist_level）
+       连续停留 >= rsi_oversold_persist_bars 根 K 线 → 动能耗尽，禁止做空。
+
+    对应做多方向：顶背离 + 超买持续保护。
+
+    返回：(detected: bool, reason: str)
+    """
+    if not RSI_DIVERGENCE_ENABLED:
+        return False, ""
+
+    anchor_ind = tf_indicators.get(ANCHOR_TF, {})
+    if not anchor_ind.get("valid"):
+        return False, ""
+
+    rsi_series_long = anchor_ind.get("rsi_series_long", [])
+    price_series    = anchor_ind.get("price_series", [])
+
+    if len(rsi_series_long) < 4 or len(price_series) < 4:
+        return False, ""
+
+    current_price = price_series[-1]
+    current_rsi   = rsi_series_long[-1]
+    hist_prices   = price_series[:-1]
+    hist_rsi      = rsi_series_long[:-1]
+
+    if signal_direction == "short":
+        # ── 检测1：RSI超卖连续保护（从最新往前数连续超卖根数）──────────
+        consec_oversold = 0
+        for r in reversed(rsi_series_long):
+            if r <= RSI_OVERSOLD_PERSIST_LEVEL:
+                consec_oversold += 1
+            else:
+                break
+        if consec_oversold >= RSI_OVERSOLD_PERSIST_BARS:
+            reason = (
+                f"{symbol} {ANCHOR_TF} RSI超卖连续保护："
+                f"连续{consec_oversold}根K线RSI<={RSI_OVERSOLD_PERSIST_LEVEL}"
+                f"（当前RSI={current_rsi:.1f}），动能耗尽，禁止做空"
+            )
+            logger.info(f"[规则过滤] {reason}")
+            return True, reason
+
+        # ── 检测2：RSI底背离 ─────────────────────────────────────────
+        prev_low_price = min(hist_prices)
+        prev_low_idx   = hist_prices.index(prev_low_price)
+        prev_low_rsi   = hist_rsi[prev_low_idx]
+        price_drop_pct = (prev_low_price - current_price) / prev_low_price
+        rsi_diff       = current_rsi - prev_low_rsi  # 正值=底背离
+
+        if (price_drop_pct >= RSI_DIVERGENCE_MIN_DROP_PCT and
+                rsi_diff >= RSI_DIVERGENCE_MIN_RSI_DIFF):
+            reason = (
+                f"{symbol} {ANCHOR_TF} RSI底背离：价格新低{current_price:.6f}"
+                f"（前低{prev_low_price:.6f}，跌幅{price_drop_pct*100:.2f}%），"
+                f"RSI={current_rsi:.1f}高于前低RSI={prev_low_rsi:.1f}（差{rsi_diff:.1f}pts），"
+                f"动能衰竭，禁止做空"
+            )
+            logger.info(f"[规则过滤] {reason}")
+            return True, reason
+
+    elif signal_direction == "long":
+        # ── 检测1：RSI超买连续保护（从最新往前数连续超买根数）──────────
+        consec_overbought = 0
+        for r in reversed(rsi_series_long):
+            if r >= (100 - RSI_OVERSOLD_PERSIST_LEVEL):
+                consec_overbought += 1
+            else:
+                break
+        if consec_overbought >= RSI_OVERSOLD_PERSIST_BARS:
+            reason = (
+                f"{symbol} {ANCHOR_TF} RSI超买连续保护："
+                f"连续{consec_overbought}根K线RSI>={100-RSI_OVERSOLD_PERSIST_LEVEL}"
+                f"（当前RSI={current_rsi:.1f}），动能耗尽，禁止做多"
+            )
+            logger.info(f"[规则过滤] {reason}")
+            return True, reason
+
+        # ── 检测2：RSI顶背离 ─────────────────────────────────────────
+        prev_high_price = max(hist_prices)
+        prev_high_idx   = hist_prices.index(prev_high_price)
+        prev_high_rsi   = hist_rsi[prev_high_idx]
+        price_rise_pct  = (current_price - prev_high_price) / prev_high_price
+        rsi_diff        = prev_high_rsi - current_rsi  # 正值=顶背离
+
+        if (price_rise_pct >= RSI_DIVERGENCE_MIN_DROP_PCT and
+                rsi_diff >= RSI_DIVERGENCE_MIN_RSI_DIFF):
+            reason = (
+                f"{symbol} {ANCHOR_TF} RSI顶背离：价格新高{current_price:.6f}"
+                f"（前高{prev_high_price:.6f}，涨幅{price_rise_pct*100:.2f}%），"
+                f"RSI={current_rsi:.1f}低于前高RSI={prev_high_rsi:.1f}（差{rsi_diff:.1f}pts），"
+                f"动能衰竭，禁止做多"
+            )
+            logger.info(f"[规则过滤] {reason}")
+            return True, reason
+
+    return False, ""
 def detect_rsi_reversal_warning(
     tf_indicators: dict,
     signal_direction: str,
@@ -718,6 +835,8 @@ def compute_timeframe_indicators(df: pd.DataFrame, tf_label: str, symbol: str = 
     adx_info    = compute_adx(df)
     rsi         = compute_rsi(df["close"])
     rsi_series  = compute_rsi_series(df["close"], lookback=4)  # 最近4根RSI序列
+    rsi_series_long = compute_rsi_series(df["close"], lookback=RSI_DIVERGENCE_LOOKBACK)  # 底背离检测用长序列
+    price_series = df["close"].tail(RSI_DIVERGENCE_LOOKBACK).tolist()  # 底背离检测用价格序列
     vol_ratio   = compute_volume_ratio(df)
     momentum    = assess_recent_trend_momentum(df)              # 近期动能评估
     trend       = assess_trend_direction(df, adx_info, ema_info, symbol)
@@ -734,6 +853,8 @@ def compute_timeframe_indicators(df: pd.DataFrame, tf_label: str, symbol: str = 
         "adx":          adx_info,
         "rsi":          rsi,
         "rsi_series":   rsi_series,   # [rsi_t-3, rsi_t-2, rsi_t-1, rsi_t]
+        "rsi_series_long": rsi_series_long,  # 底背离检测用长RSI序列
+        "price_series": price_series,         # 底背离检测用价格序列
         "volume_ratio": vol_ratio,
         "momentum":     momentum,     # 近期动能：{direction, bull_pct, bear_pct, total_move, breakout, description}
         "patterns":     patterns,
@@ -823,6 +944,13 @@ def rule_engine_filter(
             f"[规则过滤] {symbol} 极强趋势豁免：ADX={anchor_adx:.1f}(>={STRONG_TREND_ADX_THRESHOLD}), "
             f"DI差值={di_diff:.1f}(>={STRONG_TREND_DI_DIFF_THRESHOLD}), 跳过RSI超卖/超买保护"
         )
+
+    # ── 4b. RSI 底背离/顶背离检测（方案E：即使极强趋势豁免也执行）
+    divergence_detected, divergence_reason = detect_rsi_divergence(
+        tf_indicators, signal_direction, symbol
+    )
+    if divergence_detected:
+        return False, "wait", divergence_reason
 
     # ── 5. RSI 极值过滤（趋势末端保护，极强趋势时豁免）
     if not strong_trend_exemption:

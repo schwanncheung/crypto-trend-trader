@@ -39,11 +39,26 @@ def setup_logging(log_name: str, max_bytes: int = 10 * 1024 * 1024, backup_count
         max_bytes:    单文件最大字节数，默认 10MB
         backup_count: 保留的历史文件数，默认 20（即最多占用 200MB）
     """
+    import time as _time
+
+    class CSTFormatter(logging.Formatter):
+        """强制使用北京时间（UTC+8）格式化日志时间，避免受服务器本地时区影响。"""
+        _CST_OFFSET = 8 * 3600  # 秒
+
+        def converter(self, timestamp):
+            return _time.gmtime(timestamp + self._CST_OFFSET)
+
+        def formatTime(self, record, datefmt=None):
+            ct = self.converter(record.created)
+            if datefmt:
+                return _time.strftime(datefmt, ct)
+            return _time.strftime("%Y-%m-%d %H:%M:%S", ct) + f",{int(record.msecs):03d}"
+
     log_dir = ROOT_DIR / "logs"
     log_dir.mkdir(exist_ok=True)
     log_file = log_dir / f"{log_name}.log"
 
-    fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+    fmt = CSTFormatter("%(asctime)s [%(levelname)s] %(message)s")
 
     root = logging.getLogger()
 

@@ -252,11 +252,25 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
-    logging.basicConfig(
-        level=getattr(logging, args.log_level),
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
+    import time as _time
+
+    class CSTFormatter(logging.Formatter):
+        """强制使用北京时间（UTC+8）格式化日志时间。"""
+        _CST_OFFSET = 8 * 3600
+        def converter(self, timestamp):
+            return _time.gmtime(timestamp + self._CST_OFFSET)
+        def formatTime(self, record, datefmt=None):
+            ct = self.converter(record.created)
+            if datefmt:
+                return _time.strftime(datefmt, ct)
+            return _time.strftime("%Y-%m-%d %H:%M:%S", ct) + f",{int(record.msecs):03d}"
+
+    fmt = CSTFormatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+    handler = logging.StreamHandler()
+    handler.setFormatter(fmt)
+    root = logging.getLogger()
+    root.setLevel(getattr(logging, args.log_level))
+    root.addHandler(handler)
 
     config = load_config(
         backtest_yaml=args.config,
