@@ -4,12 +4,19 @@ indicator_engine.py
 规则引擎：技术指标计算 + 裸K形态识别 + 单边趋势过滤 + 市场快照生成
 
 输出结构化文本快照供 LLM 文本分析使用，也作为规则预过滤门卫。
+
+v2 新增：
+  - RSI序列计算（compute_rsi_series）：返回最近N根RSI值，用于趋势delta分析
+  - 趋势转折预警（detect_rsi_reversal_warning）：15m/30m连续两轮RSI回升+量能放大→触发做空暂停
+  - 超卖反弹保护（detect_oversold_bounce_guard）：RSI从超卖区反弹超过阈值→禁止做空N轮
+  - 多头信号规则引擎（detect_long_signals）：补充做多条件，实现双向互斥保护
+  - LLM快照增强：注入RSI delta趋势（当前值 vs 前3轮）
 """
 
 import logging
 import numpy as np
 import pandas as pd
-from typing import Optional
+from typing import Optional, List, Tuple
 
 from config_loader import ANALYSIS_CFG, TIMEFRAMES
 
@@ -35,6 +42,20 @@ VOL_RATIO_THRESH  = _RULE_CFG.get("volume_ratio_threshold", 1.2)
 RSI_OVERBOUGHT    = _RULE_CFG.get("rsi_overbought", 75)
 RSI_OVERSOLD      = _RULE_CFG.get("rsi_oversold", 25)
 
+# ── 新增：趋势转折预警 & 超卖反弹保护参数 ───────────────────────────
+# 优化1：趋势转折预警 —— 小周期连续N轮RSI回升+量能放大触发做空暂停
+RSI_REVERSAL_WARNING_TFS    = _RULE_CFG.get("rsi_reversal_warning_timeframes", ["15m", "30m"])
+RSI_REVERSAL_CONSEC_ROUNDS  = _RULE_CFG.get("rsi_reversal_consecutive_rounds", 2)   # 连续回升轮数
+RSI_REVERSAL_VOL_CONFIRM    = _RULE_CFG.get("rsi_reversal_vol_confirm", True)        # 是否要求量能确认
+
+# 优化2：超卖反弹保护 —— RSI从超卖区反弹超过阈值→禁止做空
+RSI_BOUNCE_GUARD_DELTA      = _RULE_CFG.get("rsi_bounce_guard_delta", 6)             # 反弹幅度阈值（点）
+RSI_BOUNCE_GUARD_OVERSOLD   = _RULE_CFG.get("rsi_bounce_guard_oversold", 30)         # 超卖判定线（偏宽松）
+
+# 优化4：多头信号规则引擎触发条件
+LONG_SIGNAL_RSI_LOW         = _RULE_CFG.get("long_signal_rsi_low", 40)               # RSI低位阈值（回调买点区间上沿）
+LONG_SIGNAL_VOL_RATIO       = _RULE_CFG.get("long_signal_vol_ratio", 1.0)            # 做多量比最低要求
+
 # 快捷引用：第一个EMA周期（最短，用于价格位置判断）
 _EMA_FAST = EMA_PERIODS[0] if EMA_PERIODS else 21
 
@@ -57,6 +78,271 @@ def compute_rsi(series: pd.Series, period: int = RSI_PERIOD) -> float:
     rs    = gain / loss.replace(0, np.nan)
     rsi   = 100 - (100 / (1 + rs))
     return round(float(rsi.iloc[-1]), 2)
+
+
+def compute_rsi_series(series: pd.Series, period: int = RSI_PERIOD, lookback: int = 4) -> List[float]:
+    """
+    返回最近 lookback 根 K 线的 RSI 值列表（从旧到新）。
+    用于计算 RSI delta 趋势，供趋势转折预警和 LLM 快照使用。
+    数据不足时补充 50.0。
+    """
+    if len(series) < period + 1:
+        return [50.0] * lookback
+    delta = series.diff()
+    gain  = delta.clip(lower=0).rolling(period).mean()
+    loss  = (-delta.clip(upper=0)).rolling(period).mean()
+    rs    = gain / loss.replace(0, np.nan)
+    rsi_full = 100 - (100 / (1 + rs))
+    # 取最后 lookback 根，不足则用 50.0 填充
+    tail = rsi_full.dropna().tail(lookback).tolist()
+    if len(tail) < lookback:
+        tail = [50.0] * (lookback - len(tail)) + tail
+    return [round(v, 2) for v in tail]
+
+
+def _rsi_delta_description(rsi_series: List[float]) -> str:
+    """
+    将 RSI 序列（从旧→新，长度4）转换为自然语言趋势描述。
+    用于注入 LLM 快照，让模型感知 RSI 动态变化方向。
+    示例：[28.5, 31.2, 35.8, 42.1] → "RSI连续回升（+13.6pts，3轮）超卖修复中"
+    """
+    if len(rsi_series) < 2:
+        return "RSI数据不足"
+    current  = rsi_series[-1]
+    prev3    = rsi_series[:-1]
+    delta    = current - rsi_series[0]          # 全程变化量
+    # 判断连续上升/下降轮数
+    rising_rounds = sum(
+        1 for i in range(1, len(rsi_series))
+        if rsi_series[i] > rsi_series[i - 1]
+    )
+    falling_rounds = sum(
+        1 for i in range(1, len(rsi_series))
+        if rsi_series[i] < rsi_series[i - 1]
+    )
+    total_rounds = len(rsi_series) - 1
+
+    # 趋势描述
+    if rising_rounds == total_rounds:
+        direction = f"连续回升（+{delta:+.1f}pts，{rising_rounds}轮）"
+    elif falling_rounds == total_rounds:
+        direction = f"连续下行（{delta:+.1f}pts，{falling_rounds}轮）"
+    elif rising_rounds > falling_rounds:
+        direction = f"整体回升（+{delta:+.1f}pts，震荡向上）"
+    elif falling_rounds > rising_rounds:
+        direction = f"整体下行（{delta:+.1f}pts，震荡向下）"
+    else:
+        direction = f"横盘震荡（{delta:+.1f}pts）"
+
+    # 附加区间标签
+    if current <= RSI_OVERSOLD:
+        zone = "深度超卖区"
+    elif current <= RSI_BOUNCE_GUARD_OVERSOLD:
+        zone = "超卖区"
+    elif current >= RSI_OVERBOUGHT:
+        zone = "超买区"
+    elif current >= 60:
+        zone = "偏强区"
+    elif current <= 40:
+        zone = "偏弱区"
+    else:
+        zone = "中性区"
+
+    return f"RSI{direction}，当前{current}（{zone}）"
+
+
+# ── 优化1：趋势转折预警 ────────────────────────────────────────────────────
+def detect_rsi_reversal_warning(
+    tf_indicators: dict,
+    signal_direction: str,
+) -> Tuple[bool, str]:
+    """
+    趋势转折预警：检测小周期（15m/30m）是否出现 RSI 连续回升 + 量能放大。
+    当做空方向时，若预警触发，应暂停做空信号。
+    当做多方向时，若预警（即连续下行+量能放大）触发，应暂停做多信号。
+
+    返回 (triggered: bool, reason: str)
+    """
+    if signal_direction not in ("short", "long"):
+        return False, ""
+
+    warning_tfs = [tf for tf in RSI_REVERSAL_WARNING_TFS if tf in tf_indicators]
+    if not warning_tfs:
+        return False, ""
+
+    triggered_tfs = []
+
+    for tf in warning_tfs:
+        ind = tf_indicators.get(tf, {})
+        if not ind.get("valid"):
+            continue
+
+        rsi_series = ind.get("rsi_series", [])   # 由 compute_timeframe_indicators 注入
+        vol_ratio  = ind.get("volume_ratio", 0)
+
+        if len(rsi_series) < RSI_REVERSAL_CONSEC_ROUNDS + 1:
+            continue
+
+        # 取最近 N+1 根，判断是否连续 N 轮单向运动
+        recent = rsi_series[-(RSI_REVERSAL_CONSEC_ROUNDS + 1):]
+
+        if signal_direction == "short":
+            # 做空暂停：检测小周期RSI是否连续N轮回升
+            consec_rising = all(
+                recent[i] > recent[i - 1]
+                for i in range(1, len(recent))
+            )
+            if consec_rising:
+                # 量能确认：放量则预警更可信
+                vol_ok = (vol_ratio >= VOL_RATIO_THRESH) if RSI_REVERSAL_VOL_CONFIRM else True
+                if vol_ok:
+                    triggered_tfs.append(
+                        f"{tf}(RSI:{recent[0]:.1f}→{recent[-1]:.1f} 连升{RSI_REVERSAL_CONSEC_ROUNDS}轮, 量比:{vol_ratio:.2f}x)"
+                    )
+
+        elif signal_direction == "long":
+            # 做多暂停：检测小周期RSI是否连续N轮下行（反向逻辑）
+            consec_falling = all(
+                recent[i] < recent[i - 1]
+                for i in range(1, len(recent))
+            )
+            if consec_falling:
+                vol_ok = (vol_ratio >= VOL_RATIO_THRESH) if RSI_REVERSAL_VOL_CONFIRM else True
+                if vol_ok:
+                    triggered_tfs.append(
+                        f"{tf}(RSI:{recent[0]:.1f}→{recent[-1]:.1f} 连降{RSI_REVERSAL_CONSEC_ROUNDS}轮, 量比:{vol_ratio:.2f}x)"
+                    )
+
+    if triggered_tfs:
+        direction_cn = "做空" if signal_direction == "short" else "做多"
+        reason = (
+            f"趋势转折预警：{'、'.join(triggered_tfs)} "
+            f"出现RSI{'回升' if signal_direction=='short' else '回落'}+量能放大，"
+            f"暂停{direction_cn}信号"
+        )
+        logger.info(f"[转折预警] {reason}")
+        return True, reason
+
+    return False, ""
+
+
+# ── 优化2：超卖反弹保护 ────────────────────────────────────────────────────
+def detect_oversold_bounce_guard(
+    tf_indicators: dict,
+    signal_direction: str,
+) -> Tuple[bool, str]:
+    """
+    超卖反弹保护：若任一周期 RSI 曾处于超卖区（≤RSI_BOUNCE_GUARD_OVERSOLD），
+    且已反弹超过 RSI_BOUNCE_GUARD_DELTA 个点，判定为"反弹修复中"，禁止做空。
+    对应做多方向：若 RSI 曾超买后回落超过阈值，禁止做多（对称逻辑）。
+
+    返回 (blocked: bool, reason: str)
+    """
+    if signal_direction not in ("short", "long"):
+        return False, ""
+
+    OVERBOUGHT_GUARD = 100 - RSI_BOUNCE_GUARD_OVERSOLD  # 做多对称的超买判定线（约70）
+
+    blocked_tfs = []
+
+    for tf, ind in tf_indicators.items():
+        if not ind.get("valid"):
+            continue
+
+        rsi_series = ind.get("rsi_series", [])
+        if len(rsi_series) < 2:
+            continue
+
+        current_rsi = rsi_series[-1]
+
+        if signal_direction == "short":
+            # 找最近序列中是否存在超卖区低点
+            min_rsi = min(rsi_series)
+            if min_rsi <= RSI_BOUNCE_GUARD_OVERSOLD:
+                bounce = current_rsi - min_rsi
+                if bounce >= RSI_BOUNCE_GUARD_DELTA:
+                    blocked_tfs.append(
+                        f"{tf}(RSI低点:{min_rsi:.1f}→当前:{current_rsi:.1f}, "
+                        f"反弹+{bounce:.1f}pts)"
+                    )
+
+        elif signal_direction == "long":
+            # 找最近序列中是否存在超买区高点
+            max_rsi = max(rsi_series)
+            if max_rsi >= OVERBOUGHT_GUARD:
+                pullback = max_rsi - current_rsi
+                if pullback >= RSI_BOUNCE_GUARD_DELTA:
+                    blocked_tfs.append(
+                        f"{tf}(RSI高点:{max_rsi:.1f}→当前:{current_rsi:.1f}, "
+                        f"回落-{pullback:.1f}pts)"
+                    )
+
+    if blocked_tfs:
+        direction_cn = "做空" if signal_direction == "short" else "做多"
+        protect_type = "超卖反弹修复" if signal_direction == "short" else "超买回落修复"
+        reason = (
+            f"{protect_type}保护：{'、'.join(blocked_tfs)}，"
+            f"判定为修复行情，禁止{direction_cn}"
+        )
+        logger.info(f"[反弹保护] {reason}")
+        return True, reason
+
+    return False, ""
+
+
+# ── 优化4：多头信号规则引擎 ───────────────────────────────────────────────
+def detect_long_signal_conditions(tf_indicators: dict) -> Tuple[bool, str]:
+    """
+    多头信号补充规则引擎，用于在规则引擎层面判断做多入场质量。
+    条件：
+      1. 锚周期趋势为 up（由主流程已判断，此处做二次确认）
+      2. 至少一个小周期 RSI 处于回调低位（≤LONG_SIGNAL_RSI_LOW），表明已充分回调
+      3. 最新一根 RSI 开始止跌回升（rsi_series[-1] > rsi_series[-2])
+      4. 至少一个周期量比 ≥ LONG_SIGNAL_VOL_RATIO
+
+    返回 (quality_ok: bool, detail: str)
+    """
+    quality_signals = []
+    weak_signals    = []
+
+    short_tfs = [tf for tf in tf_indicators if tf != ANCHOR_TF and tf_indicators[tf].get("valid")]
+
+    for tf in short_tfs:
+        ind = tf_indicators[tf]
+        rsi_series = ind.get("rsi_series", [])
+        vol_ratio  = ind.get("volume_ratio", 0)
+        current_rsi = rsi_series[-1] if rsi_series else 50
+
+        # 条件1：RSI在低位区（已充分回调）
+        in_pullback_zone = current_rsi <= LONG_SIGNAL_RSI_LOW
+
+        # 条件2：RSI止跌回升（最新根 > 前一根）
+        rsi_turning_up = (
+            len(rsi_series) >= 2 and rsi_series[-1] > rsi_series[-2]
+        )
+
+        # 条件3：量能达标
+        vol_ok = vol_ratio >= LONG_SIGNAL_VOL_RATIO
+
+        if in_pullback_zone and rsi_turning_up and vol_ok:
+            quality_signals.append(
+                f"{tf}(RSI:{current_rsi:.1f}↑回调买点, 量比:{vol_ratio:.2f}x)"
+            )
+        elif in_pullback_zone or rsi_turning_up:
+            weak_signals.append(f"{tf}(RSI:{current_rsi:.1f})")
+
+    if quality_signals:
+        detail = f"多头质量确认：{'、'.join(quality_signals)}"
+        logger.debug(f"[多头规则] {detail}")
+        return True, detail
+    elif weak_signals:
+        detail = f"多头信号偏弱（{'、'.join(weak_signals)}），等待更好入场点"
+        logger.debug(f"[多头规则] {detail}")
+        return False, detail
+    else:
+        detail = "多头回调入场条件未满足（RSI未进入低位区）"
+        logger.debug(f"[多头规则] {detail}")
+        return False, detail
 
 
 def compute_adx(df: pd.DataFrame, period: int = ADX_PERIOD) -> dict:
@@ -303,6 +589,7 @@ def compute_timeframe_indicators(df: pd.DataFrame, tf_label: str, symbol: str = 
     ema_info    = compute_ema_alignment(df)
     adx_info    = compute_adx(df)
     rsi         = compute_rsi(df["close"])
+    rsi_series  = compute_rsi_series(df["close"], lookback=4)  # 新增：最近4根RSI序列
     vol_ratio   = compute_volume_ratio(df)
     trend       = assess_trend_direction(df, adx_info, ema_info, symbol)
     patterns    = detect_candlestick_patterns(df)
@@ -310,15 +597,16 @@ def compute_timeframe_indicators(df: pd.DataFrame, tf_label: str, symbol: str = 
     current_price = float(df["close"].iloc[-1])
 
     return {
-        "timeframe":   tf_label,
-        "valid":       True,
+        "timeframe":    tf_label,
+        "valid":        True,
         "current_price": current_price,
-        "trend":       trend,
-        "ema":         ema_info,
-        "adx":         adx_info,
-        "rsi":         rsi,
+        "trend":        trend,
+        "ema":          ema_info,
+        "adx":          adx_info,
+        "rsi":          rsi,
+        "rsi_series":   rsi_series,   # 新增：[rsi_t-3, rsi_t-2, rsi_t-1, rsi_t]
         "volume_ratio": vol_ratio,
-        "patterns":    patterns,
+        "patterns":     patterns,
     }
 
 
@@ -413,6 +701,27 @@ def rule_engine_filter(
         logger.info(f"[规则过滤] {reason}")
         return False, "wait", reason
 
+    # ── 6. [优化2] 超卖反弹保护：RSI从超卖区反弹 → 禁止做空
+    bounce_blocked, bounce_reason = detect_oversold_bounce_guard(tf_indicators, signal_direction)
+    if bounce_blocked:
+        logger.info(f"[规则过滤] {symbol} {bounce_reason}")
+        return False, "wait", f"{symbol} {bounce_reason}"
+
+    # ── 7. [优化1] 趋势转折预警：小周期RSI连升+放量 → 暂停做空
+    reversal_warned, reversal_reason = detect_rsi_reversal_warning(tf_indicators, signal_direction)
+    if reversal_warned:
+        logger.info(f"[规则过滤] {symbol} {reversal_reason}")
+        return False, "wait", f"{symbol} {reversal_reason}"
+
+    # ── 8. [优化4] 做多质量检查：多头信号需满足回调买点条件（非硬过滤，仅记录质量）
+    if signal_direction == "long":
+        long_ok, long_detail = detect_long_signal_conditions(tf_indicators)
+        if not long_ok:
+            # 做多质量不达标：记录warning但不硬过滤，由LLM最终判断
+            logger.info(f"[规则过滤] {symbol} 做多质量提示：{long_detail}（LLM继续判断）")
+        else:
+            logger.info(f"[规则过滤] {symbol} {long_detail}")
+
     reason = (
         f"{symbol} 规则引擎通过：方向={signal_direction}，"
         f"{ANCHOR_TF}锚={anchor_trend}，对齐周期={'多头' if signal_direction=='long' else '空头'}{max(up_count,down_count)}/{len(check_tfs)}"
@@ -474,6 +783,7 @@ def generate_market_snapshot(
         adx    = ind["adx"]
         ema    = ind["ema"]
         rsi    = ind["rsi"]
+        rsi_s  = ind.get("rsi_series", [rsi])    # 优化3：RSI序列
         vr     = ind["volume_ratio"]
         trend  = ind["trend"]
         pats   = ind["patterns"]
@@ -483,10 +793,12 @@ def generate_market_snapshot(
         align_cn  = {"bullish": "多头排列", "bearish": "空头排列", "mixed": "混乱排列"}.get(ema["alignment"])
         vol_cn    = f"{vr}x（{'放量' if vr>=VOL_RATIO_THRESH else '缩量/平量'}）"
         pat_cn    = "，".join(p["description"] for p in pats) if pats else "无明显形态"
+        # 优化3：RSI动态趋势描述（当前值 + 前3轮delta）
+        rsi_delta_cn = _rsi_delta_description(rsi_s)
 
         lines.append(f"【{label}】")
         lines.append(f"趋势：{trend_cn} | EMA排列：{align_cn} | {adx_cn}")
-        lines.append(f"RSI：{rsi} | 成交量/MA5：{vol_cn}")
+        lines.append(f"RSI：{rsi} | RSI趋势：{rsi_delta_cn} | 成交量/MA5：{vol_cn}")
         lines.append(f"K线形态：{pat_cn}")
 
         # 支撑阻力（仅最高周期显示传入值）
