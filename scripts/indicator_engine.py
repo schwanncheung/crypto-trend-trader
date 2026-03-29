@@ -163,6 +163,7 @@ def _rsi_delta_description(rsi_series: List[float]) -> str:
 def detect_rsi_reversal_warning(
     tf_indicators: dict,
     signal_direction: str,
+    symbol: str = "",
 ) -> Tuple[bool, str]:
     """
     趋势转折预警：检测小周期（15m/30m）是否出现 RSI 连续回升 + 量能放大。
@@ -228,7 +229,7 @@ def detect_rsi_reversal_warning(
             f"出现RSI{'回升' if signal_direction=='short' else '回落'}+量能放大，"
             f"暂停{direction_cn}信号"
         )
-        logger.info(f"[转折预警] {reason}")
+        logger.info(f"[转折预警] {symbol} {reason}")
         return True, reason
 
     return False, ""
@@ -238,6 +239,7 @@ def detect_rsi_reversal_warning(
 def detect_oversold_bounce_guard(
     tf_indicators: dict,
     signal_direction: str,
+    symbol: str = "",
 ) -> Tuple[bool, str]:
     """
     超卖反弹保护：若任一周期 RSI 曾处于超卖区（≤RSI_BOUNCE_GUARD_OVERSOLD），
@@ -292,14 +294,14 @@ def detect_oversold_bounce_guard(
             f"{protect_type}保护：{'、'.join(blocked_tfs)}，"
             f"判定为修复行情，禁止{direction_cn}"
         )
-        logger.info(f"[反弹保护] {reason}")
+        logger.info(f"[反弹保护] {symbol} {reason}")
         return True, reason
 
     return False, ""
 
 
 # ── 优化4：多头信号规则引擎 ───────────────────────────────────────────────
-def detect_long_signal_conditions(tf_indicators: dict) -> Tuple[bool, str]:
+def detect_long_signal_conditions(tf_indicators: dict, symbol: str = "") -> Tuple[bool, str]:
     """
     多头信号补充规则引擎，用于在规则引擎层面判断做多入场质量。
     条件：
@@ -341,15 +343,15 @@ def detect_long_signal_conditions(tf_indicators: dict) -> Tuple[bool, str]:
 
     if quality_signals:
         detail = f"多头质量确认：{'、'.join(quality_signals)}"
-        logger.debug(f"[多头规则] {detail}")
+        logger.debug(f"[多头规则] {symbol} {detail}")
         return True, detail
     elif weak_signals:
         detail = f"多头信号偏弱（{'、'.join(weak_signals)}），等待更好入场点"
-        logger.debug(f"[多头规则] {detail}")
+        logger.debug(f"[多头规则] {symbol} {detail}")
         return False, detail
     else:
         detail = "多头回调入场条件未满足（RSI未进入低位区）"
-        logger.debug(f"[多头规则] {detail}")
+        logger.debug(f"[多头规则] {symbol} {detail}")
         return False, detail
 
 
@@ -826,20 +828,20 @@ def rule_engine_filter(
         return False, "wait", reason
 
     # ── 6. [优化2] 超卖反弹保护：RSI从超卖区反弹 → 禁止做空
-    bounce_blocked, bounce_reason = detect_oversold_bounce_guard(tf_indicators, signal_direction)
+    bounce_blocked, bounce_reason = detect_oversold_bounce_guard(tf_indicators, signal_direction, symbol)
     if bounce_blocked:
         logger.info(f"[规则过滤] {symbol} {bounce_reason}")
         return False, "wait", f"{symbol} {bounce_reason}"
 
     # ── 7. [优化1] 趋势转折预警：小周期RSI连升+放量 → 暂停做空
-    reversal_warned, reversal_reason = detect_rsi_reversal_warning(tf_indicators, signal_direction)
+    reversal_warned, reversal_reason = detect_rsi_reversal_warning(tf_indicators, signal_direction, symbol)
     if reversal_warned:
         logger.info(f"[规则过滤] {symbol} {reversal_reason}")
         return False, "wait", f"{symbol} {reversal_reason}"
 
     # ── 8. [优化4] 做多质量检查：多头信号需满足回调买点条件（非硬过滤，仅记录质量）
     if signal_direction == "long":
-        long_ok, long_detail = detect_long_signal_conditions(tf_indicators)
+        long_ok, long_detail = detect_long_signal_conditions(tf_indicators, symbol)
         if not long_ok:
             # 做多质量不达标：记录warning但不硬过滤，由LLM最终判断
             logger.info(f"[规则过滤] {symbol} 做多质量提示：{long_detail}（LLM继续判断）")
