@@ -521,18 +521,21 @@ def _build_text_analysis_prompt() -> str:
 
     return f"""你是一位精通裸K趋势追踪的专业量化分析师，专注加密货币合约单边行情交易。
 
-以下是系统规则引擎计算出的多周期技术指标数据：
+以下是系统规则引擎计算出的多周期技术指标数据（已通过规则引擎预过滤，背离风险已由系统检测）：
 
 {{market_snapshot}}
 
 **分析要求：**
 1. 这是一个短线单边行情策略，只在 {tf_names} 级别出现明确单边趋势时才开仓
 2. 使用自上而下分析法：{tf_roles}
-3. 多周期共振对齐评分<{min_alignment}时，signal必须填wait
-4. entry_price 基于支撑阻力结构位
-5. stop_loss 必须使用 ATR 动态止损：long=entry-{atr_mult}×ATR，short=entry+{atr_mult}×ATR
-6. take_profit 必须使用盈亏比 1:{rr_ratio:.0f} 设置：long=entry+{rr_ratio}×(entry-stop_loss)，short=entry-{rr_ratio}×(entry-stop_loss)
-7. confidence=high 仅在 signal_strength>={_MIN_SIGNAL_STRENGTH} 且 volume_confirmed=true 且多周期对齐>={min_alignment} 时使用
+3. 快照末行「多周期共振」已给出对齐分数，对齐分数<{min_alignment} 时 signal 必须填 wait
+4. RSI趋势字段（如「RSI趋势：连升2轮」）反映动能方向，与信号方向相反时应降低 signal_strength
+5. 近期动能字段（如「近期动能：空头占比67%」）是重要的入场确认依据，与信号方向一致时加分
+6. entry_price：优先使用支撑阻力结构位附近；若无明确结构位则使用当前价格（市价入场）
+7. stop_loss 必须使用 ATR 动态止损：long=entry-{atr_mult}×ATR，short=entry+{atr_mult}×ATR
+8. take_profit 必须使用盈亏比 1:{rr_ratio:.0f} 设置：long=entry+{rr_ratio}×(entry-stop_loss)，short=entry-{rr_ratio}×(entry-stop_loss)
+9. confidence=high 仅在 signal_strength>={_MIN_SIGNAL_STRENGTH} 且 volume_confirmed=true 且多周期对齐>={min_alignment} 时使用
+10. divergence_risk：系统已检测RSI背离，此处基于快照中RSI趋势判断——若最低周期RSI趋势与价格方向相反则填 true
 
 **只输出如下JSON，不要输出任何其他内容：**
 {{{{
@@ -544,7 +547,7 @@ def _build_text_analysis_prompt() -> str:
   "trend_phase": "early或mid或late",
   "trend_strength": 整数1到10,
   "signal": "long或short或wait或close",
-  "signal_type": "engulfing或hammer或inside_bar或morning_star或pullback或none",
+  "signal_type": "engulfing或hammer或inside_bar或morning_star或pullback或momentum或none",
   "signal_strength": 整数1到10,
   "volume_confirmed": true或false,
   "volume_note": "成交量说明",
@@ -557,7 +560,7 @@ def _build_text_analysis_prompt() -> str:
   "divergence_risk": true或false,
   "structure_broken": true或false,
   "confidence": "high或medium或low",
-  "reason": "不少于100字的多周期综合分析",
+  "reason": "不少于100字的多周期综合分析，需提及RSI趋势和近期动能",
   "warning": "风险提示或null"
 }}}}
 """
