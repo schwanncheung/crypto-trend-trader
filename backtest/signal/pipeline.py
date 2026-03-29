@@ -139,12 +139,14 @@ class SignalPipeline:
         base_df = multi_tf_data.get(base_tf)
         current_price = float(base_df.iloc[-1]["close"]) if base_df is not None and not base_df.empty else 0.0
 
-        # 整理 tf_indicators 中的关键字段供 ai_mock 使用
+        # RuleOnlyMock 直接使用原始 tf_indicators（复用生产打分逻辑）
+        # LLMRealAnalyzer/LLMMockCache 使用简化版（用于构造快照/缓存键）
         simplified_indicators = self._simplify_indicators(tf_indicators)
+        mock_indicators = tf_indicators if hasattr(self.ai_mock, '_use_raw_indicators') else simplified_indicators
 
         try:
             decision = self.ai_mock.analyze(
-                tf_indicators=simplified_indicators,
+                tf_indicators=mock_indicators,
                 current_price=current_price,
             )
         except Exception as e:
