@@ -74,14 +74,14 @@ analysis:
     volume_ratio_threshold: 0.8
     rsi_overbought: 80
     rsi_oversold: 20
-    # RSI趋势转折预警参数（v2新增）
+    # RSI趋势转折预警参数
     rsi_reversal_warning_timeframes: ["15m", "30m"]  # 检测转折的小周期
     rsi_reversal_consecutive_rounds: 2               # 连续N轮RSI同向运动触发预警
     rsi_reversal_vol_confirm: true                   # 是否要求量能放大才触发预警
-    # 超卖反弹保护参数（v2新增）
-    rsi_bounce_guard_delta: 6        # RSI从低点反弹超过N点，判定"修复中"禁止做空
-    rsi_bounce_guard_oversold: 30    # 超卖判定线（宽松版，RSI≤30视为曾经超卖）
-    # 多头回调买点参数（v2新增）
+    # 超卖反弹保护参数
+    rsi_bounce_guard_delta: 10       # RSI从低点反弹超过N点，判定"修复中"禁止做空
+    rsi_bounce_guard_oversold: 20    # 超卖判定线（宽松版，RSI≤20视为曾经超卖）
+    # 多头回调买点参数
     long_signal_rsi_low: 40          # RSI低于此值视为充分回调（适合做多介入）
     long_signal_vol_ratio: 1.0       # 做多量比最低要求
     # ─── 近期动能参数─
@@ -99,9 +99,9 @@ analysis:
 
 trading:
   allowed_confidence: ["high"]  # 只有 confidence=high 的信号才允许交易
-  min_signal_strength: 7        # 最低信号强度（1-10），低于此值不交易
+  min_signal_strength: 6        # 最低信号强度（1-10），低于此值不交易
   min_trend_strength: 7         # 最低趋势强度（1-10），低于此值不交易（独立于信号强度）
-  min_rr_ratio: 2.0             # 最低盈亏比（risk:reward），低于此值不交易
+  min_rr_ratio: 1.5             # 最低盈亏比（risk:reward），低于此值不交易
   default_leverage: 10          # 默认杠杆倍数
   max_position_pct: 0.1        # 单笔最大仓位占账户净值比例（10%）
   adx_edge_min: 20              # ADX边缘区间下限：低于此值为横盘

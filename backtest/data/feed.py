@@ -94,7 +94,8 @@ class DataFeed:
                 df = df.sort_values("timestamp").reset_index(drop=True)
 
                 # 裁剪到回测区间（包含 start，不含 end）
-                df = df[(df["timestamp"] >= self._start_ms) & (df["timestamp"] < self._end_ms)]
+                # 但保留 start 之前的历史数据作为 warmup（用于指标计算）
+                df = df[df["timestamp"] < self._end_ms]
                 df = df.reset_index(drop=True)
 
                 self._data[symbol][tf] = df
@@ -175,12 +176,16 @@ class DataFeed:
         return visible.iloc[-limit:].reset_index(drop=True)
 
     def get_all_timestamps(self, symbol: str) -> list[int]:
-        """返回该品种在基础周期上所有时间戳（用于引擎主循环）"""
+        """返回该品种在基础周期上所有时间戳（用于引擎主循环）
+        只返回 start_date 之后的时间戳，避免在 warmup 期内开仓
+        """
         self._ensure_loaded()
         df = self._data.get(symbol, {}).get(self.base_timeframe)
         if df is None or df.empty:
             return []
-        return df["timestamp"].tolist()
+        # 只返回回测区间内的时间戳（>= start_ms）
+        df_trading = df[df["timestamp"] >= self._start_ms]
+        return df_trading["timestamp"].tolist()
 
     def available_symbols(self) -> list[str]:
         """返回有有效数据的品种列表"""

@@ -129,17 +129,7 @@ class SignalPipeline:
 
         logger.debug(f"  {symbol} 规则引擎通过：{direction}")
 
-        # ── 步骤 4：计算支撑阻力位 ────────────────────────────────────
-        anchor_tf = self.timeframes[0]
-        anchor_df = multi_tf_data.get(anchor_tf)
-        support_levels, resistance_levels = [], []
-        if anchor_df is not None and not anchor_df.empty:
-            try:
-                support_levels, resistance_levels = fk.calculate_support_resistance(anchor_df)
-            except Exception as e:
-                logger.debug(f"  {symbol} 支撑阻力计算失败（忽略）：{e}")
-
-        # ── 步骤 5：AI Mock 构造决策 ────────────────────────────────────
+        # ── 步骤 4：AI Mock 构造决策 ────────────────────────────────────
         base_tf = self.timeframes[-1]
         base_df = multi_tf_data.get(base_tf)
         current_price = float(base_df.iloc[-1]["close"]) if base_df is not None and not base_df.empty else 0.0
@@ -150,8 +140,6 @@ class SignalPipeline:
         try:
             decision = self.ai_mock.analyze(
                 tf_indicators=simplified_indicators,
-                support_levels=support_levels,
-                resistance_levels=resistance_levels,
                 current_price=current_price,
             )
         except Exception as e:
@@ -256,6 +244,7 @@ class SignalPipeline:
                 "rsi":          ind.get("rsi", 50),
                 "volume_ratio": ind.get("volume_ratio", 1.0),
                 "pattern":      pattern_name,
+                "atr":          ind.get("atr", 0),
             }
         return simplified
 

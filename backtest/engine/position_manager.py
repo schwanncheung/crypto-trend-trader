@@ -164,13 +164,31 @@ class PositionManager:
         if not position.trailing_active:
             return None
 
-        # 更新 peak_price
+        # 更新 peak_price 并跟随移动止损
         if position.side == 'long':
             if high > (position.peak_price or 0):
                 position.peak_price = high
+            # 止损跟随 peak_price（保留 trailing_trigger_pct 回撤空间）
+            trail_sl = position.peak_price * (1 - self.trailing_trigger_pct / 100)
+            if trail_sl > position.stop_loss:
+                old_sl = position.stop_loss
+                position.stop_loss = trail_sl
+                logger.debug(
+                    f"  移动止损上移 {position.symbol} long "
+                    f"peak={position.peak_price:.4f} {old_sl:.4f}→{trail_sl:.4f}"
+                )
         else:
             if low < (position.peak_price or float('inf')):
                 position.peak_price = low
+            # 止损跟随 peak_price（保留 trailing_trigger_pct 回撤空间）
+            trail_sl = position.peak_price * (1 + self.trailing_trigger_pct / 100)
+            if trail_sl < position.stop_loss:
+                old_sl = position.stop_loss
+                position.stop_loss = trail_sl
+                logger.debug(
+                    f"  移动止损下移 {position.symbol} short "
+                    f"peak={position.peak_price:.4f} {old_sl:.4f}→{trail_sl:.4f}"
+                )
 
         # 检查是否触发移动止损
         if position.side == 'long' and low <= position.stop_loss:

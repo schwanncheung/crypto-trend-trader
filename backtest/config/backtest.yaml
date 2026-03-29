@@ -4,8 +4,8 @@
 
 backtest:
   # ── 回测时间区间 ──────────────────────────────
-  start_date: "2026-02-01"
-  end_date:   "2026-03-28"
+  start_date: "2026-03-25"
+  end_date:   "2026-03-29"
 
   # ── 回测账户 ──────────────────────────────────
   initial_balance: 500.0     # 初始资金 (USDT)
@@ -46,8 +46,8 @@ override:
   # volume_ratio_threshold: 1.2
   # min_trending_timeframes: 2
   # require_anchor_aligned: true
-  # min_signal_strength: 7
-  # min_rr_ratio: 2.0
+  min_signal_strength: 6        # 方案A：从7降到6，允许RSI超卖区信号通过
+  min_rr_ratio: 1.5             # 方案A：从2.0降到1.6，适应深跌行情支撑位缺失场景
   # min_trend_strength: 7
   # trailing_stop_trigger_pct: 15.0
   # partial_profit_trigger_pct: 25.0

@@ -29,21 +29,18 @@ class RuleOnlyMock:
         rule_engine = config.get("analysis", {}).get("rule_engine", {})
         self.min_signal_strength  = trading.get("min_signal_strength", 7)
         self.min_rr_ratio         = trading.get("min_rr_ratio", 2.0)
+        self.atr_multiplier       = trading.get("stop_loss_atr_multiplier", 2.5)
         self.timeframes           = config.get("timeframes", ["1h", "30m", "15m"])
         self.vol_ratio_threshold  = rule_engine.get("volume_ratio_threshold", 1.2)
 
     def analyze(
         self,
         tf_indicators: dict,
-        support_levels: list,
-        resistance_levels: list,
         current_price: float,
     ) -> dict:
         """
         参数：
-            tf_indicators   : {tf: {trend, adx, rsi, ema_align, volume_ratio, pattern, ...}}
-            support_levels  : 关键支撑位列表（降序）
-            resistance_levels: 关键阻力位列表（升序）
+            tf_indicators   : {tf: {trend, adx, rsi, ema_align, volume_ratio, pattern, atr, ...}}
             current_price   : 当前价格（最低周期最新收盘价）
 
         返回：与 risk_filter.check_signal_quality() 兼容的 decision dict
@@ -95,18 +92,18 @@ class RuleOnlyMock:
         if pattern not in ("none", "", None):
             score += 1.5
 
-        # RSI 评分（避免极值区域）
+        # RSI 评分（方案B：放宽区间，允许深度超卖/超买趋势中仍得分）
         rsi = tf_indicators.get(base_tf, {}).get("rsi", 50)
-        if direction == "long" and 40 <= rsi <= 65:   score += 1.5
-        elif direction == "short" and 35 <= rsi <= 60: score += 1.5
+        if direction == "long" and 25 <= rsi <= 65:   score += 1.5
+        elif direction == "short" and 25 <= rsi <= 65: score += 1.5
 
         signal_strength = min(10, int(score))
 
-        # ── 4. 计算入场/止损/止盈 ──────────────────────────────────────
+        # ── 4. 计算入场/止损/止盈（与生产一致：ATR动态止损 + 固定盈亏比止盈）──
         entry = current_price
-        stop_loss, take_profit, rr = self._calc_sl_tp(
-            direction, entry, support_levels, resistance_levels
-        )
+        # 取最低周期 ATR
+        atr = tf_indicators.get(base_tf, {}).get("atr", entry * 0.01)
+        stop_loss, take_profit, rr = self._calc_sl_tp(direction, entry, atr)
 
         if rr < self.min_rr_ratio:
             return self._wait_decision(f"RR不足：{rr:.2f} < {self.min_rr_ratio}")
@@ -126,8 +123,8 @@ class RuleOnlyMock:
             "trend_strength":   trend_strength,
             "volume_confirmed": volume_confirmed,
             "volume_note":      f"量比={vol_ratio:.2f}",
-            "key_support":      support_levels[0] if support_levels else entry * 0.97,
-            "key_resistance":   resistance_levels[0] if resistance_levels else entry * 1.03,
+            "key_support":      entry * 0.97,
+            "key_resistance":   entry * 1.03,
             "entry_price":      entry,
             "stop_loss":        stop_loss,
             "take_profit":      take_profit,
@@ -147,28 +144,20 @@ class RuleOnlyMock:
         self,
         direction: str,
         entry: float,
-        support_levels: list,
-        resistance_levels: list,
+        atr: float,
     ) -> tuple[float, float, float]:
-        """基于支撑阻力位计算止损和止盈，返回 (stop_loss, take_profit, rr)"""
+        """与生产一致：ATR动态止损 + 固定盈亏比止盈
+        long : stop_loss = entry - atr_multiplier×ATR
+               take_profit = entry + min_rr_ratio×(entry - stop_loss)
+        short: stop_loss = entry + atr_multiplier×ATR
+               take_profit = entry - min_rr_ratio×(stop_loss - entry)
+        """
         if direction == "long":
-            # 止损：入场价以下最近支撑位（取最大，即最接近entry）下方1%
-            valid_supports = [s for s in support_levels if s < entry]
-            sl_base = max(valid_supports) if valid_supports else entry * 0.97
-            stop_loss = sl_base * 0.99
-            # 止盈：入场价以上最近阻力位（取最小，即最接近entry）
-            valid_resistances = [r for r in resistance_levels if r > entry]
-            tp_base = min(valid_resistances) if valid_resistances else entry * 1.06
-            take_profit = tp_base * 0.995
+            stop_loss   = entry - self.atr_multiplier * atr
+            take_profit = entry + self.min_rr_ratio * (entry - stop_loss)
         else:
-            # 止损：入场价以上最近阻力位（取最小，即最接近entry）上方1%
-            valid_resistances = [r for r in resistance_levels if r > entry]
-            sl_base = min(valid_resistances) if valid_resistances else entry * 1.03
-            stop_loss = sl_base * 1.01
-            # 止盈：入场价以下最近支撑位（取最大，即最接近entry）
-            valid_supports = [s for s in support_levels if s < entry]
-            tp_base = max(valid_supports) if valid_supports else entry * 0.94
-            take_profit = tp_base * 1.005
+            stop_loss   = entry + self.atr_multiplier * atr
+            take_profit = entry - self.min_rr_ratio * (stop_loss - entry)
 
         risk   = abs(entry - stop_loss)
         reward = abs(take_profit - entry)
@@ -222,8 +211,6 @@ class LLMMockCache:
         timeframe: str,
         ts_ms: int,
         tf_indicators: dict,
-        support_levels: list,
-        resistance_levels: list,
         current_price: float,
     ) -> dict:
         from datetime import datetime, timezone
@@ -236,4 +223,4 @@ class LLMMockCache:
             return self._cache[key]
 
         logger.debug(f"LLMMockCache 未命中，降级为RuleOnly：{key}")
-        return self._rule_mock.analyze(tf_indicators, support_levels, resistance_levels, current_price)
+        return self._rule_mock.analyze(tf_indicators, current_price)
