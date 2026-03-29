@@ -269,15 +269,26 @@ class SignalPipeline:
     def _get_risk_filter(self):
         if self._risk_filter is None:
             # risk_filter 模块顶层会调用 check_env()，回测时跳过
+            # 同时确保导入的是生产 scripts/config_loader.py 而非 backtest/config_loader.py
             import importlib, types
-            # 临时 mock check_env 避免因缺少 .env 中断回测
-            import config_loader as cl
-            _orig = cl.check_env
-            cl.check_env = lambda: None
-            import risk_filter as rf
-            cl.check_env = _orig
-            self._risk_filter = rf
-            logger.debug("risk_filter 模块已加载")
+            # 临时移除 backtest 目录避免 config_loader 冲突
+            backtest_paths = [p for p in sys.path if 'backtest' in p and 'crypto-trend-trader' in p]
+            for p in backtest_paths:
+                sys.path.remove(p)
+            try:
+                # 临时 mock check_env 避免因缺少 .env 中断回测
+                import config_loader as cl
+                _orig = cl.check_env
+                cl.check_env = lambda: None
+                import risk_filter as rf
+                cl.check_env = _orig
+                self._risk_filter = rf
+                logger.debug("risk_filter 模块已加载")
+            finally:
+                # 恢复 backtest 路径
+                for p in backtest_paths:
+                    if p not in sys.path:
+                        sys.path.append(p)
         return self._risk_filter
 
     def _get_fetch_kline(self):

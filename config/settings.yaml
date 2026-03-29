@@ -79,8 +79,11 @@ analysis:
     rsi_reversal_consecutive_rounds: 2               # 连续N轮RSI同向运动触发预警
     rsi_reversal_vol_confirm: true                   # 是否要求量能放大才触发预警
     # 超卖反弹保护参数
-    rsi_bounce_guard_delta: 10       # RSI从低点反弹超过N点，判定"修复中"禁止做空
-    rsi_bounce_guard_oversold: 20    # 超卖判定线（宽松版，RSI≤20视为曾经超卖）
+    rsi_bounce_guard_delta: 15       # RSI从低点反弹超过N点，判定"修复中"禁止做空（提升至15，减少误判）
+    rsi_bounce_guard_oversold: 15    # 超卖判定线（从20降至15，缩小保护范围）
+    # 趋势强度豁免参数（方案D：允许在极强趋势中跳过RSI超卖保护）
+    strong_trend_adx_threshold: 60   # ADX超过此值视为极强趋势
+    strong_trend_di_diff_threshold: 20  # DI差值超过此值视为方向明确
     # 多头回调买点参数
     long_signal_rsi_low: 40          # RSI低于此值视为充分回调（适合做多介入）
     long_signal_vol_ratio: 1.0       # 做多量比最低要求

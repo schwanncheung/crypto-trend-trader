@@ -27,11 +27,14 @@ class RuleOnlyMock:
     def __init__(self, config: dict):
         trading = config.get("trading", {})
         rule_engine = config.get("analysis", {}).get("rule_engine", {})
+        rule_filter = config.get("analysis", {}).get("rule_filter", {})
         self.min_signal_strength  = trading.get("min_signal_strength", 7)
         self.min_rr_ratio         = trading.get("min_rr_ratio", 2.0)
         self.atr_multiplier       = trading.get("stop_loss_atr_multiplier", 2.5)
         self.timeframes           = config.get("timeframes", ["1h", "30m", "15m"])
-        self.vol_ratio_threshold  = rule_engine.get("volume_ratio_threshold", 1.2)
+        self.vol_ratio_threshold  = rule_filter.get("volume_ratio_threshold", 0.8)
+        self.strong_trend_adx     = rule_filter.get("strong_trend_adx_threshold", 60)
+        self.strong_trend_di_diff = rule_filter.get("strong_trend_di_diff_threshold", 20)
 
     def analyze(
         self,
@@ -80,12 +83,24 @@ class RuleOnlyMock:
         )
         score += ema_align_ok / total_tfs * 2.5
 
+        # ── 方案D：检查极强趋势豁免条件（提前计算，供后续评分使用）──
+        anchor_tf = self.timeframes[0]
+        anchor_ind = tf_indicators.get(anchor_tf, {})
+        _adx = anchor_ind.get("adx", 0)
+        _plus_di = anchor_ind.get("plus_di", 0)
+        _minus_di = anchor_ind.get("minus_di", 0)
+        _di_diff = abs(_plus_di - _minus_di)
+        strong_trend_exemption = (_adx >= self.strong_trend_adx and _di_diff >= self.strong_trend_di_diff)
+
         # 成交量评分（最低周期）
         base_tf = self.timeframes[-1]
         vol_ratio = tf_indicators.get(base_tf, {}).get("volume_ratio", 0)
         volume_confirmed = vol_ratio >= self.vol_ratio_threshold
         if vol_ratio >= self.vol_ratio_threshold * 2:  score += 2.0
         elif vol_ratio >= self.vol_ratio_threshold:    score += 1.0
+        # 方案D豁免：极强趋势中 volume_confirmed 强制置 True
+        if strong_trend_exemption:
+            volume_confirmed = True
 
         # K线形态评分（最低周期）
         pattern = tf_indicators.get(base_tf, {}).get("pattern", "none")
@@ -96,6 +111,9 @@ class RuleOnlyMock:
         rsi = tf_indicators.get(base_tf, {}).get("rsi", 50)
         if direction == "long" and 25 <= rsi <= 65:   score += 1.5
         elif direction == "short" and 25 <= rsi <= 65: score += 1.5
+        # 方案D豁免：极强趋势中深度超卖/超买也得分（RSI<25做空, RSI>75做多）
+        elif strong_trend_exemption and direction == "short" and rsi < 25: score += 1.5
+        elif strong_trend_exemption and direction == "long" and rsi > 75:  score += 1.5
 
         signal_strength = min(10, int(score))
 

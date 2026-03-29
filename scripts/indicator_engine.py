@@ -52,6 +52,10 @@ RSI_REVERSAL_VOL_CONFIRM    = _RULE_CFG.get("rsi_reversal_vol_confirm", True)   
 RSI_BOUNCE_GUARD_DELTA      = _RULE_CFG.get("rsi_bounce_guard_delta", 6)             # 反弹幅度阈值（点）
 RSI_BOUNCE_GUARD_OVERSOLD   = _RULE_CFG.get("rsi_bounce_guard_oversold", 30)         # 超卖判定线（偏宽松）
 
+# 方案D：趋势强度豁免 —— 极强趋势中跳过RSI超卖/超买保护
+STRONG_TREND_ADX_THRESHOLD  = _RULE_CFG.get("strong_trend_adx_threshold", 60)
+STRONG_TREND_DI_DIFF_THRESHOLD = _RULE_CFG.get("strong_trend_di_diff_threshold", 20)
+
 # 优化4：多头信号规则引擎触发条件
 LONG_SIGNAL_RSI_LOW         = _RULE_CFG.get("long_signal_rsi_low", 40)               # RSI低位阈值（回调买点区间上沿）
 LONG_SIGNAL_VOL_RATIO       = _RULE_CFG.get("long_signal_vol_ratio", 1.0)            # 做多量比最低要求
@@ -733,6 +737,7 @@ def compute_timeframe_indicators(df: pd.DataFrame, tf_label: str, symbol: str = 
         "volume_ratio": vol_ratio,
         "momentum":     momentum,     # 近期动能：{direction, bull_pct, bear_pct, total_move, breakout, description}
         "patterns":     patterns,
+        "atr":          adx_info.get("atr", 0),  # ATR用于止损计算
     }
 
 
@@ -801,45 +806,67 @@ def rule_engine_filter(
         logger.info(f"[规则过滤] {reason}")
         return False, "wait", reason
 
-    # ── 4. RSI 极值过滤（趋势末端保护）
-    for tf in check_tfs:
-        ind = tf_indicators.get(tf, {})
-        if not ind.get("valid"):
-            continue
-        rsi = ind.get("rsi", 50)
-        if signal_direction == "long" and rsi >= RSI_OVERBOUGHT:
-            reason = f"{symbol} {tf} RSI={rsi} 超买（>={RSI_OVERBOUGHT}），拒绝做多"
-            logger.info(f"[规则过滤] {reason}")
-            return False, "wait", reason
-        if signal_direction == "short" and rsi <= RSI_OVERSOLD:
-            reason = f"{symbol} {tf} RSI={rsi} 超卖（<={RSI_OVERSOLD}），拒绝做空"
-            logger.info(f"[规则过滤] {reason}")
-            return False, "wait", reason
+    # ── 4. 趋势强度豁免检查（方案D：极强趋势中跳过RSI超卖/超买保护）
+    anchor_adx_info = anchor.get("adx", {})
+    anchor_adx = anchor_adx_info.get("adx", 0) if isinstance(anchor_adx_info, dict) else 0
+    anchor_plus_di = anchor_adx_info.get("plus_di", 0) if isinstance(anchor_adx_info, dict) else 0
+    anchor_minus_di = anchor_adx_info.get("minus_di", 0) if isinstance(anchor_adx_info, dict) else 0
+    di_diff = abs(anchor_plus_di - anchor_minus_di)
 
-    # ── 5. 成交量确认（至少一个小周期放量）
-    vol_confirmed = any(
-        tf_indicators.get(tf, {}).get("volume_ratio", 0) >= VOL_RATIO_THRESH
-        for tf in check_tfs
-        if tf_indicators.get(tf, {}).get("valid")
+    strong_trend_exemption = (
+        anchor_adx >= STRONG_TREND_ADX_THRESHOLD and
+        di_diff >= STRONG_TREND_DI_DIFF_THRESHOLD
     )
-    if not vol_confirmed:
-        reason = f"{symbol} 成交量不足（各周期量比均<{VOL_RATIO_THRESH}），信号可靠性低"
-        logger.info(f"[规则过滤] {reason}")
-        return False, "wait", reason
 
-    # ── 6. [优化2] 超卖反弹保护：RSI从超卖区反弹 → 禁止做空
-    bounce_blocked, bounce_reason = detect_oversold_bounce_guard(tf_indicators, signal_direction, symbol)
-    if bounce_blocked:
-        logger.info(f"[规则过滤] {symbol} {bounce_reason}")
-        return False, "wait", f"{symbol} {bounce_reason}"
+    if strong_trend_exemption:
+        logger.info(
+            f"[规则过滤] {symbol} 极强趋势豁免：ADX={anchor_adx:.1f}(>={STRONG_TREND_ADX_THRESHOLD}), "
+            f"DI差值={di_diff:.1f}(>={STRONG_TREND_DI_DIFF_THRESHOLD}), 跳过RSI超卖/超买保护"
+        )
 
-    # ── 7. [优化1] 趋势转折预警：小周期RSI连升+放量 → 暂停做空
-    reversal_warned, reversal_reason = detect_rsi_reversal_warning(tf_indicators, signal_direction, symbol)
-    if reversal_warned:
-        logger.info(f"[规则过滤] {symbol} {reversal_reason}")
-        return False, "wait", f"{symbol} {reversal_reason}"
+    # ── 5. RSI 极值过滤（趋势末端保护，极强趋势时豁免）
+    if not strong_trend_exemption:
+        for tf in check_tfs:
+            ind = tf_indicators.get(tf, {})
+            if not ind.get("valid"):
+                continue
+            rsi = ind.get("rsi", 50)
+            if signal_direction == "long" and rsi >= RSI_OVERBOUGHT:
+                reason = f"{symbol} {tf} RSI={rsi} 超买（>={RSI_OVERBOUGHT}），拒绝做多"
+                logger.info(f"[规则过滤] {reason}")
+                return False, "wait", reason
+            if signal_direction == "short" and rsi <= RSI_OVERSOLD:
+                reason = f"{symbol} {tf} RSI={rsi} 超卖（<={RSI_OVERSOLD}），拒绝做空"
+                logger.info(f"[规则过滤] {reason}")
+                return False, "wait", reason
 
-    # ── 8. [优化4] 做多质量检查：多头信号需满足回调买点条件（非硬过滤，仅记录质量）
+    # ── 6. 成交量确认（至少一个小周期放量，极强趋势时豁免）
+    if not strong_trend_exemption:
+        vol_confirmed = any(
+            tf_indicators.get(tf, {}).get("volume_ratio", 0) >= VOL_RATIO_THRESH
+            for tf in check_tfs
+            if tf_indicators.get(tf, {}).get("valid")
+        )
+        if not vol_confirmed:
+            reason = f"{symbol} 成交量不足（各周期量比均<{VOL_RATIO_THRESH}），信号可靠性低"
+            logger.info(f"[规则过滤] {reason}")
+            return False, "wait", reason
+
+    # ── 7. [优化2] 超卖反弹保护：RSI从超卖区反弹 → 禁止做空（极强趋势时豁免）
+    if not strong_trend_exemption:
+        bounce_blocked, bounce_reason = detect_oversold_bounce_guard(tf_indicators, signal_direction, symbol)
+        if bounce_blocked:
+            logger.info(f"[规则过滤] {symbol} {bounce_reason}")
+            return False, "wait", f"{symbol} {bounce_reason}"
+
+    # ── 8. [优化1] 趋势转折预警：小周期RSI连升+放量 → 暂停做空（极强趋势时豁免）
+    if not strong_trend_exemption:
+        reversal_warned, reversal_reason = detect_rsi_reversal_warning(tf_indicators, signal_direction, symbol)
+        if reversal_warned:
+            logger.info(f"[规则过滤] {symbol} {reversal_reason}")
+            return False, "wait", f"{symbol} {reversal_reason}"
+
+    # ── 9. [优化4] 做多质量检查：多头信号需满足回调买点条件（非硬过滤，仅记录质量）
     if signal_direction == "long":
         long_ok, long_detail = detect_long_signal_conditions(tf_indicators, symbol)
         if not long_ok:
@@ -848,6 +875,7 @@ def rule_engine_filter(
         else:
             logger.info(f"[规则过滤] {symbol} {long_detail}")
 
+    # ── 10. 规则引擎通过
     reason = (
         f"{symbol} 规则引擎通过：方向={signal_direction}，"
         f"{ANCHOR_TF}锚={anchor_trend}，对齐周期={'多头' if signal_direction=='long' else '空头'}{max(up_count,down_count)}/{len(check_tfs)}"
