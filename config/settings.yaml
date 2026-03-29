@@ -50,21 +50,7 @@ analysis:
     base_url: "https://coding.dashscope.aliyuncs.com/v1"  # 阿里云百炼 Coding Plan 接口
 
   # 规则引擎预过滤（进入LLM分析前必须通过，不通过直接返回 wait，节省 token）
-  rule_filter:
-    # 方向锚周期：此周期趋势必须非横盘，作为宏观方向依据（建议与 timeframes[0] 一致）
-    anchor_timeframe: "1h"
-    # true = 锚周期趋势必须与信号方向一致才放行；false = 仅作参考不强制
-    require_anchor_aligned: true
-    # 非锚周期中至少几个周期的趋势方向与信号方向一致（不含锚周期）
-    min_trending_timeframes: 2
-    # ADX >= 此值视为趋势明确；低于此值视为横盘，拒绝进入
-    adx_trending_threshold: 20
-    # 成交量 / 量均线(MA5) >= 此值视为量能确认；低于此值视为缩量，拒绝进入
-    volume_ratio_threshold: 0.8
-    # RSI 超买阈值：做多信号时若 RSI >= 此值，视为趋势末端，拒绝开仓
-    rsi_overbought: 80
-    # RSI 超卖阈值：做空信号时若 RSI <= 此值，视为趋势末端，拒绝开仓
-    rsi_oversold: 20
+  # ⚠️ 完整配置见下方 rule_filter 节（含v2新增的RSI保护和近期动能参数）
 
   # 指标计算参数
   indicator:
@@ -75,7 +61,42 @@ analysis:
     swing_lookback: 5           # 波段高低点回看K线数（用于 HH/HL/LH/LL 结构判断）
     swing_count: 3              # 最少需要识别的波段高低点数量
 
-# ── 交易参数 ────────────────────────────────────────────────────────
+  # ── 近期趋势动能评估（解决EMA200惯性滞后，捕捉趋势刚启动） ──────────
+  # 背景：EMA200惯性极强，横盘后刚启动的趋势需55+小时才能形成空头/多头排列。
+  # 解决方案：单独评估最近N根K线的方向连续性，作为趋势判断的第5个评分项，
+  #           并在ADX尚低（趋势刚启动）但近期价格突破背景中位价时豁免ADX门槛。
+  rule_filter:
+    # ─── 已有配置 ───────────────────────────────────────────────────────
+    anchor_timeframe: "1h"
+    require_anchor_aligned: true
+    min_trending_timeframes: 2
+    adx_trending_threshold: 20
+    volume_ratio_threshold: 0.8
+    rsi_overbought: 80
+    rsi_oversold: 20
+    # RSI趋势转折预警参数（v2新增）
+    rsi_reversal_warning_timeframes: ["15m", "30m"]  # 检测转折的小周期
+    rsi_reversal_consecutive_rounds: 2               # 连续N轮RSI同向运动触发预警
+    rsi_reversal_vol_confirm: true                   # 是否要求量能放大才触发预警
+    # 超卖反弹保护参数（v2新增）
+    rsi_bounce_guard_delta: 6        # RSI从低点反弹超过N点，判定"修复中"禁止做空
+    rsi_bounce_guard_oversold: 30    # 超卖判定线（宽松版，RSI≤30视为曾经超卖）
+    # 多头回调买点参数（v2新增）
+    long_signal_rsi_low: 40          # RSI低于此值视为充分回调（适合做多介入）
+    long_signal_vol_ratio: 1.0       # 做多量比最低要求
+    # ─── 近期动能参数─
+    # 场景：某合约横盘24小时后开始下跌，EMA排列仍是mixed（混乱），
+    #       但近24根K线里16根是阴线且跌幅>1.5% → 判定近期动能=down → 空头得分+1
+    # 近期窗口大小（根）：1h周期下24根=近24小时，覆盖"下跌4-8小时"到"下跌满1天"
+    recent_trend_window: 24
+    # 近期窗口内方向一致K线占比下限（24根里至少16根同向）
+    recent_trend_min_pct: 0.65
+    # 近期总价格变动幅度下限（1.5%），过滤横盘内假信号
+    recent_trend_min_move: 0.015
+    # 背景窗口（根）：用于计算"前期横盘中位价"，判断近期是否真正突破了横盘区间
+    # 1h周期下60根=近60小时，覆盖你描述的"3月28日整天横盘"背景
+    context_trend_window: 60
+
 trading:
   allowed_confidence: ["high"]  # 只有 confidence=high 的信号才允许交易
   min_signal_strength: 7        # 最低信号强度（1-10），低于此值不交易

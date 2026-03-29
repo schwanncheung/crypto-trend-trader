@@ -56,8 +56,13 @@ RSI_BOUNCE_GUARD_OVERSOLD   = _RULE_CFG.get("rsi_bounce_guard_oversold", 30)    
 LONG_SIGNAL_RSI_LOW         = _RULE_CFG.get("long_signal_rsi_low", 40)               # RSI低位阈值（回调买点区间上沿）
 LONG_SIGNAL_VOL_RATIO       = _RULE_CFG.get("long_signal_vol_ratio", 1.0)            # 做多量比最低要求
 
-# 快捷引用：第一个EMA周期（最短，用于价格位置判断）
-_EMA_FAST = EMA_PERIODS[0] if EMA_PERIODS else 21
+# ── 近期趋势连续性判断参数 ────────────────────────────────────────────
+# 解决EMA200惯性滞后问题：在200根K线中，单独评估最近N根的方向连续性
+# 让系统能在"趋势刚启动"时就感知到方向，而不是等EMA排列完全形成（需55+小时）
+RECENT_TREND_WINDOW     = _RULE_CFG.get("recent_trend_window", 24)       # 近期窗口（根）：取最近24根K线（1h周期=近24小时）
+RECENT_TREND_MIN_PCT    = _RULE_CFG.get("recent_trend_min_pct", 0.65)    # 方向一致K线占比下限（65%=24根里至少16根同向）
+RECENT_TREND_MIN_MOVE   = _RULE_CFG.get("recent_trend_min_move", 0.015)  # 窗口内总振幅下限（1.5%，过滤横盘假信号）
+CONTEXT_WINDOW          = _RULE_CFG.get("context_trend_window", 60)      # 背景窗口（根）：用于判断近期涨跌是否超越了前期横盘
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -529,10 +534,91 @@ def detect_candlestick_patterns(df: pd.DataFrame) -> list:
 # 三、单边趋势判断（核心过滤逻辑）
 # ═══════════════════════════════════════════════════════════════════════
 
+def assess_recent_trend_momentum(df: pd.DataFrame) -> dict:
+    """
+    近期趋势动能评估：解耦 EMA200 的惯性滞后问题。
+
+    核心逻辑：
+      1. 取最近 RECENT_TREND_WINDOW 根K线（默认20根）
+      2. 统计其中看涨/看跌K线的比例
+      3. 计算近期窗口内的总价格变动幅度（相对变化%）
+      4. 对比近期价格vs背景窗口中段价格，判断是否从横盘中"突破启动"
+
+    返回：
+      {
+        "direction":   "up" / "down" / "neutral",  # 近期动能方向
+        "bull_pct":    float,   # 看涨K线占比
+        "bear_pct":    float,   # 看跌K线占比
+        "total_move":  float,   # 近期总价格变动（%，正=上涨，负=下跌）
+        "breakout":    bool,    # 是否从背景区间突破（price越过context中位数且振幅>min_move）
+        "description": str,     # 自然语言描述，注入LLM快照
+      }
+    """
+    if df is None or len(df) < RECENT_TREND_WINDOW + 1:
+        return {"direction": "neutral", "bull_pct": 0.5, "bear_pct": 0.5,
+                "total_move": 0.0, "breakout": False, "description": "近期K线数据不足"}
+
+    recent  = df.iloc[-RECENT_TREND_WINDOW:]
+    context = df.iloc[-(CONTEXT_WINDOW):] if len(df) >= CONTEXT_WINDOW else df
+
+    # ① 统计近期方向一致性
+    bull_bars = (recent["close"] > recent["open"]).sum()
+    bear_bars = (recent["close"] < recent["open"]).sum()
+    total     = len(recent)
+    bull_pct  = round(bull_bars / total, 3)
+    bear_pct  = round(bear_bars / total, 3)
+
+    # ② 近期总价格变动
+    price_start  = float(recent["close"].iloc[0])
+    price_end    = float(recent["close"].iloc[-1])
+    total_move   = round((price_end - price_start) / price_start, 4) if price_start > 0 else 0.0
+
+    # ③ 背景中位价（判断是否突破了前期横盘区间）
+    context_mid  = float(context["close"].median())
+    breakout_up   = price_end > context_mid and total_move >= RECENT_TREND_MIN_MOVE
+    breakout_down = price_end < context_mid and total_move <= -RECENT_TREND_MIN_MOVE
+
+    # ④ 综合判定近期动能方向
+    if bull_pct >= RECENT_TREND_MIN_PCT and total_move >= RECENT_TREND_MIN_MOVE:
+        direction = "up"
+    elif bear_pct >= RECENT_TREND_MIN_PCT and total_move <= -RECENT_TREND_MIN_MOVE:
+        direction = "down"
+    else:
+        direction = "neutral"
+
+    # ⑤ 自然语言描述（供LLM快照使用）
+    move_pct_str = f"{total_move*100:+.1f}%"
+    if direction == "up":
+        desc = (f"近{RECENT_TREND_WINDOW}根看涨占比{bull_pct:.0%}，"
+                f"区间涨幅{move_pct_str}，"
+                f"{'突破背景中位价↑' if breakout_up else '区间内上行'}")
+    elif direction == "down":
+        desc = (f"近{RECENT_TREND_WINDOW}根看跌占比{bear_pct:.0%}，"
+                f"区间跌幅{move_pct_str}，"
+                f"{'跌破背景中位价↓' if breakout_down else '区间内下行'}")
+    else:
+        desc = (f"近{RECENT_TREND_WINDOW}根涨跌各占{bull_pct:.0%}/{bear_pct:.0%}，"
+                f"区间变动{move_pct_str}，方向不明（横盘/震荡）")
+
+    return {
+        "direction":   direction,
+        "bull_pct":    bull_pct,
+        "bear_pct":    bear_pct,
+        "total_move":  total_move,
+        "breakout":    breakout_up or breakout_down,
+        "description": desc,
+    }
+
 def assess_trend_direction(df: pd.DataFrame, adx_info: dict, ema_info: dict, symbol: str = None) -> str:
     """
-    综合 EMA 排列 + ADX + 收盘价位置 判断单边趋势方向
+    综合 EMA 排列 + ADX + 收盘价位置 + 近期动能 判断单边趋势方向
     返回 "up" / "down" / "sideways"
+
+    评分规则（满分5分，≥3分判为趋势）：
+      EMA排列（2分）：解决中长期趋势结构确认
+      DI方向（1分）：ADX方向分量确认
+      价格vs EMA21（1分）：短期位置确认
+      近期动能（1分）：[新增] 解耦EMA200惯性，感知趋势刚启动
     """
     adx = adx_info.get("adx", 0)
     plus_di  = adx_info.get("plus_di",  0)
@@ -541,35 +627,58 @@ def assess_trend_direction(df: pd.DataFrame, adx_info: dict, ema_info: dict, sym
     ema_fast = ema_info.get(f"ema{_EMA_FAST}", 0)
     current_price = float(df["close"].iloc[-1])
 
-    if adx < ADX_THRESHOLD:
+    # 近期动能评估（独立于EMA，专门捕捉趋势刚启动的信号）
+    momentum = assess_recent_trend_momentum(df)
+    momentum_dir = momentum["direction"]
+
+    # ADX门槛：ADX<20时额外看近期动能，若动能明确可豁免ADX门槛（刚启动场景）
+    adx_ok = adx >= ADX_THRESHOLD
+    # 豁免条件：近期动能方向明确 + 从背景中位价突破（代表真实趋势启动）
+    adx_waived = (not adx_ok) and momentum["breakout"] and momentum_dir != "neutral"
+
+    if not adx_ok and not adx_waived:
+        logger.debug(
+            f"[趋势判断] {symbol or ''} ADX={adx:.2f}<{ADX_THRESHOLD}，"
+            f"近期动能={momentum_dir}(突破={momentum['breakout']})，判横盘"
+        )
         return "sideways"
 
     bullish_signals = 0
     bearish_signals = 0
 
+    # ① EMA排列（权重2分）—— 成熟趋势的结构确认
     if alignment == "bullish":
         bullish_signals += 2
     elif alignment == "bearish":
         bearish_signals += 2
 
+    # ② DI方向（权重1分）
     if plus_di > minus_di:
         bullish_signals += 1
     else:
         bearish_signals += 1
 
+    # ③ 价格 vs EMA21（权重1分）
     if current_price > ema_fast:
         bullish_signals += 1
     else:
         bearish_signals += 1
 
-    # ── 调试日志：详细记录趋势判断得分 ──────────────────────
+    # ④ [新增] 近期动能（权重1分）：解耦EMA200惯性，感知趋势刚启动
+    if momentum_dir == "up":
+        bullish_signals += 1
+    elif momentum_dir == "down":
+        bearish_signals += 1
+
     symbol_tag = f"{symbol} " if symbol else ""
+    adx_tag = f"ADX={adx:.2f}{'(豁免)' if adx_waived else ''}"
     logger.debug(
-        f"[{symbol_tag}趋势判断] ADX={adx:.2f} | EMA={alignment} | "
-        f"+DI={plus_di:.2f} vs -DI={minus_di:.2f} | 价格={current_price:.6f} vs EMA{ema_fast:.6f} | "
-        f"得分：多={bullish_signals} / 空={bearish_signals} → 结果={'up' if bullish_signals>=3 else 'down' if bearish_signals>=3 else 'sideways'}"
+        f"[{symbol_tag}趋势判断] {adx_tag} | EMA={alignment} | "
+        f"+DI={plus_di:.2f} vs -DI={minus_di:.2f} | 价格vs EMA21 | "
+        f"动能={momentum_dir}({momentum['description'][:20]}) | "
+        f"得分：多={bullish_signals}/空={bearish_signals} → "
+        f"{'up' if bullish_signals>=3 else 'down' if bearish_signals>=3 else 'sideways'}"
     )
-    # ───────────────────────────────────────────────────────
 
     if bullish_signals >= 3:
         return "up"
@@ -589,8 +698,9 @@ def compute_timeframe_indicators(df: pd.DataFrame, tf_label: str, symbol: str = 
     ema_info    = compute_ema_alignment(df)
     adx_info    = compute_adx(df)
     rsi         = compute_rsi(df["close"])
-    rsi_series  = compute_rsi_series(df["close"], lookback=4)  # 新增：最近4根RSI序列
+    rsi_series  = compute_rsi_series(df["close"], lookback=4)  # 最近4根RSI序列
     vol_ratio   = compute_volume_ratio(df)
+    momentum    = assess_recent_trend_momentum(df)              # 近期动能评估
     trend       = assess_trend_direction(df, adx_info, ema_info, symbol)
     patterns    = detect_candlestick_patterns(df)
 
@@ -604,8 +714,9 @@ def compute_timeframe_indicators(df: pd.DataFrame, tf_label: str, symbol: str = 
         "ema":          ema_info,
         "adx":          adx_info,
         "rsi":          rsi,
-        "rsi_series":   rsi_series,   # 新增：[rsi_t-3, rsi_t-2, rsi_t-1, rsi_t]
+        "rsi_series":   rsi_series,   # [rsi_t-3, rsi_t-2, rsi_t-1, rsi_t]
         "volume_ratio": vol_ratio,
+        "momentum":     momentum,     # 近期动能：{direction, bull_pct, bear_pct, total_move, breakout, description}
         "patterns":     patterns,
     }
 
@@ -783,22 +894,27 @@ def generate_market_snapshot(
         adx    = ind["adx"]
         ema    = ind["ema"]
         rsi    = ind["rsi"]
-        rsi_s  = ind.get("rsi_series", [rsi])    # 优化3：RSI序列
+        rsi_s  = ind.get("rsi_series", [rsi])    # RSI序列（优化3）
         vr     = ind["volume_ratio"]
         trend  = ind["trend"]
         pats   = ind["patterns"]
+        mom    = ind.get("momentum", {})          # 近期动能
 
         trend_cn  = {"up": "上升", "down": "下降", "sideways": "横盘"}.get(trend, trend)
         adx_cn    = f"ADX:{adx['adx']}（{'趋势' if adx['adx']>=ADX_THRESHOLD else '横盘'}）"
         align_cn  = {"bullish": "多头排列", "bearish": "空头排列", "mixed": "混乱排列"}.get(ema["alignment"])
         vol_cn    = f"{vr}x（{'放量' if vr>=VOL_RATIO_THRESH else '缩量/平量'}）"
         pat_cn    = "，".join(p["description"] for p in pats) if pats else "无明显形态"
-        # 优化3：RSI动态趋势描述（当前值 + 前3轮delta）
+        # RSI动态趋势描述（优化3）
         rsi_delta_cn = _rsi_delta_description(rsi_s)
+        # 近期动能描述（新增）
+        mom_cn = mom.get("description", "")
 
         lines.append(f"【{label}】")
         lines.append(f"趋势：{trend_cn} | EMA排列：{align_cn} | {adx_cn}")
         lines.append(f"RSI：{rsi} | RSI趋势：{rsi_delta_cn} | 成交量/MA5：{vol_cn}")
+        if mom_cn:
+            lines.append(f"近期动能：{mom_cn}")
         lines.append(f"K线形态：{pat_cn}")
 
         # 支撑阻力（仅最高周期显示传入值）
