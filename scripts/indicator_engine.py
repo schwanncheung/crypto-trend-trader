@@ -934,16 +934,38 @@ def rule_engine_filter(
     anchor_minus_di = anchor_adx_info.get("minus_di", 0) if isinstance(anchor_adx_info, dict) else 0
     di_diff = abs(anchor_plus_di - anchor_minus_di)
 
-    strong_trend_exemption = (
+    # 初步判断是否满足极强趋势指标条件
+    strong_trend_indicators = (
         anchor_adx >= STRONG_TREND_ADX_THRESHOLD and
         di_diff >= STRONG_TREND_DI_DIFF_THRESHOLD
     )
 
-    if strong_trend_exemption:
-        logger.info(
-            f"[规则过滤] {symbol} 极强趋势豁免：ADX={anchor_adx:.1f}(>={STRONG_TREND_ADX_THRESHOLD}), "
-            f"DI差值={di_diff:.1f}(>={STRONG_TREND_DI_DIFF_THRESHOLD}), 跳过RSI超卖/超买保护"
+    # 极强趋势豁免前，追加检查近期趋势连续性（避免刚从横盘突破的短暂极强趋势）
+    strong_trend_exemption = False
+    if strong_trend_indicators:
+        anchor_momentum = anchor.get("momentum", {})
+        momentum_direction = anchor_momentum.get("direction", "neutral")
+
+        # 近期动能必须与信号方向一致，且不能是横盘
+        momentum_aligned = (
+            (signal_direction == "long" and momentum_direction == "up") or
+            (signal_direction == "short" and momentum_direction == "down")
         )
+
+        if momentum_aligned:
+            strong_trend_exemption = True
+            logger.info(
+                f"[规则过滤] {symbol} 极强趋势豁免：ADX={anchor_adx:.1f}(>={STRONG_TREND_ADX_THRESHOLD}), "
+                f"DI差值={di_diff:.1f}(>={STRONG_TREND_DI_DIFF_THRESHOLD}), "
+                f"近期动能={momentum_direction}（与{signal_direction}对齐），跳过RSI超卖/超买保护"
+            )
+        else:
+            logger.info(
+                f"[规则过滤] {symbol} 极强趋势指标达标但近期动能不一致："
+                f"ADX={anchor_adx:.1f}, DI差值={di_diff:.1f}, "
+                f"近期动能={momentum_direction}（期望{'up' if signal_direction=='long' else 'down'}），"
+                f"判定为横盘突破初期，不予豁免"
+            )
 
     # ── 4b. RSI 底背离/顶背离检测（方案E：即使极强趋势豁免也执行）
     divergence_detected, divergence_reason = detect_rsi_divergence(
