@@ -296,11 +296,41 @@ def fetch_hot_symbols(
             else:
                 logger.info(f"  {i:>2}. {item['symbol']:<25} [黑名单已过滤]")
 
+        # 合并 symbols.yaml 配置列表，去重
+        config_symbols = _load_config_symbols()
+        if config_symbols:
+            before = len(top_symbols)
+            merged = list(dict.fromkeys(top_symbols + config_symbols))  # 保持顺序，热门优先
+            added = len(merged) - before
+            if added > 0:
+                logger.info(f"合并合约列表：新增 {added} 个，共 {len(merged)} 个合约")
+            top_symbols = merged
+
         return top_symbols
 
     except Exception as e:
         logger.error(f"获取热门合约失败：{e}")
         return _load_fallback_symbols()
+
+
+def _load_config_symbols() -> list[str]:
+    """从 symbols.yaml 读取配置合约列表（用于与热门列表合并）"""
+    try:
+        cfg_path = Path(__file__).parent.parent / "config" / "symbols.yaml"
+        with open(cfg_path, "r", encoding="utf-8") as f:
+            cfg = yaml.safe_load(f)
+        symbols = cfg.get("priority", [])
+        valid = [s for s in symbols if s.endswith(":USDT")]
+        # 黑名单过滤
+        if BLACKLIST_CFG:
+            valid = [
+                s for s in valid
+                if s not in BLACKLIST_CFG and s.split("/")[0] not in BLACKLIST_CFG
+            ]
+        return valid
+    except Exception as e:
+        logger.warning(f"读取 symbols.yaml 配置列表失败：{e}")
+        return []
 
 
 def _load_fallback_symbols() -> list[str]:

@@ -1,14 +1,20 @@
 # symbols.yaml
-# 注意：此文件仅作为 fetch_hot_symbols() 失败时的兜底使用
-# 正常情况下合约列表由 OKX API 实时动态获取
+# 此文件有两个用途：
+# 1. 正常情况下，与 fetch_hot_symbols() 的动态热门列表合并（去重，热门优先）
+# 2. fetch_hot_symbols() 失败时作为兜底列表使用
 
 priority:
   - "XRP/USDT:USDT"
+  - "NOT/USDT:USDT"
+  - "NIGHT/USDT:USDT"
+  - "CORE/USDT:USDT"
   - "DOGE/USDT:USDT"
   - "ADA/USDT:USDT"
   - "AVAX/USDT:USDT"
   - "LINK/USDT:USDT"
   - "DOT/USDT:USDT"
+  - "TRX/USDT:USDT"
+  - "BCH/USDT:USDT"
   - "ENJ/USDT:USDT"
   - "KAT/USDT:USDT"
   - "ZEC/USDT:USDT"
