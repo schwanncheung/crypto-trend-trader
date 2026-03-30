@@ -25,7 +25,7 @@ class BacktestEngine:
         self,
         config: dict,
         data_feed: DataFeed,
-        signal_pipeline,          # backtest.signal.pipeline.SignalPipeline
+        signal_pipeline,          # backtest.sig.pipeline.SignalPipeline
     ):
         """
         参数：

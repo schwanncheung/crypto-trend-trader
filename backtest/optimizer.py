@@ -26,6 +26,48 @@ import yaml
 logger = logging.getLogger(__name__)
 
 
+def _discover_symbols(cache_dir: str) -> list[str]:
+    """从缓存目录自动发现已下载的品种。"""
+    p = Path(cache_dir)
+    if not p.exists():
+        return []
+    symbols = []
+    for d in sorted(p.iterdir()):
+        if d.is_dir() and any(d.glob("*.parquet")):
+            name = d.name
+            if name.count("_") >= 2:
+                idx = name.rfind("_")
+                name = name[:idx] + ":" + name[idx + 1:]
+                idx = name.find("_")
+                name = name[:idx] + "/" + name[idx + 1:]
+            symbols.append(name)
+    return symbols
+
+
+def _fix_signal_module() -> None:
+    """子进程初始化器：修复 backtest/signal/ 遮蔽标准库 signal 模块的问题。
+    backtest/ 目录在 sys.path 中时，`import signal` 会命中本包而非标准库，
+    导致 multiprocessing 内部依赖的 signal.SIGINT 不存在。
+    """
+    import sys
+    import importlib.util
+    # 取出 backtest/ 目录路径，在搜索标准库时跳过它
+    skip = {p for p in sys.path if p.endswith("backtest") or p.endswith("backtest/")}
+    search_path = [p for p in sys.path if p not in skip]
+    spec = importlib.util.find_spec("signal", search_path)
+    if spec is not None and spec.origin and "backtest" not in spec.origin:
+        # 已经是标准库，无需修复
+        return
+    # 强制从标准库路径加载
+    stdlib_paths = [p for p in sys.path if "site-packages" not in p and p not in skip
+                    and p != "" and "backtest" not in p]
+    spec = importlib.util.find_spec("signal", stdlib_paths)
+    if spec is not None:
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        sys.modules["signal"] = mod
+
+
 def _run_single(args: tuple) -> dict | None:
     """
     顶层函数（必须可 pickle）：运行单次回测，返回指标字典。
@@ -39,16 +81,27 @@ def _run_single(args: tuple) -> dict | None:
         from backtest.data.feed import DataFeed
         from backtest.engine.engine import BacktestEngine
         from backtest.report.reporter import BacktestReporter
+        from backtest.sig.ai_mock import RuleOnlyMock
+        from backtest.sig.pipeline import SignalPipeline
 
         cfg = copy.deepcopy(config)
         cfg.setdefault("backtest", {})
         cfg["backtest"].setdefault("override", {})
         cfg["backtest"]["override"].update(params_override)
 
-        feed = DataFeed(cfg, data_dir=data_dir)
+        symbols = cfg.get("symbols") or _discover_symbols(data_dir)
+        feed = DataFeed(
+            cache_dir=data_dir,
+            symbols=symbols,
+            timeframes=cfg.get("timeframes", ["1h", "30m", "15m"]),
+            start_date=cfg["backtest"]["start_date"],
+            end_date=cfg["backtest"]["end_date"],
+        )
         feed.load()
 
-        engine = BacktestEngine(cfg, feed)
+        ai_mock = RuleOnlyMock(cfg)
+        pipeline = SignalPipeline(cfg, ai_mock)
+        engine = BacktestEngine(cfg, feed, pipeline)
         results = engine.run()
 
         reporter = BacktestReporter(results, cfg, output_dir="/tmp/_opt_scratch")
@@ -209,7 +262,8 @@ class GridOptimizer:
         args = [(config, params, str(self.data_dir)) for params in param_list]
         t0 = time.monotonic()
 
-        with multiprocessing.Pool(processes=workers) as pool:
+        ctx = multiprocessing.get_context("spawn")
+        with ctx.Pool(processes=workers, initializer=_fix_signal_module) as pool:
             raw = pool.map(_run_single, args)
 
         results = [r for r in raw if r is not None]
