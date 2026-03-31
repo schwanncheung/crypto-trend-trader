@@ -534,7 +534,7 @@ def _build_text_analysis_prompt() -> str:
 2. 使用自上而下分析法：{tf_roles}
 3. 快照末行「多周期共振」已给出对齐分数，对齐分数<{min_alignment} 时 signal 必须填 wait
 4. RSI趋势字段（如「RSI趋势：连升2轮」）反映动能方向，与信号方向相反时应降低 signal_strength
-5. 近期动能字段（如「近期动能：空头占比67%」）是重要的入场确认依据，与信号方向一致时加分
+5. 近期动能字段（如「近期动能：空头占比60%」）是重要的入场确认依据，与信号方向一致时加分
 6. entry_price：优先使用支撑阻力结构位附近；若无明确结构位则使用当前价格（市价入场）
 7. stop_loss 必须使用 ATR 动态止损：long=entry-{atr_mult}×ATR，short=entry+{atr_mult}×ATR
 8. take_profit 必须使用盈亏比 1:{rr_ratio:.0f} 设置：long=entry+{rr_ratio}×(entry-stop_loss)，short=entry-{rr_ratio}×(entry-stop_loss)
