@@ -96,6 +96,9 @@ analysis:
     # RSI超卖持续保护：超卖连续N根K线后动能耗尽，即使极强趋势豁免也禁止做空
     rsi_oversold_persist_bars: 10       # 超卖持续根数门槛（锚周期，6根1h=连续6小时超卖）
     rsi_oversold_persist_level: 20     # 超卖判定线（RSI<=此值视为超卖）
+    # RSI 超买持续保护：超买连续 N 根 K 线后动能耗尽，即使极强趋势豁免也禁止做多
+    rsi_overbought_persist_bars: 48    # 超买持续根数门槛（锚周期，48 根 1h=连续 48 小时超买）
+    rsi_overbought_persist_level: 80   # 超买判定线（RSI>=此值视为超买，从 75 提高至 80 更宽松）
     # 多头回调买点参数
     long_signal_rsi_low: 40          # RSI低于此值视为充分回调（适合做多介入）
     long_signal_vol_ratio: 1.0       # 做多量比最低要求
