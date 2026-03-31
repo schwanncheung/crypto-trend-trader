@@ -18,7 +18,7 @@ backtest:
   # ── 信号触发频率 ──────────────────────────────
   # 每隔多少根最低周期 bar 触发一次信号检查
   # 例：最低周期=15m，signal_interval_bars=4 → 每1h检查一次（与生产一致）
-  signal_interval_bars: 4
+  signal_interval_bars: 1
 
   # ── AI 替代模式 ───────────────────────────────
   # rule_only : 纯规则引擎构造伪AI决策（推荐，可重复执行，无API成本）
@@ -49,7 +49,7 @@ override:
   # require_anchor_aligned: true
   min_signal_strength: 6        # 方案A：从7降到6，允许RSI超卖区信号通过
   min_rr_ratio: 1.5             # 方案A：从2.0降到1.6，适应深跌行情支撑位缺失场景
-  # min_trend_strength: 7
+  min_trend_strength: 6         # 优化：从7降到6，捕捉趋势早期机会（ADX 24-28）
   # trailing_stop_trigger_pct: 15.0
   # partial_profit_trigger_pct: 25.0
   # partial_profit_trigger_pct_2: 50.0

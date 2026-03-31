@@ -989,17 +989,16 @@ def rule_engine_filter(
             )
         else:
             # 不满足豁免条件，执行正常 RSI 过滤
-            for tf in check_tfs:
-                ind = tf_indicators.get(tf, {})
-                if not ind.get("valid"):
-                    continue
-                rsi = ind.get("rsi", 50)
+            # 优化：只检查锚周期的 RSI，小周期（30m/15m）波动更大，不应用同样严格的阈值
+            anchor_ind = tf_indicators.get(ANCHOR_TF, {})
+            if anchor_ind.get("valid"):
+                rsi = anchor_ind.get("rsi", 50)
                 if signal_direction == "long" and rsi >= RSI_OVERBOUGHT:
-                    reason = f"{symbol} {tf} RSI={rsi} 超买（>={RSI_OVERBOUGHT}），拒绝做多"
+                    reason = f"{symbol} {ANCHOR_TF} RSI={rsi} 超买（>={RSI_OVERBOUGHT}），拒绝做多"
                     logger.info(f"[规则过滤] {reason}")
                     return False, "wait", reason
                 if signal_direction == "short" and rsi <= RSI_OVERSOLD:
-                    reason = f"{symbol} {tf} RSI={rsi} 超卖（<={RSI_OVERSOLD}），拒绝做空"
+                    reason = f"{symbol} {ANCHOR_TF} RSI={rsi} 超卖（<={RSI_OVERSOLD}），拒绝做空"
                     logger.info(f"[规则过滤] {reason}")
                     return False, "wait", reason
 

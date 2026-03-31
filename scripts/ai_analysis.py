@@ -210,9 +210,13 @@ def _build_rule_only_decision(tf_indicators: dict, direction: str, symbol: str) 
     )
     score += ema_align_ok * (6.0 / total_tfs)
 
-    # 成交量评分
+    # 成交量评分：取最低周期量比，但 volume_confirmed 改为任一周期放量即可
     vol_ratio = tf_indicators.get(base_tf, {}).get("volume_ratio", 0)
-    volume_confirmed = vol_ratio >= vol_ratio_threshold
+    volume_confirmed = any(
+        tf_indicators.get(tf, {}).get("volume_ratio", 0) >= vol_ratio_threshold
+        for tf in timeframes
+        if tf_indicators.get(tf, {}).get("valid")
+    )
     if vol_ratio >= vol_ratio_threshold * 2:  score += 2.0
     elif vol_ratio >= vol_ratio_threshold:    score += 1.0
     if strong_trend_exemption:

@@ -67,58 +67,84 @@ analysis:
   # 解决方案：单独评估最近N根K线的方向连续性，作为趋势判断的第5个评分项，
   #           并在ADX尚低（趋势刚启动）但近期价格突破背景中位价时豁免ADX门槛。
   rule_filter:
-    # ─── 已有配置 ───────────────────────────────────────────────────────
-    anchor_timeframe: "1h"
-    require_anchor_aligned: true
-    min_trending_timeframes: 2
-    adx_trending_threshold: 20
-    volume_ratio_threshold: 0.8
-    rsi_overbought: 80
-    rsi_oversold: 20
-    # RSI趋势转折预警参数
+    # ═══════════════════════════════════════════════════════════════════
+    # 一、基础趋势判断参数
+    # ═══════════════════════════════════════════════════════════════════
+    anchor_timeframe: "1h"              # 锚周期：用于宏观方向判断
+    require_anchor_aligned: true        # 是否要求锚周期与信号方向对齐
+    min_trending_timeframes: 2          # 最少需要几个周期显示趋势（非锚周期）
+    adx_trending_threshold: 20          # ADX >= 此值视为趋势（低于此值为横盘）
+    volume_ratio_threshold: 0.8         # 量比阈值：当前量 / MA5 >= 此值视为放量
+
+    # ═══════════════════════════════════════════════════════════════════
+    # 二、RSI 保护机制（多层防护，优先级从高到低）
+    # ═══════════════════════════════════════════════════════════════════
+
+    # ── 2.1 基础 RSI 极值过滤（可被 ADX 豁免）──────────────────────────
+    rsi_overbought: 80                  # RSI 超买线（做多保护）
+    rsi_oversold: 20                    # RSI 超卖线（做空保护）
+    # 说明：只检查锚周期（1h）RSI，小周期波动大不检查
+
+    # ── 2.2 RSI ADX 豁免（中等强度趋势豁免基础 RSI 过滤）────────────────
+    rsi_adx_exemption_enabled: true     # 是否启用 ADX 豁免
+    rsi_adx_exemption_threshold: 40     # ADX >= 此值即豁免基础 RSI 过滤
+    # 说明：防止强趋势中 RSI 钝化导致漏单（ADX 40-60 为中等强度趋势）
+
+    # ── 2.3 极强趋势豁免（豁免范围更广）────────────────────────────────
+    strong_trend_adx_threshold: 60      # ADX >= 此值视为极强趋势
+    strong_trend_di_diff_threshold: 20  # DI 差值 >= 此值视为方向明确
+    # 说明：同时满足 ADX >= 60 且 DI 差值 >= 20 时，豁免：
+    #   - 基础 RSI 过滤
+    #   - 量能确认
+    #   - RSI 反弹保护
+    #   - RSI 转折预警
+    # 但不豁免：RSI 持续保护、RSI 背离保护（最高优先级）
+
+    # ── 2.4 RSI 持续保护（最高优先级，即使极强趋势也执行）─────────────
+    rsi_oversold_persist_bars: 10       # 做空保护：RSI <= 超卖线连续 N 根 K 线后禁止做空
+    rsi_oversold_persist_level: 20      # 超卖判定线（锚周期）
+    rsi_overbought_persist_bars: 48     # 做多保护：RSI >= 超买线连续 N 根 K 线后禁止做多
+    rsi_overbought_persist_level: 80    # 超买判定线（锚周期）
+    # 说明：防止在动能耗尽时追单，即使 ADX 很高也不豁免
+
+    # ── 2.5 RSI 背离保护（最高优先级，即使极强趋势也执行）─────────────
+    rsi_divergence_enabled: true        # 是否启用背离检测
+    rsi_divergence_lookback: 10         # 背离检测的 K 线历史窗口（根）
+    rsi_divergence_min_drop_pct: 0.005  # 价格新低幅度最低要求（0.5%），过滤噪音
+    rsi_divergence_min_rsi_diff: 3.0    # RSI 未跟随价格的最小差值（点）
+    # 说明：检测动能衰竭（价格新低但 RSI 未新低 = 底背离），即使 ADX 很高也不豁免
+
+    # ── 2.6 RSI 反弹保护（可被极强趋势豁免）────────────────────────────
+    rsi_bounce_guard_delta: 15          # RSI 从低点反弹超过 N 点，判定"修复中"禁止做空
+    rsi_bounce_guard_oversold: 15       # 超卖判定线（从 20 降至 15，缩小保护范围）
+    # 说明：防止在反弹初期做空，极强趋势时可豁免
+
+    # ── 2.7 RSI 转折预警（可被极强趋势豁免）────────────────────────────
     rsi_reversal_warning_timeframes: ["15m", "30m"]  # 检测转折的小周期
-    rsi_reversal_consecutive_rounds: 2               # 连续N轮RSI同向运动触发预警
+    rsi_reversal_consecutive_rounds: 2               # 连续 N 轮 RSI 同向运动触发预警
     rsi_reversal_vol_confirm: true                   # 是否要求量能放大才触发预警
-    # 超卖反弹保护参数
-    rsi_bounce_guard_delta: 15       # RSI从低点反弹超过N点，判定"修复中"禁止做空（提升至15，减少误判）
-    rsi_bounce_guard_oversold: 15    # 超卖判定线（从20降至15，缩小保护范围）
-    # 趋势强度豁免参数（方案D：允许在极强趋势中跳过RSI超卖保护）
-    strong_trend_adx_threshold: 60   # ADX超过此值视为极强趋势
-    strong_trend_di_diff_threshold: 20  # DI差值超过此值视为方向明确
-    # RSI ADX 豁免参数（方案 1：中等强度趋势即可豁免 RSI 超买/超卖保护，防止 RSI 钝化漏单）
-    rsi_adx_exemption_enabled: true   # 是否启用 ADX 豁免 RSI 保护
-    rsi_adx_exemption_threshold: 40   # ADX 超过此值即豁免 RSI 超买/超卖过滤（从 60 降至 40，覆盖中等强度趋势）
-    # RSI底背离/顶背离保护（方案E：价格创新低但RSI未跟随→动能衰竭→禁止做空）
-    rsi_divergence_enabled: true
-    rsi_divergence_lookback: 10        # 用于背离检测的K线历史窗口（根）
-    rsi_divergence_min_drop_pct: 0.005 # 价格新低幅度最低要求（0.5%），过滤噪音
-    rsi_divergence_min_rsi_diff: 3.0   # RSI未跟随价格创新低的最小差值（pts）
-    # RSI超卖持续保护：超卖连续N根K线后动能耗尽，即使极强趋势豁免也禁止做空
-    rsi_oversold_persist_bars: 10       # 超卖持续根数门槛（锚周期，6根1h=连续6小时超卖）
-    rsi_oversold_persist_level: 20     # 超卖判定线（RSI<=此值视为超卖）
-    # RSI 超买持续保护：超买连续 N 根 K 线后动能耗尽，即使极强趋势豁免也禁止做多
-    rsi_overbought_persist_bars: 48    # 超买持续根数门槛（锚周期，48 根 1h=连续 48 小时超买）
-    rsi_overbought_persist_level: 80   # 超买判定线（RSI>=此值视为超买，从 75 提高至 80 更宽松）
-    # 多头回调买点参数
-    long_signal_rsi_low: 40          # RSI低于此值视为充分回调（适合做多介入）
-    long_signal_vol_ratio: 1.0       # 做多量比最低要求
-    # ─── 近期动能参数─
-    # 场景：某合约横盘24小时后开始下跌，EMA排列仍是mixed（混乱），
-    #       但近24根K线里16根是阴线且跌幅>1.5% → 判定近期动能=down → 空头得分+1
-    # 近期窗口大小（根）：1h周期下24根=近24小时，覆盖"下跌4-8小时"到"下跌满1天"
-    recent_trend_window: 24
-    # 近期窗口内方向一致K线占比下限（24根里至少16根同向）
-    recent_trend_min_pct: 0.65
-    # 近期总价格变动幅度下限（1.5%），过滤横盘内假信号
-    recent_trend_min_move: 0.015
-    # 背景窗口（根）：用于计算"前期横盘中位价"，判断近期是否真正突破了横盘区间
-    # 1h周期下60根=近60小时，覆盖你描述的"3月28日整天横盘"背景
-    context_trend_window: 60
+    # 说明：小周期 RSI 连续回升 + 放量 → 可能转折，暂停做空，极强趋势时可豁免
+
+    # ═══════════════════════════════════════════════════════════════════
+    # 三、多头信号质量参数（非硬过滤，仅记录质量）
+    # ═══════════════════════════════════════════════════════════════════
+    long_signal_rsi_low: 40             # RSI 低于此值视为充分回调（适合做多介入）
+    long_signal_vol_ratio: 1.0          # 做多量比最低要求
+
+    # ═══════════════════════════════════════════════════════════════════
+    # 四、近期趋势动能评估（解决 EMA200 惯性滞后）
+    # ═══════════════════════════════════════════════════════════════════
+    # 背景：EMA200 惯性极强，横盘后刚启动的趋势需 55+ 小时才能形成排列
+    # 解决：单独评估最近 N 根 K 线的方向连续性，作为趋势判断的补充
+    recent_trend_window: 24             # 近期窗口（根）：1h 周期下 24 根 = 近 24 小时
+    recent_trend_min_pct: 0.65          # 方向一致 K 线占比下限（65% = 24 根里至少 16 根同向）
+    recent_trend_min_move: 0.015        # 窗口内总振幅下限（1.5%），过滤横盘假信号
+    context_trend_window: 60            # 背景窗口（根）：用于判断近期是否突破了横盘区间
 
 trading:
   allowed_confidence: ["high"]  # 只有 confidence=high 的信号才允许交易
   min_signal_strength: 6        # 最低信号强度（1-10），低于此值不交易
-  min_trend_strength: 7         # 最低趋势强度（1-10），低于此值不交易（独立于信号强度）
+  min_trend_strength: 6         # 最低趋势强度（1-10），低于此值不交易（优化：从7降到6，捕捉趋势早期机会 ADX 24-28）
   min_rr_ratio: 1.5             # 最低盈亏比（risk:reward），低于此值不交易
   default_leverage: 10          # 默认杠杆倍数
   max_position_pct: 0.1        # 单笔最大仓位占账户净值比例（10%）

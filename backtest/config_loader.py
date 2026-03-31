@@ -49,7 +49,8 @@ def load_config(
     config = dict(production)  # shallow copy of top-level
     config["backtest"] = backtest.get("backtest", {})
 
-    overrides = config["backtest"].get("override", {})
+    # override 可以在 backtest.yaml 顶层，也可以在 backtest 子节点下
+    overrides = backtest.get("override", {}) or config["backtest"].get("override", {})
     if overrides:
         logger.info("[config_loader] 应用 override 参数：%s", list(overrides.keys()))
         _deep_override(config, overrides)
