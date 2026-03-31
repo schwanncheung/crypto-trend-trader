@@ -94,8 +94,8 @@ analysis:
     rsi_divergence_min_drop_pct: 0.005 # 价格新低幅度最低要求（0.5%），过滤噪音
     rsi_divergence_min_rsi_diff: 3.0   # RSI未跟随价格创新低的最小差值（pts）
     # RSI超卖持续保护：超卖连续N根K线后动能耗尽，即使极强趋势豁免也禁止做空
-    rsi_oversold_persist_bars: 6       # 超卖持续根数门槛（锚周期，6根1h=连续6小时超卖）
-    rsi_oversold_persist_level: 25     # 超卖判定线（RSI<=此值视为超卖）
+    rsi_oversold_persist_bars: 10       # 超卖持续根数门槛（锚周期，6根1h=连续6小时超卖）
+    rsi_oversold_persist_level: 20     # 超卖判定线（RSI<=此值视为超卖）
     # 多头回调买点参数
     long_signal_rsi_low: 40          # RSI低于此值视为充分回调（适合做多介入）
     long_signal_vol_ratio: 1.0       # 做多量比最低要求
