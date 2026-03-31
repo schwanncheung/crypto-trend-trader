@@ -76,10 +76,11 @@ class BacktestReporter:
         calendar_days = self._calendar_days()
         stats["calendar_days"] = calendar_days
 
-        # --- 年化收益 ---
-        stats["annualized_return_pct"] = self._annualized_return(
-            stats["net_pnl_pct"], calendar_days
-        )
+        # --- 年化收益（回测天数 < 30 天时无统计意义，置为 None）---
+        if calendar_days >= 30:
+            stats["annualized_return_pct"] = self._annualized_return(stats["net_pnl_pct"], calendar_days)
+        else:
+            stats["annualized_return_pct"] = None
 
         # --- 最大回撤 ---
         mdd_pct, mdd_usdt = self._max_drawdown()
@@ -89,12 +90,11 @@ class BacktestReporter:
         # --- 夏普比率 ---
         stats["sharpe_ratio"] = self._sharpe_ratio()
 
-        # --- Calmar 比率 ---
-        stats["calmar_ratio"] = (
-            stats["annualized_return_pct"] / abs(mdd_pct)
-            if mdd_pct != 0
-            else float("inf")
-        )
+        # --- Calmar 比率（依赖年化收益，天数不足时同样置为 None）---
+        if stats["annualized_return_pct"] is not None and mdd_pct != 0:
+            stats["calmar_ratio"] = round(stats["annualized_return_pct"] / abs(mdd_pct), 2)
+        else:
+            stats["calmar_ratio"] = None
 
         # --- 胜率 ---
         wins = [t for t in closed if t.get("pnl_usdt", 0) > 0]

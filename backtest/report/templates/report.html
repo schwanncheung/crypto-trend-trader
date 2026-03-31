@@ -62,7 +62,7 @@
   </div>
   <div class="card">
     <div class="label">年化收益</div>
-    <div class="value {{ 'pos' if annualized_return_pct >= 0 else 'neg' }}">{{ annualized_return_pct | round(2) }}%</div>
+    <div class="value {{ 'pos' if annualized_return_pct and annualized_return_pct >= 0 else 'neg' if annualized_return_pct else 'neu' }}">{% if annualized_return_pct is not none %}{{"%.2f" | format(annualized_return_pct)}}%{% else %}N/A{% endif %}</div>
   </div>
   <div class="card">
     <div class="label">最大回撤</div>
@@ -70,11 +70,11 @@
   </div>
   <div class="card">
     <div class="label">夏普比率</div>
-    <div class="value neu">{{ sharpe_ratio | round(3) }}</div>
+    <div class="value neu">{% if sharpe_ratio %}{{"%.2f" | format(sharpe_ratio)}}{% else %}N/A{% endif %}</div>
   </div>
   <div class="card">
     <div class="label">Calmar 比率</div>
-    <div class="value neu">{{ calmar_ratio | round(3) }}</div>
+    <div class="value neu">{% if calmar_ratio is not none %}{{"%.2f" | format(calmar_ratio)}}{% else %}N/A{% endif %}</div>
   </div>
   <div class="card">
     <div class="label">总交易次数</div>

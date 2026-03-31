@@ -179,22 +179,30 @@ def _discover_symbols(cache_dir: str) -> list[str]:
 
 def _print_summary(stats: dict) -> None:
     """在终端打印关键指标摘要。"""
+    ann_ret = stats.get('annualized_return_pct')
+    calmar = stats.get('calmar_ratio')
+    sharpe = stats.get('sharpe_ratio', 0)
+
+    ann_ret_str = f"{ann_ret:.2f} %" if ann_ret is not None else "N/A (回测天数不足30天)"
+    calmar_str  = f"{calmar:.2f}"    if calmar  is not None else "N/A"
+    sharpe_str  = f"{sharpe:.2f}"   if sharpe else "N/A"
+
     lines = [
-        "\n" + "=" * 52,
+        "\n" + "=" * 60,
         "  回测结果摘要",
-        "=" * 52,
-        f"  净收益        : {stats.get('net_pnl_usdt', 0):>10.2f} USDT  ({stats.get('net_pnl_pct', 0):.2f}%)",
-        f"  年化收益      : {stats.get('annualized_return_pct', 0):>10.2f} %",
+        "=" * 60,
+        f"  净收益 (PnL)  : {stats.get('net_pnl_usdt', 0):>10.2f} USDT  ({stats.get('net_pnl_pct', 0):.2f}%)",
+        f"  年化收益      : {ann_ret_str:>35s}",
         f"  最大回撤      : {stats.get('max_drawdown_pct', 0):>10.2f} %",
-        f"  夏普比率      : {stats.get('sharpe_ratio', 0):>10.3f}",
-        f"  Calmar 比率   : {stats.get('calmar_ratio', 0):>10.3f}",
+        f"  夏普比率      : {sharpe_str:>10s}  (日收益波动率调整，>1为优)",
+        f"  Calmar 比率   : {calmar_str:>10s}  (年化收益/最大回撤，>3为优)",
         f"  总交易次数    : {stats.get('total_trades', 0):>10d}",
         f"  胜率          : {stats.get('win_rate_pct', 0):>10.1f} %",
         f"  盈亏比        : {stats.get('profit_factor', 0):>10.2f}",
-        f"  期望值        : {stats.get('expectancy_usdt', 0):>10.2f} USDT",
+        f"  期望值        : {stats.get('expectancy_usdt', 0):>10.2f} USDT/笔",
         f"  平均持仓      : {stats.get('avg_hold_minutes', 0):>10.0f} min",
         f"  最大连亏      : {stats.get('max_consecutive_losses', 0):>10d} 笔",
-        "=" * 52,
+        "=" * 60,
     ]
     print("\n".join(lines))
 

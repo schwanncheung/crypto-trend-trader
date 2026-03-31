@@ -103,7 +103,7 @@ class BacktestEngine:
             if bar is None:
                 continue
 
-            date_str = datetime.utcfromtimestamp(ts / 1000).strftime("%Y-%m-%d")
+            date_str = datetime.utcfromtimestamp(ts / 1000 + 8 * 3600).strftime("%Y-%m-%d")  # CST (UTC+8)
 
             # 新的一天：重置日亏损计数
             if date_str != prev_date:
@@ -230,8 +230,9 @@ class BacktestEngine:
             signal_reason=signal.get("reason", ""),
         )
         self.positions.append(pos)
+        open_cst = datetime.utcfromtimestamp(ts / 1000 + 8 * 3600).strftime("%Y-%m-%d %H:%M")
         logger.info(
-            f"开仓 {symbol} {signal['side'].upper()} "
+            f"开仓 [{open_cst} CST] {symbol} {signal['side'].upper()} "
             f"entry={entry_price:.4f} sl={signal['stop_loss']:.4f} "
             f"tp={signal['take_profit']:.4f} margin={margin:.2f} USDT"
         )
@@ -259,8 +260,11 @@ class BacktestEngine:
         self.positions.remove(position)
 
         icon = "盈" if pnl_usdt >= 0 else "亏"
+        open_cst  = datetime.utcfromtimestamp(position.open_time / 1000 + 8 * 3600).strftime("%Y-%m-%d %H:%M")
+        close_cst = datetime.utcfromtimestamp(ts / 1000 + 8 * 3600).strftime("%Y-%m-%d %H:%M")
         logger.info(
             f"平仓[{reason}] {position.symbol} {position.side.upper()} "
+            f"开={open_cst} 平={close_cst} CST "
             f"entry={position.entry_price:.4f} exit={price:.4f} "
             f"{icon}={pnl_usdt:+.2f} USDT ({pnl_pct:+.1f}%) "
             f"余额={self.balance:.2f}"

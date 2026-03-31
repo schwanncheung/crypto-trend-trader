@@ -172,7 +172,7 @@ class SignalPipeline:
             return None
 
         if not quality_ok:
-            logger.debug(f"  {symbol} 信号质量不足：{quality_reason}")
+            logger.info(f"  {_bar_tag} 信号质量不足：{quality_reason}")
             return None
 
         # ── 步骤 7：计算仓位大小 ──────────────────────────────────────
