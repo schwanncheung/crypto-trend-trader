@@ -85,6 +85,9 @@ analysis:
     # 趋势强度豁免参数（方案D：允许在极强趋势中跳过RSI超卖保护）
     strong_trend_adx_threshold: 60   # ADX超过此值视为极强趋势
     strong_trend_di_diff_threshold: 20  # DI差值超过此值视为方向明确
+    # RSI ADX 豁免参数（方案 1：中等强度趋势即可豁免 RSI 超买/超卖保护，防止 RSI 钝化漏单）
+    rsi_adx_exemption_enabled: true   # 是否启用 ADX 豁免 RSI 保护
+    rsi_adx_exemption_threshold: 40   # ADX 超过此值即豁免 RSI 超买/超卖过滤（从 60 降至 40，覆盖中等强度趋势）
     # RSI底背离/顶背离保护（方案E：价格创新低但RSI未跟随→动能衰竭→禁止做空）
     rsi_divergence_enabled: true
     rsi_divergence_lookback: 10        # 用于背离检测的K线历史窗口（根）

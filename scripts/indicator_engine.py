@@ -974,21 +974,34 @@ def rule_engine_filter(
     if divergence_detected:
         return False, "wait", divergence_reason
 
-    # ── 5. RSI 极值过滤（趋势末端保护，极强趋势时豁免）
+    # ── 5. RSI 极值过滤（趋势末端保护，强趋势时豁免）
+    # 方案 1：ADX 豁免 —— 当锚周期 ADX≥阈值时，允许 RSI 超买/超卖状态下开仓（防止强趋势中 RSI 钝化漏单）
     if not strong_trend_exemption:
-        for tf in check_tfs:
-            ind = tf_indicators.get(tf, {})
-            if not ind.get("valid"):
-                continue
-            rsi = ind.get("rsi", 50)
-            if signal_direction == "long" and rsi >= RSI_OVERBOUGHT:
-                reason = f"{symbol} {tf} RSI={rsi} 超买（>={RSI_OVERBOUGHT}），拒绝做多"
-                logger.info(f"[规则过滤] {reason}")
-                return False, "wait", reason
-            if signal_direction == "short" and rsi <= RSI_OVERSOLD:
-                reason = f"{symbol} {tf} RSI={rsi} 超卖（<={RSI_OVERSOLD}），拒绝做空"
-                logger.info(f"[规则过滤] {reason}")
-                return False, "wait", reason
+        # 检查是否满足 ADX 豁免条件（中等强度趋势即可豁免，无需极强趋势）
+        adx_exemption_threshold = _RULE_CFG.get("rsi_adx_exemption_threshold", 40)
+        adx_exemption_enabled = _RULE_CFG.get("rsi_adx_exemption_enabled", True)
+        adx_exemption_active = adx_exemption_enabled and anchor_adx >= adx_exemption_threshold
+        
+        if adx_exemption_active:
+            logger.info(
+                f"[规则过滤] {symbol} ADX 豁免 RSI 超买/超卖保护：ADX={anchor_adx:.1f}(>={adx_exemption_threshold})，"
+                f"允许在 RSI 极端值下开仓（防止强趋势 RSI 钝化漏单）"
+            )
+        else:
+            # 不满足豁免条件，执行正常 RSI 过滤
+            for tf in check_tfs:
+                ind = tf_indicators.get(tf, {})
+                if not ind.get("valid"):
+                    continue
+                rsi = ind.get("rsi", 50)
+                if signal_direction == "long" and rsi >= RSI_OVERBOUGHT:
+                    reason = f"{symbol} {tf} RSI={rsi} 超买（>={RSI_OVERBOUGHT}），拒绝做多"
+                    logger.info(f"[规则过滤] {reason}")
+                    return False, "wait", reason
+                if signal_direction == "short" and rsi <= RSI_OVERSOLD:
+                    reason = f"{symbol} {tf} RSI={rsi} 超卖（<={RSI_OVERSOLD}），拒绝做空"
+                    logger.info(f"[规则过滤] {reason}")
+                    return False, "wait", reason
 
     # ── 6. 成交量确认（至少一个小周期放量，极强趋势时豁免）
     if not strong_trend_exemption:
