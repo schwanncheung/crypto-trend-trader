@@ -5,6 +5,7 @@ Market Scanner - 动态热门合约扫描交易系统
 """
 
 import sys
+import re
 import logging
 from datetime import datetime
 from pathlib import Path
@@ -128,7 +129,9 @@ def main():
     scanned = 0
     rule_filtered = 0   # 规则引擎拒绝的数量（横盘/趋势不对齐）
     triggered_trades = 0
-    
+    rule_passed_symbols = []   # [(symbol, direction, signal_strength)]
+    risk_failed_symbols = []   # [(symbol, failed_checks)]
+
     for idx, symbol in enumerate(symbols):
         # 黑名单检查（双重保险）
         base_name = symbol.split("/")[0]
@@ -199,7 +202,40 @@ def main():
             # 规则引擎拒绝的直接跳过，不再走风控
             if decision.get("_analysis_mode") == "rule_filter_rejected":
                 rule_filtered += 1
+                filter_reason = decision.get("_filter_reason", "未知原因")
+                logger.info(f"{symbol} 规则过滤未通过: {filter_reason}")
                 continue
+
+            # 记录规则通过的合约及核心指标
+            direction = decision.get("signal", "wait")
+            signal_strength = decision.get("signal_strength", 0)
+
+            # 提取核心指标信息（从 reason 字段解析 RSI、ADX）
+            reason = decision.get("reason", "")
+            rsi_val = None
+            adx_val = None
+
+            # 尝试从 reason 解析 RSI 和 ADX（rule_only 模式）
+            rsi_match = re.search(r'RSI[=:]\s*(\d+\.?\d*)', reason)
+            adx_match = re.search(r'ADX[=:]\s*(\d+\.?\d*)', reason)
+            if rsi_match:
+                rsi_val = float(rsi_match.group(1))
+            if adx_match:
+                adx_val = float(adx_match.group(1))
+
+            # 如果 reason 里没有，尝试从 _anchor_adx 获取（text 模式）
+            if adx_val is None and "_anchor_adx" in decision:
+                adx_val = decision.get("_anchor_adx")
+
+            indicators = {
+                "strength": signal_strength,
+                "rsi": rsi_val,
+                "adx": adx_val,
+                "volume_note": decision.get("volume_note", ""),
+                "rr": decision.get("risk_reward", ""),
+            }
+            rule_passed_symbols.append((symbol, direction, indicators))
+
             risk_checks = {
                 "信号方向明确": decision.get("signal") in ["long", "short"],
                 "置信度为high": decision.get("confidence") == "high",
@@ -208,11 +244,13 @@ def main():
                 "无背离风险": decision.get("divergence_risk", True) is False,
             }
             failed_checks = [k for k, v in risk_checks.items() if not v]
-            
+
             logger.info(f"{symbol} 风控检查: {risk_checks}")
-            
+
             if not passes_risk_filter(decision):
                 logger.warning(f"{symbol} 风控未通过 | 失败项: {failed_checks} | signal={decision.get('signal')}, confidence={decision.get('confidence')}")
+                # 记录风控失败的合约及原因
+                risk_failed_symbols.append((symbol, direction, failed_checks))
                 continue
             
             logger.info(f"{symbol} 风控通过 ✅")
@@ -264,11 +302,53 @@ def main():
         f"当前持仓：{final_position_count}/{MAX_POSITIONS}"
     )
     logger.info(summary)
-    
+
     elapsed = (datetime.now() - start_time).total_seconds()
     logger.info(f"总耗时：{elapsed:.1f}秒")
-    
-    send_notification(summary)
+
+    # 构建详细通知
+    lines = [summary]
+
+    if rule_passed_symbols:
+        lines.append(f"\n📋 规则过滤通过【{len(rule_passed_symbols)}】：")
+        for sym, direction, indicators in rule_passed_symbols:
+            # 简化合约名称：BTC/USDT:USDT -> BTC
+            short_name = sym.split("/")[0]
+            arrow = "🔴多" if direction == "long" else ("🟢空" if direction == "short" else "⚪观望")
+
+            # 构建指标信息
+            parts = [f"{short_name} {arrow}"]
+            parts.append(f"强度{indicators['strength']}")
+
+            if indicators.get('rsi') is not None:
+                parts.append(f"RSI{indicators['rsi']:.0f}")
+            if indicators.get('adx') is not None:
+                parts.append(f"ADX{indicators['adx']:.0f}")
+            if indicators.get('volume_note'):
+                parts.append(indicators['volume_note'])
+            if indicators.get('rr'):
+                parts.append(f"R:R={indicators['rr']}")
+
+            lines.append(f"  {' '.join(parts)}")
+
+    if risk_failed_symbols:
+        lines.append(f"\n⚠️ 风控拒绝【{len(risk_failed_symbols)}】：")
+        for sym, direction, failed in risk_failed_symbols:
+            # 简化合约名称：BTC/USDT:USDT -> BTC
+            short_name = sym.split("/")[0]
+            # 简化失败原因（去掉"信号强度>=7"中的具体数字）
+            simplified_failed = []
+            for reason in failed:
+                if "信号强度" in reason:
+                    simplified_failed.append("信号强度不足")
+                elif "风险回报比" in reason:
+                    simplified_failed.append("R:R不足")
+                else:
+                    simplified_failed.append(reason)
+            reason_str = "、".join(simplified_failed)
+            lines.append(f"  {short_name}（{reason_str}）")
+
+    send_notification("\n".join(lines))
 
 
 if __name__ == "__main__":
