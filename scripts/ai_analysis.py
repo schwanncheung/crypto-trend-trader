@@ -64,7 +64,7 @@ SINGLE_TF_PROMPT = """
   "risk_reward": "1:2.3",
   "divergence_risk": true或false,
   "structure_broken": true或false,
-  "confidence": "high或medium或low",
+  "confidence": "high或low",
   "reason": "不少于80字的中文分析",
   "warning": "风险提示或null"
 }
@@ -126,7 +126,7 @@ MULTI_TF_PROMPT_SUFFIX = """
   "risk_reward": "1:2.3",
   "divergence_risk": true或false,
   "structure_broken": true或false,
-  "confidence": "high或medium或low",
+  "confidence": "high或low",
   "reason": "不少于100字的多周期综合分析",
   "warning": "风险提示或null"
 }
@@ -509,13 +509,12 @@ def save_decision_log(
 def _build_text_analysis_prompt() -> str:
     """
     动态生成文本LLM分析 Prompt，时间框架从 TIMEFRAMES 配置读取。
+    激进型裸K交易员视角：规则引擎做硬过滤，LLM做软判断（结构、节奏、时机）。
     """
     total = len(TIMEFRAMES)
     tf_names = "、".join(TIMEFRAMES)
-    tf_roles = " → ".join(
-        f"{tf}{'定宏观方向' if i == 0 else '确认结构' if i == 1 else '确认入场信号'}"
-        for i, tf in enumerate(TIMEFRAMES)
-    )
+    anchor_tf = TIMEFRAMES[0]
+    base_tf = TIMEFRAMES[-1]
     tf_alignment_fields = "\n".join(
         f'    "{tf}": "up或down或sideways",' for tf in TIMEFRAMES
     )
@@ -523,25 +522,141 @@ def _build_text_analysis_prompt() -> str:
     atr_mult = TRADING_CFG.get("stop_loss_atr_multiplier", 2.5)
     rr_ratio = _MIN_RR_RATIO
 
-    return f"""你是一位精通裸K趋势追踪的专业量化分析师，专注加密货币合约单边行情交易。
+    # 从配置读取阈值参数
+    rule_cfg = _ANALYSIS_CFG.get("rule_filter", {})
+    vol_ratio_thresh = rule_cfg.get("volume_ratio_threshold", 0.8)
+    adx_trending = rule_cfg.get("adx_trending_threshold", 20)
+    adx_edge_min = TRADING_CFG.get("adx_edge_min", 20)
+    adx_edge_max = TRADING_CFG.get("adx_edge_max", 25)
+    adx_strong = rule_cfg.get("strong_trend_adx_threshold", 60)
+    long_rsi_low = rule_cfg.get("long_signal_rsi_low", 40)
+    rsi_oversold = rule_cfg.get("rsi_oversold", 20)
+    rsi_overbought = rule_cfg.get("rsi_overbought", 80)
+    recent_momentum_pct = rule_cfg.get("recent_trend_min_pct", 0.65)
 
-以下是系统规则引擎计算出的多周期技术指标数据（已通过规则引擎预过滤，背离风险已由系统检测）：
+    # 计算动态阈值
+    vol_burst_thresh = vol_ratio_thresh * 2  # 量能爆发阈值（2倍量比）
+    adx_strong_thresh = adx_trending + 10    # 强趋势 ADX 阈值
+    momentum_strong_pct = int(recent_momentum_pct * 100)  # 近期动能强劲占比
+
+    return f"""你是一位激进型裸K趋势交易员，专注加密货币合约单边行情，追求高胜率的趋势早期入场。
+
+系统规则引擎已完成硬过滤（EMA排列、ADX门槛、RSI保护、背离检测），以下是通过预过滤的市场快照：
 
 {{market_snapshot}}
 
-**分析要求：**
-1. 这是一个短线单边行情策略，只在 {tf_names} 级别出现明确单边趋势时才开仓
-2. 使用自上而下分析法：{tf_roles}
-3. 快照末行「多周期共振」已给出对齐分数，对齐分数<{min_alignment} 时 signal 必须填 wait
-4. RSI趋势字段（如「RSI趋势：连升2轮」）反映动能方向，与信号方向相反时应降低 signal_strength
-5. 近期动能字段（如「近期动能：空头占比60%」）是重要的入场确认依据，与信号方向一致时加分
-6. entry_price：优先使用支撑阻力结构位附近；若无明确结构位则使用当前价格（市价入场）
-7. stop_loss 必须使用 ATR 动态止损：long=entry-{atr_mult}×ATR，short=entry+{atr_mult}×ATR
-8. take_profit 必须使用盈亏比 1:{rr_ratio:.0f} 设置：long=entry+{rr_ratio}×(entry-stop_loss)，short=entry-{rr_ratio}×(entry-stop_loss)
-9. confidence=high 仅在 signal_strength>={_MIN_SIGNAL_STRENGTH} 且 volume_confirmed=true 且多周期对齐>={min_alignment} 时使用
-10. divergence_risk：系统已检测RSI背离，此处基于快照中RSI趋势判断——若最低周期RSI趋势与价格方向相反则填 true
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+你的任务：基于快照做"软判断"，评估入场时机的成熟度
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-**只输出如下JSON，不要输出任何其他内容：**
+## 一、多周期共振分析（自上而下）
+
+1. **{anchor_tf} 锚周期**：定宏观方向，ADX>={adx_edge_max} 为强趋势，{adx_edge_min}-{adx_edge_max} 为边缘区需谨慎
+2. **中间周期**：确认结构完整性（HH+HL 或 LH+LL 是否清晰）
+3. **{base_tf} 入场周期**：寻找回调结束信号（K线形态 + 量能 + RSI位置）
+
+**对齐分数 < {min_alignment} 时必须返回 wait**（周期冲突 = 假信号）
+
+## 二、signal_strength 评分标准（1-10分，激进型视角）
+
+**基础分（6分）：**
+- 多周期 EMA 排列一致：+2分/周期（{total}周期全对齐=6分）
+
+**加分项（最多+4分）：**
+- 量能爆发（量比 >= {vol_burst_thresh:.1f}）：+2分
+- 明确K线形态（吞没/锤子/Pin Bar）：+1.5分
+- RSI 位置理想：
+  - 做多：RSI {rsi_oversold}-{long_rsi_low}（回调充分但未超卖）：+1.5分
+  - 做空：RSI {long_rsi_low}-{rsi_overbought - 10}（反弹充分但未超买）：+1.5分
+- 近期动能强劲（空头/多头占比 >= {momentum_strong_pct}%）：+1分
+
+**减分项：**
+- RSI 趋势与信号方向相反（如做空但 RSI 连升2轮）：-2分
+- ADX 处于边缘区（{adx_edge_min}-{adx_edge_max}）：-1分
+- 量能不足（量比 < {vol_ratio_thresh}）：-2分
+
+**评分逻辑：**
+- 8-10分：完美入场时机（多周期共振+放量+形态+RSI位置+动能一致）
+- 6-7分：标准信号（满足基础条件，有1-2个加分项）
+- 4-5分：勉强信号（基础条件满足但缺乏确认）
+- 1-3分：弱信号（周期冲突或关键条件缺失）
+
+## 三、入场价格选择（激进型策略）
+
+**优先级：结构位 > 当前价**
+
+1. **做多入场**：
+   - 首选：最近的支撑位附近（回调到位，风险最小）
+   - 次选：当前价（突破后追单，适合强趋势）
+
+2. **做空入场**：
+   - 首选：最近的阻力位附近（反弹到位，风险最小）
+   - 次选：当前价（跌破后追单，适合强趋势）
+
+**判断标准：**
+- 当前价距离结构位 < 0.5% → 使用结构位
+- 当前价距离结构位 > 1% → 使用当前价（已突破/跌破）
+
+## 四、止损止盈计算（严格执行）
+
+**止损（ATR 动态）：**
+- 做多：`stop_loss = entry - {atr_mult} × ATR`
+- 做空：`stop_loss = entry + {atr_mult} × ATR`
+
+**止盈（固定盈亏比）：**
+- 做多：`take_profit = entry + {rr_ratio} × (entry - stop_loss)`
+- 做空：`take_profit = entry - {rr_ratio} × (stop_loss - entry)`
+
+**计算后检查：**
+- 做多：止损必须 < entry < 止盈
+- 做空：止盈 < entry < 止损
+- 盈亏比必须 >= {rr_ratio}:1
+
+## 五、confidence 判定（二元规则，无 medium）
+
+**high（同时满足3个条件）：**
+1. `signal_strength >= {_MIN_SIGNAL_STRENGTH}`
+2. `volume_confirmed = true`（任一周期量比 >= {vol_ratio_thresh}）
+3. `alignment_score >= {min_alignment}`（多周期对齐）
+
+**low（任一条件不满足）：**
+- 直接返回 low，不解释
+
+## 六、关键检查项（激进型交易员的经验法则）
+
+### ✅ 做多信号加分：
+- {base_tf} RSI < {long_rsi_low}（回调充分）
+- 近期动能显示"多头占比 >= {int(recent_momentum_pct * 100)}%"
+- {base_tf} 出现看涨吞没/锤子线/Pin Bar
+- {anchor_tf} ADX >= {adx_trending + 10}（强趋势）
+
+### ✅ 做空信号加分：
+- {base_tf} RSI > {long_rsi_low}（反弹充分但未超买）
+- 近期动能显示"空头占比 >= {int(recent_momentum_pct * 100)}%"
+- {base_tf} 出现看跌吞没/倒锤子/Pin Bar
+- {anchor_tf} ADX >= {adx_trending + 10}（强趋势）
+
+### ⚠️ 警告触发（填入 warning 字段）：
+- {anchor_tf} ADX 在 {adx_edge_min}-{adx_edge_max} 边缘区 → "ADX边缘区，趋势不明朗"
+- {base_tf} RSI 趋势与信号方向相反 → "RSI动能背离，注意反转风险"
+- 量比 < {vol_ratio_thresh} 但其他条件完美 → "量能不足，可能假突破"
+- 所有周期 RSI 都在 45-55 中性区 → "RSI横盘震荡，方向不明"
+
+### 🚫 强制 wait（即使规则引擎通过）：
+- 对齐分数 < {min_alignment}（周期冲突）
+- {anchor_tf} 趋势=sideways 且 ADX < {adx_trending}（横盘市）
+- {base_tf} RSI 趋势连续3轮与信号方向相反（动能衰竭）
+
+## 七、divergence_risk 判定
+
+系统已检测 RSI 背离，你需要基于快照中的"RSI趋势"字段二次确认：
+
+- **底背离**（做空风险）：价格下跌但 {base_tf} RSI 连续回升 → `true`
+- **顶背离**（做多风险）：价格上涨但 {base_tf} RSI 连续下行 → `true`
+- 其他情况：`false`
+
+## 八、输出格式（严格 JSON，禁止任何额外文本）
+
 {{{{
   "timeframe_alignment": {{{{
 {tf_alignment_fields}
@@ -550,11 +665,11 @@ def _build_text_analysis_prompt() -> str:
   "trend": "up或down或sideways",
   "trend_phase": "early或mid或late",
   "trend_strength": 整数1到10,
-  "signal": "long或short或wait或close",
+  "signal": "long或short或wait",
   "signal_type": "engulfing或hammer或inside_bar或morning_star或pullback或momentum或none",
   "signal_strength": 整数1到10,
   "volume_confirmed": true或false,
-  "volume_note": "成交量说明",
+  "volume_note": "简短说明（如：量比1.8放量、量比0.6缩量）",
   "key_support": 数字,
   "key_resistance": 数字,
   "entry_price": 数字,
@@ -562,11 +677,15 @@ def _build_text_analysis_prompt() -> str:
   "take_profit": 数字,
   "risk_reward": "1:X.X",
   "divergence_risk": true或false,
-  "structure_broken": true或false,
-  "confidence": "high或medium或low",
-  "reason": "不少于100字的多周期综合分析，需提及RSI趋势和近期动能",
-  "warning": "风险提示或null"
+  "structure_broken": false,
+  "confidence": "high或low",
+  "reason": "80-150字分析，必须包含：①多周期对齐情况 ②RSI动能方向 ③近期动能占比 ④入场时机成熟度 ⑤为什么给这个signal_strength评分",
+  "warning": "风险提示（ADX边缘/RSI背离/量能不足/横盘震荡）或null"
 }}}}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+激进型交易员心法：趋势早期入场，止损严格，让利润奔跑
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
 
 
