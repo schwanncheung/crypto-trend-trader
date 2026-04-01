@@ -339,7 +339,7 @@ def main():
             # 将正向检查项名称转换为负向描述
             label_map = {
                 "信号方向明确": "方向不明",
-                "置信度为high": "置信不足",
+                "置信度为high": "信心不足",
                 "成交量确认": "量能不足",
                 "无背离风险": "背离风险",
                 "结构未打破": "结构已破",
@@ -347,7 +347,7 @@ def main():
             simplified_failed = []
             for reason in failed:
                 if "信号强度" in reason:
-                    simplified_failed.append("信号强度不足")
+                    simplified_failed.append("信号不强")
                 elif "风险回报比" in reason:
                     simplified_failed.append("R:R不足")
                 else:
