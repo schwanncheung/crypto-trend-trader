@@ -306,7 +306,7 @@ def execute_from_decision(
 ) -> dict:
     """
     根据 AI 决策执行开仓
-    
+
     参数：
         exchange:      ccxt 交易所实例
         symbol:        合约名称，如 "ANIME/USDT:USDT"
@@ -318,6 +318,15 @@ def execute_from_decision(
     """
     import traceback
     try:
+        # ── 0. 检查开仓开关 ──────────────────────────
+        enable_open = TRADING_CFG.get("enable_open_position", True)
+        if not enable_open:
+            logger.warning(f"{symbol} 开仓已关闭（enable_open_position=false），跳过开仓")
+            return {
+                "status": "skipped",
+                "reason": "开仓功能已关闭"
+            }
+
         # ── 1. 解析 AI 决策 ──────────────────────────
         signal      = decision.get("signal", "").lower()    # "long" / "short" / "wait"
         entry_price = decision.get("entry_price")

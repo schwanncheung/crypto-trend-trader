@@ -85,9 +85,10 @@ analysis:
     fallback_model: "glm-5"
 
 trading:
-  default_leverage: 10   # 默认杠杆
-  min_signal_strength: 7 # 最低信号强度
-  min_rr_ratio: 2.0      # 最低盈亏比
+  enable_open_position: true  # 开仓总开关：false=紧急关闭开仓，true=允许开仓
+  default_leverage: 10        # 默认杠杆
+  min_signal_strength: 7      # 最低信号强度
+  min_rr_ratio: 2.0           # 最低盈亏比
 
 risk:
   max_open_positions: 3  # 最大同时持仓
@@ -121,16 +122,17 @@ python scripts/market_scanner.py
 
 ## 关键参数说明
 
-| 参数 | 默认值 | 配置路径 |
-|------|--------|----------|
-| 默认杠杆 | 10x | `trading.default_leverage` |
-| 最大同时持仓 | 3个 | `risk.max_open_positions` |
-| 日亏损上限 | -5% | `risk.max_loss_pct` |
-| 强制平仓线 | -15% | `trade_manager.force_close_loss_pct` |
-| 移动止损触发 | +15% | `trade_manager.trailing_stop_trigger_pct` |
-| 部分止盈触发 | +25% | `trade_manager.partial_profit_trigger_pct` |
-| ADX趋势阈值 | 20 | `analysis.rule_filter.adx_trending_threshold` |
-| 量比确认阈值 | 0.8x | `analysis.rule_filter.volume_ratio_threshold` |
+| 参数 | 默认值 | 配置路径 | 说明 |
+|------|--------|----------|------|
+| 开仓总开关 | true | `trading.enable_open_position` | 紧急关闭开仓功能，不影响扫描和持仓管理 |
+| 默认杠杆 | 10x | `trading.default_leverage` | |
+| 最大同时持仓 | 3个 | `risk.max_open_positions` | |
+| 日亏损上限 | -5% | `risk.max_loss_pct` | |
+| 强制平仓线 | -15% | `trade_manager.force_close_loss_pct` | |
+| 移动止损触发 | +15% | `trade_manager.trailing_stop_trigger_pct` | |
+| 部分止盈触发 | +25% | `trade_manager.partial_profit_trigger_pct` | |
+| ADX趋势阈值 | 20 | `analysis.rule_filter.adx_trending_threshold` | |
+| 量比确认阈值 | 0.8x | `analysis.rule_filter.volume_ratio_threshold` | |
 
 ## 注意事项
 - 实盘前务必在测试网充值并验证开仓/止损/止盈全流程

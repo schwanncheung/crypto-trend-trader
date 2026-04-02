@@ -117,6 +117,7 @@ analysis:
     context_trend_window: 60            # 背景窗口（根）：用于判断近期是否突破了横盘区间
 
 trading:
+  enable_open_position: true    # 开仓总开关：false=禁止开仓（紧急关闭），true=允许开仓
   allowed_confidence: ["high"]  # 只有 confidence=high 的信号才允许交易
   min_signal_strength: 6        # 最低信号强度（1-10），低于此值不交易
   min_trend_strength: 6         # 最低趋势强度（1-10），低于此值不交易（优化：从7降到6，捕捉趋势早期机会 ADX 24-28）
