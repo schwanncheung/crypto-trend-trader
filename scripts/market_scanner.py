@@ -248,14 +248,27 @@ def main():
             if result.get("status") == "success":
                 triggered_trades += 1
                 logger.info(f"{symbol} ✅ 开仓成功！方向: {decision.get('signal')}, 入场: {decision.get('entry_price')}, 止损: {decision.get('stop_loss')}, 止盈: {decision.get('take_profit')}")
-                send_notification(
-                    f"开仓成功：{symbol}\n"
-                    f"方向：{decision.get('signal')}\n"
-                    f"入场：{decision.get('entry_price')}\n"
-                    f"止损：{decision.get('stop_loss')}\n"
-                    f"止盈：{decision.get('take_profit')}\n"
-                    f"持仓：{current_position_count + 1}/{MAX_POSITIONS}"
-                )
+
+                # 构建详细通知
+                short_symbol = symbol.split("/")[0]
+                notification_lines = [
+                    f"✅ 开仓成功：{short_symbol}",
+                    f"方向：{decision.get('signal')} | 入场：{decision.get('entry_price')}",
+                    f"止损：{decision.get('stop_loss')} | 止盈：{decision.get('take_profit')}",
+                    f"持仓：{current_position_count + 1}/{MAX_POSITIONS}",
+                ]
+
+                # 添加分析原因
+                reason = decision.get("reason", "")
+                if reason:
+                    notification_lines.append(f"\n📊 分析：{reason}")
+
+                # 添加警告信息
+                warning = decision.get("warning")
+                if warning:
+                    notification_lines.append(f"\n⚠️ 警告：{warning}")
+
+                send_notification("\n".join(notification_lines))
             elif result.get("status") in ("error", "failed"):
                 logger.warning(f"{symbol} ❌ 开仓失败：{result.get('reason')}")
                 send_notification(
