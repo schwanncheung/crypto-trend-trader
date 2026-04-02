@@ -59,26 +59,56 @@ def _cancel_all_symbol_orders(exchange, symbol: str):
         logger.warning(f"  查询挂单失败：{e}")
 
 
+BREAKEVEN_STATE_FILE = Path("logs/breakeven_state.json")
+
+
+def _load_breakeven_state() -> dict:
+    if BREAKEVEN_STATE_FILE.exists():
+        import json
+        try:
+            return json.loads(BREAKEVEN_STATE_FILE.read_text())
+        except Exception:
+            pass
+    return {}
+
+
+def _save_breakeven_state(state: dict):
+    import json
+    BREAKEVEN_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    BREAKEVEN_STATE_FILE.write_text(json.dumps(state, ensure_ascii=False, indent=2))
+
+
+def _clear_breakeven_state(symbol: str, side: str):
+    state = _load_breakeven_state()
+    state.pop(f"{symbol}_{side}", None)
+    _save_breakeven_state(state)
+
+
 def _move_stop_to_breakeven(exchange, symbol: str, side: str, contracts: float, entry_price: float) -> bool:
     """
     将止损移至保本位（入场价），若已在保本位则跳过
     返回：True=实际执行了移动，False=已跳过（无需操作）
     """
     try:
-        # 1. 检查当前挂单，避免重复挂单
+        # 1. 本地状态优先：已记录过保本则直接跳过，无需查询交易所
+        state = _load_breakeven_state()
+        state_key = f"{symbol}_{side}"
+        saved = state.get(state_key)
+        if saved and abs(saved - float(entry_price)) / float(entry_price) < 0.0001:
+            logger.info(f"  止损已在保本位 {entry_price}（本地状态），跳过重复操作")
+            return False
+
+        # 2. 兜底：查交易所挂单，防止本地状态丢失后重复操作
         open_orders = exchange.fetch_open_orders(symbol, params={"instType": "SWAP"})
-        breakeven_already = False
         for order in open_orders:
             sl_px = order.get("info", {}).get("slTriggerPx") or order.get("info", {}).get("stopLossPrice")
-            if sl_px and float(sl_px) == float(entry_price):
-                breakeven_already = True
-                break
-        
-        if breakeven_already:
-            logger.info(f"  止损已在保本位 {entry_price}，跳过重复操作")
-            return False
-        
-        # 2. 撤销旧挂单并创建新止损单
+            if sl_px and abs(float(sl_px) - float(entry_price)) / float(entry_price) < 0.0001:
+                logger.info(f"  止损已在保本位 {entry_price}（交易所确认），跳过重复操作")
+                state[state_key] = float(entry_price)
+                _save_breakeven_state(state)
+                return False
+
+        # 3. 撤销旧挂单并创建新止损单
         _cancel_all_symbol_orders(exchange, symbol)
         exchange.create_order(
             symbol=symbol,
@@ -93,6 +123,8 @@ def _move_stop_to_breakeven(exchange, symbol: str, side: str, contracts: float, 
             },
         )
         logger.info(f"  止损已移至保本位 {entry_price}")
+        state[state_key] = float(entry_price)
+        _save_breakeven_state(state)
         return True
     except Exception as e:
         logger.error(f"  ⚠️ 移动止损至保本失败：{e}")
@@ -212,6 +244,7 @@ def main():
                     send_notification(f"{symbol} 亏损{pnl_pct:.1f}%，触发动态止损，已强制平仓")
                     closed_count += 1
                     generate_close_report(symbol, f"动态止损：亏损{pnl_pct:.1f}%", unrealized_pnl, pnl_pct)
+                    _clear_breakeven_state(symbol, side)
                 except Exception as e:
                     logger.error(f"  强制平仓失败：{e}")
 
@@ -268,6 +301,7 @@ def main():
                     send_notification(f"{symbol} 结构平仓\n原因：{close_reason}")
                     closed_count += 1
                     generate_close_report(symbol, close_reason, unrealized_pnl, pnl_pct)
+                    _clear_breakeven_state(symbol, side)
                 else:
                     logger.info(f"  {symbol} 结构完好，持仓继续 | 当前价：{current_price}")
 
@@ -280,9 +314,9 @@ def main():
 
     # ── 第三步：汇总报告 ──
     remaining = len(positions) - closed_count
-    logger.info("=" * 50)
+    logger.info("=" * 20)
     logger.info(f"持仓巡检完成 | 持仓数：{remaining} | 净盈亏：{total_pnl:.2f} USDT")
-    logger.info("=" * 50)
+    logger.info("=" * 20)
 
     # 构建持仓明细
     lines = []
@@ -307,7 +341,7 @@ def main():
     send_notification(
         f"持仓巡检完成\n"
         f"持仓数：{remaining} | 总浮盈亏：{total_pnl:+.2f}U | 已平仓：{closed_count}\n"
-        f"{'─' * 30}\n"
+        f"{'─' * 20}\n"
         f"{detail}"
     )
 
