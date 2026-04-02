@@ -121,7 +121,8 @@ trading:
   allowed_confidence: ["high"]  # 只有 confidence=high 的信号才允许交易
   min_signal_strength: 6        # 最低信号强度（1-10），低于此值不交易
   min_trend_strength: 6         # 最低趋势强度（1-10），低于此值不交易（优化：从7降到6，捕捉趋势早期机会 ADX 24-28）
-  min_rr_ratio: 1.5             # 最低盈亏比（risk:reward），低于此值不交易
+  min_rr_ratio: 1.5             # 风控门槛：信号盈亏比低于此值不允许开仓
+  target_rr_ratio: 1.2          # 止盈设置：实际止盈距离 = 止损距离 × 1.2
   default_leverage: 10          # 默认杠杆倍数
   max_position_pct: 0.1        # 单笔最大仓位占账户净值比例（10%）
   adx_edge_min: 20              # ADX边缘区间下限：低于此值为横盘
@@ -137,7 +138,6 @@ risk:
   max_open_positions: 5    # 最大同时持仓数，达到上限后停止开新仓
   max_loss_pct: -5.0       # 日亏损上限（%），超过后当日停止自动交易
   leverage: 10             # 风控模块使用的杠杆（与 trading.default_leverage 保持一致）
-  min_risk_reward: 2.0     # 风控模块使用的最低盈亏比（与 trading.min_rr_ratio 保持一致）
 
 # ── 持仓管理阈值 ─────────────────────────────────────────────────────
 trade_manager:

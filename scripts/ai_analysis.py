@@ -61,7 +61,8 @@ def _build_rule_only_decision(tf_indicators: dict, direction: str, symbol: str) 
     rule_filter_cfg = _ANALYSIS_CFG.get("rule_filter", {})
 
     min_signal_strength  = TRADING_CFG.get("min_signal_strength", 7)
-    min_rr_ratio         = TRADING_CFG.get("min_rr_ratio", 2.0)
+    min_rr_ratio         = TRADING_CFG.get("min_rr_ratio", 2.0)  # 风控门槛
+    target_rr_ratio      = TRADING_CFG.get("target_rr_ratio", 1.2)  # 止盈设置
     atr_multiplier       = TRADING_CFG.get("stop_loss_atr_multiplier", 2.5)
     vol_ratio_threshold  = rule_filter_cfg.get("volume_ratio_threshold", 0.8)
     strong_trend_adx     = rule_filter_cfg.get("strong_trend_adx_threshold", 60)
@@ -123,10 +124,10 @@ def _build_rule_only_decision(tf_indicators: dict, direction: str, symbol: str) 
     atr = base_ind.get("atr", entry * 0.01)
     if direction == "long":
         stop_loss   = entry - atr_multiplier * atr
-        take_profit = entry + min_rr_ratio * (entry - stop_loss)
+        take_profit = entry + target_rr_ratio * (entry - stop_loss)
     else:
         stop_loss   = entry + atr_multiplier * atr
-        take_profit = entry - min_rr_ratio * (stop_loss - entry)
+        take_profit = entry - target_rr_ratio * (stop_loss - entry)
     risk   = abs(entry - stop_loss)
     reward = abs(take_profit - entry)
     rr     = round(reward / risk, 2) if risk > 0 else 0.0
