@@ -62,21 +62,21 @@ def setup_logging(log_name: str, max_bytes: int = 10 * 1024 * 1024, backup_count
 
     root = logging.getLogger()
 
-    # 检查是否已有相同路径的 FileHandler，避免重复添加
-    existing_files = {
-        getattr(h, "baseFilename", None)
-        for h in root.handlers
-        if isinstance(h, RotatingFileHandler)
-    }
-    if str(log_file) not in existing_files:
-        file_handler = RotatingFileHandler(
-            log_file,
-            maxBytes=max_bytes,
-            backupCount=backup_count,
-            encoding="utf-8",
-        )
-        file_handler.setFormatter(fmt)
-        root.addHandler(file_handler)
+    # 清理所有已存在的文件 handler，避免日志重复写入多个文件
+    root.handlers = [
+        h for h in root.handlers
+        if not isinstance(h, RotatingFileHandler)
+    ]
+
+    # 添加当前模块的文件 handler
+    file_handler = RotatingFileHandler(
+        log_file,
+        maxBytes=max_bytes,
+        backupCount=backup_count,
+        encoding="utf-8",
+    )
+    file_handler.setFormatter(fmt)
+    root.addHandler(file_handler)
 
     # console handler：只加一个
     has_console = any(isinstance(h, logging.StreamHandler) and not isinstance(h, RotatingFileHandler)
