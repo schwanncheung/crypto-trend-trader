@@ -284,11 +284,31 @@ def main():
     logger.info(f"持仓巡检完成 | 持仓数：{remaining} | 净盈亏：{total_pnl:.2f} USDT")
     logger.info("=" * 50)
 
+    # 构建持仓明细
+    lines = []
+    for pos in positions:
+        sym = pos.get("symbol", "")
+        # 合约简写：BTC/USDT:USDT → BTC
+        short_name = sym.split("/")[0] if "/" in sym else sym
+        side = pos.get("side", "")
+        side_label = "🔴" if side == "long" else "🟢"
+        contracts = pos.get("contracts", 0)
+        entry = pos.get("entry_price", 0)
+        liq = pos.get("liquidation_price", 0)
+        pnl = pos.get("unrealized_pnl", 0)
+        pnl_pct = pos.get("percentage", 0)
+        pnl_sign = "+" if pnl >= 0 else ""
+        liq_str = f"{liq:.4g}" if liq else "N/A"
+        lines.append(
+            f"{short_name} {side_label} {contracts}张 | 开仓:{entry:.4g} | 强平:{liq_str} | {pnl_sign}{pnl:.2f}U ({pnl_sign}{pnl_pct:.1f}%)"
+        )
+
+    detail = "\n".join(lines)
     send_notification(
         f"持仓巡检完成\n"
-        f"持仓数：{remaining}\n"
-        f"总浮盈亏：{total_pnl:.2f} USDT\n"
-        f"已平仓：{closed_count}"
+        f"持仓数：{remaining} | 总浮盈亏：{total_pnl:+.2f}U | 已平仓：{closed_count}\n"
+        f"{'─' * 30}\n"
+        f"{detail}"
     )
 
 

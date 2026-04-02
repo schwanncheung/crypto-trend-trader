@@ -315,7 +315,7 @@ def main():
         for sym, direction, indicators in rule_passed_symbols:
             # 简化合约名称：BTC/USDT:USDT -> BTC
             short_name = sym.split("/")[0]
-            arrow = "🔴多" if direction == "long" else ("🟢空" if direction == "short" else "⚪观望")
+            arrow = "🔴" if direction == "long" else ("🟢" if direction == "short" else "⚪观望")
 
             # 构建指标信息
             parts = [f"{short_name} {arrow}"]

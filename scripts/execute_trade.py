@@ -261,6 +261,7 @@ def get_open_positions(exchange: ccxt.Exchange) -> list:
                 "percentage": float(p.get("percentage", 0)),
                 "leverage": float(p.get("leverage", 1)),
                 "margin": float(p.get("initialMargin") or p.get("margin") or 0),
+                "liquidation_price": float(p.get("liquidationPrice") or 0),
                 **_load_ai_key_levels(p["symbol"]),
             }
             for p in positions
