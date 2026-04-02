@@ -49,7 +49,7 @@ from trade_report import generate_close_report
 def _cancel_all_symbol_orders(exchange, symbol: str):
     """撤销某品种所有挂单（OKX 不支持 cancel_all_orders，逐个取消）"""
     try:
-        open_orders = exchange.fetch_orders(symbol, params={"instType": "SWAP", "state": "live"})
+        open_orders = exchange.fetch_open_orders(symbol, params={"instType": "SWAP"})
         for order in open_orders:
             try:
                 exchange.cancel_order(order["id"], symbol)
@@ -66,7 +66,7 @@ def _move_stop_to_breakeven(exchange, symbol: str, side: str, contracts: float, 
     """
     try:
         # 1. 检查当前挂单，避免重复挂单
-        open_orders = exchange.fetch_orders(symbol, params={"instType": "SWAP", "state": "live"})
+        open_orders = exchange.fetch_open_orders(symbol, params={"instType": "SWAP"})
         breakeven_already = False
         for order in open_orders:
             sl_px = order.get("info", {}).get("slTriggerPx") or order.get("info", {}).get("stopLossPrice")
