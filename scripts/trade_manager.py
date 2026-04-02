@@ -60,6 +60,7 @@ def _cancel_all_symbol_orders(exchange, symbol: str):
 
 
 BREAKEVEN_STATE_FILE = Path("logs/breakeven_state.json")
+PARTIAL_PROFIT_STATE_FILE = Path("logs/partial_profit_state.json")
 
 
 def _load_breakeven_state() -> dict:
@@ -82,6 +83,45 @@ def _clear_breakeven_state(symbol: str, side: str):
     state = _load_breakeven_state()
     state.pop(f"{symbol}_{side}", None)
     _save_breakeven_state(state)
+
+
+def _load_partial_profit_state() -> dict:
+    if PARTIAL_PROFIT_STATE_FILE.exists():
+        import json
+        try:
+            return json.loads(PARTIAL_PROFIT_STATE_FILE.read_text())
+        except Exception:
+            pass
+    return {}
+
+
+def _save_partial_profit_state(state: dict):
+    import json
+    PARTIAL_PROFIT_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    PARTIAL_PROFIT_STATE_FILE.write_text(json.dumps(state, ensure_ascii=False, indent=2))
+
+
+def _mark_partial_profit_done(symbol: str, side: str, batch: int):
+    """标记某批次止盈已执行，batch=1或2"""
+    state = _load_partial_profit_state()
+    key = f"{symbol}_{side}"
+    if key not in state:
+        state[key] = {"batch1": False, "batch2": False}
+    state[key][f"batch{batch}"] = True
+    _save_partial_profit_state(state)
+
+
+def _is_partial_profit_done(symbol: str, side: str, batch: int) -> bool:
+    """检查某批次止盈是否已执行"""
+    state = _load_partial_profit_state()
+    key = f"{symbol}_{side}"
+    return state.get(key, {}).get(f"batch{batch}", False)
+
+
+def _clear_partial_profit_state(symbol: str, side: str):
+    state = _load_partial_profit_state()
+    state.pop(f"{symbol}_{side}", None)
+    _save_partial_profit_state(state)
 
 
 def _move_stop_to_breakeven(exchange, symbol: str, side: str, contracts: float, entry_price: float) -> bool:
@@ -188,53 +228,61 @@ def main():
             # 第二批：浮盈 > PARTIAL_PROFIT_PCT_2，平 PARTIAL_PROFIT_RATIO_2 仓位
             # 第一批：浮盈 > PARTIAL_PROFIT_PCT，平 PARTIAL_PROFIT_RATIO_1 仓位
             if pnl_pct > PARTIAL_PROFIT_PCT_2:
-                live_positions = get_open_positions(exchange)
-                live_pos = next(
-                    (p for p in live_positions if p["symbol"] == symbol and p["side"] == side), None
-                )
-                live_contracts = live_pos["contracts"] if live_pos else contracts
-                partial_contracts = int(live_contracts * PARTIAL_PROFIT_RATIO_2)
-                if partial_contracts > 0:
-                    logger.info(f"  浮盈{pnl_pct:.1f}%（>{PARTIAL_PROFIT_PCT_2:.0f}%），第二批止盈{int(PARTIAL_PROFIT_RATIO_2*100)}%（{partial_contracts}张）")
-                    try:
-                        exchange.create_order(
-                            symbol=symbol,
-                            type="market",
-                            side="sell" if side == "long" else "buy",
-                            amount=partial_contracts,
-                            params={"tdMode": "cross", "reduceOnly": True},
-                        )
-                        send_notification(
-                            f"{symbol} 浮盈{pnl_pct:.1f}%，第二批止盈{int(PARTIAL_PROFIT_RATIO_2*100)}%（{partial_contracts}张），剩余持仓继续运行"
-                        )
-                        closed_count += 1
-                        _move_stop_to_breakeven(exchange, symbol, side, live_contracts - partial_contracts, entry_price)
-                    except Exception as e:
-                        logger.error(f"  ⚠️ 第二批止盈失败：{e}")
+                if _is_partial_profit_done(symbol, side, 2):
+                    logger.info(f"  第二批止盈已执行过，跳过")
+                else:
+                    live_positions = get_open_positions(exchange)
+                    live_pos = next(
+                        (p for p in live_positions if p["symbol"] == symbol and p["side"] == side), None
+                    )
+                    live_contracts = live_pos["contracts"] if live_pos else contracts
+                    partial_contracts = int(live_contracts * PARTIAL_PROFIT_RATIO_2)
+                    if partial_contracts > 0:
+                        logger.info(f"  浮盈{pnl_pct:.1f}%（>{PARTIAL_PROFIT_PCT_2:.0f}%），第二批止盈{int(PARTIAL_PROFIT_RATIO_2*100)}%（{partial_contracts}张）")
+                        try:
+                            exchange.create_order(
+                                symbol=symbol,
+                                type="market",
+                                side="sell" if side == "long" else "buy",
+                                amount=partial_contracts,
+                                params={"tdMode": "cross", "reduceOnly": True},
+                            )
+                            _mark_partial_profit_done(symbol, side, 2)
+                            send_notification(
+                                f"{symbol} 浮盈{pnl_pct:.1f}%，第二批止盈{int(PARTIAL_PROFIT_RATIO_2*100)}%（{partial_contracts}张），剩余持仓继续运行"
+                            )
+                            closed_count += 1
+                            _move_stop_to_breakeven(exchange, symbol, side, live_contracts - partial_contracts, entry_price)
+                        except Exception as e:
+                            logger.error(f"  ⚠️ 第二批止盈失败：{e}")
             elif pnl_pct > PARTIAL_PROFIT_PCT:
-                live_positions = get_open_positions(exchange)
-                live_pos = next(
-                    (p for p in live_positions if p["symbol"] == symbol and p["side"] == side), None
-                )
-                live_contracts = live_pos["contracts"] if live_pos else contracts
-                partial_contracts = int(live_contracts * PARTIAL_PROFIT_RATIO_1)
-                if partial_contracts > 0:
-                    logger.info(f"  浮盈{pnl_pct:.1f}%（>{PARTIAL_PROFIT_PCT}%），第一批止盈{int(PARTIAL_PROFIT_RATIO_1*100)}%（{partial_contracts}张）")
-                    try:
-                        exchange.create_order(
-                            symbol=symbol,
-                            type="market",
-                            side="sell" if side == "long" else "buy",
-                            amount=partial_contracts,
-                            params={"tdMode": "cross", "reduceOnly": True},
-                        )
-                        send_notification(
-                            f"{symbol} 浮盈{pnl_pct:.1f}%，第一批止盈{int(PARTIAL_PROFIT_RATIO_1*100)}%（{partial_contracts}张），剩余持仓继续运行"
-                        )
-                        closed_count += 1
-                        _move_stop_to_breakeven(exchange, symbol, side, live_contracts - partial_contracts, entry_price)
-                    except Exception as e:
-                        logger.error(f"  ⚠️ 第一批止盈失败：{e}")
+                if _is_partial_profit_done(symbol, side, 1):
+                    logger.info(f"  第一批止盈已执行过，跳过")
+                else:
+                    live_positions = get_open_positions(exchange)
+                    live_pos = next(
+                        (p for p in live_positions if p["symbol"] == symbol and p["side"] == side), None
+                    )
+                    live_contracts = live_pos["contracts"] if live_pos else contracts
+                    partial_contracts = int(live_contracts * PARTIAL_PROFIT_RATIO_1)
+                    if partial_contracts > 0:
+                        logger.info(f"  浮盈{pnl_pct:.1f}%（>{PARTIAL_PROFIT_PCT}%），第一批止盈{int(PARTIAL_PROFIT_RATIO_1*100)}%（{partial_contracts}张）")
+                        try:
+                            exchange.create_order(
+                                symbol=symbol,
+                                type="market",
+                                side="sell" if side == "long" else "buy",
+                                amount=partial_contracts,
+                                params={"tdMode": "cross", "reduceOnly": True},
+                            )
+                            _mark_partial_profit_done(symbol, side, 1)
+                            send_notification(
+                                f"{symbol} 浮盈{pnl_pct:.1f}%，第一批止盈{int(PARTIAL_PROFIT_RATIO_1*100)}%（{partial_contracts}张），剩余持仓继续运行"
+                            )
+                            closed_count += 1
+                            _move_stop_to_breakeven(exchange, symbol, side, live_contracts - partial_contracts, entry_price)
+                        except Exception as e:
+                            logger.error(f"  ⚠️ 第一批止盈失败：{e}")
 
             # 情况C：亏损超过阈值，强制平仓
             if pnl_pct < FORCE_CLOSE_PCT:
@@ -245,6 +293,7 @@ def main():
                     closed_count += 1
                     generate_close_report(symbol, f"动态止损：亏损{pnl_pct:.1f}%", unrealized_pnl, pnl_pct)
                     _clear_breakeven_state(symbol, side)
+                    _clear_partial_profit_state(symbol, side)
                 except Exception as e:
                     logger.error(f"  强制平仓失败：{e}")
 
@@ -302,6 +351,7 @@ def main():
                     closed_count += 1
                     generate_close_report(symbol, close_reason, unrealized_pnl, pnl_pct)
                     _clear_breakeven_state(symbol, side)
+                    _clear_partial_profit_state(symbol, side)
                 else:
                     logger.info(f"  {symbol} 结构完好，持仓继续 | 当前价：{current_price}")
 
