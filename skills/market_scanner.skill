@@ -6,7 +6,7 @@
 ## 关键配置（settings.yaml）
 | 路径 | 默认值 | 说明 |
 |------|--------|------|
-| `analysis.mode` | `"text"` | `text`=规则+LLM文本 / `visual`=视觉LLM |
+| `analysis.mode` | `"text"` | `text`=规则+LLM文本 / `rule_only`=纯规则不调LLM |
 | `risk.max_open_positions` | 3 | 最大同时持仓数 |
 | `scanner.top_n_symbols` | 20 | 每轮扫描合约数 |
 | `trade_manager.force_close_loss_pct` | -10.0 | 强制平仓亏损阈值(%) |
@@ -22,7 +22,6 @@
 - 初始化 `balance_cache = {}` 用于日亏损追踪
 - 调用 `fetch_kline.fetch_hot_symbols(exchange, top_n=TOP_N_SYMBOLS)` 获取热门合约
 - 如果返回为空，调用 `_load_fallback_symbols()` 读取 `symbols.yaml` 兜底
-- 注：日线趋势过滤已内置于 `indicator_engine.rule_engine_filter`
 
 ### 第二步：日亏损预检
 - 调用 `risk_filter.check_daily_loss(exchange, balance_cache)`
@@ -40,28 +39,23 @@
 每个品种前先检查持仓是否已满，满则终止循环。
 
 **5.1 获取多周期K线**
-- 调用 `fetch_kline.fetch_multi_timeframe(symbol, exchange)`，周期由 `timeframes` 配置（默认 4h/1h/15m）
+- 调用 `fetch_kline.fetch_multi_timeframe(symbol, exchange)`，周期由 `timeframes` 配置（默认 1h/30m/15m）
 - 数据为空则跳过
-- 调用 `calculate_support_resistance(data[anchor_tf])` 获取支撑阻力（anchor_tf = timeframes[0]，默认 4h）
+- 调用 `calculate_support_resistance(data[anchor_tf])` 获取支撑阻力（anchor_tf = timeframes[0]，默认 1h）
 
-**5.2 生成图表（日志存档）**
-- text 模式：仅当 `chart.save_in_text_mode: true` 时生成，默认跳过
-- visual 模式：必须生成，调用 `generate_chart.generate_multi_chart()` 生成各周期 PNG
-
-**5.3 统一分析入口**
-- 调用 `ai_analysis.analyze_symbol(multi_tf_data, symbol, support_levels, resistance_levels, image_paths)`
-- text 模式内部流程：
+**5.2 AI 分析（规则引擎预过滤 + 文本LLM）**
+- 调用 `ai_analysis.analyze_symbol(multi_tf_data, symbol, support_levels, resistance_levels)`
+- 内部流程：
   1. `indicator_engine.generate_market_snapshot()` 计算所有指标并生成结构化文本
   2. `indicator_engine.rule_engine_filter()` 单边趋势预过滤
-  - 日线横盘 / 小周期趋势不足 / 量能不足 → 返回 `_analysis_mode=rule_filter_rejected`，直接 continue
-  3. 规则通过后调用文本LLM：`qwen3.5-plus` → `kimi-k2.5`（兜底）
-- visual 模式：直接将图表路径传给视觉LLM降级链
+  - 趋势不足 / 量能不足 → 返回 `_analysis_mode=rule_filter_rejected`，直接 continue
+  3. 规则通过后调用文本LLM：primary_model → fallback_model（兜底）
 - 日志输出：`signal / confidence / signal_strength / _analysis_mode`
 
-**5.4 规则过滤拒绝处理**
+**5.3 规则过滤拒绝处理**
 - 如果 `decision["_analysis_mode"] == "rule_filter_rejected"`：`rule_filtered += 1`，continue
 
-**5.5 风控过滤**
+**5.4 风控过滤**
 - 调用 `ai_analysis.passes_risk_filter(decision)`，检查项：
   - 信号方向明确（long/short）
   - 置信度为 high
@@ -72,12 +66,12 @@
   - 盈亏比 >= MIN_RR_RATIO
 - 未通过：记录失败项，continue
 
-**5.6 执行交易**
+**5.5 执行交易**
 - 调用 `execute_trade.execute_from_decision(exchange, symbol, decision, balance_cache)`
 - 成功后发送通知（品种 / 方向 / 入场价 / 止损 / 止盈 / 当前持仓数）
 
-**5.7 保存决策日志**
-- 调用 `ai_analysis.save_decision_log(symbol, "multi", decision, image_paths)`
+**5.6 保存决策日志**
+- 调用 `ai_analysis.save_decision_log(symbol, "multi", decision)`
 
 ### 第六步：扫描完成
 - 汇总：热门合约数 / 已扫描 / 规则过滤拒绝数 / 触发交易数 / 当前持仓

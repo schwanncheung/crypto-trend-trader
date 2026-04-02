@@ -5,44 +5,37 @@
 
 ## 输入参数：
 - symbol: string，例如 "BTC/USDT:USDT"
-- mode: string，"text"（默认）或 "visual"，读自 settings.yaml analysis.mode
+- mode: string，"text"（默认）或 "rule_only"，读自 settings.yaml analysis.mode
 
 ## 执行步骤：
 
 ### 第一步：获取多周期数据
-- 调用 `fetch_kline.fetch_multi_timeframe(symbol, exchange)`，周期由 `settings.yaml` 的 `timeframes` 配置（默认 4h/1h/15m）
-- 调用 `calculate_support_resistance(data[anchor_tf])` 获取支撑阻力位（anchor_tf = timeframes[0]，默认 4h）
+- 调用 `fetch_kline.fetch_multi_timeframe(symbol, exchange)`，周期由 `settings.yaml` 的 `timeframes` 配置（默认 1h/30m/15m）
+- 调用 `calculate_support_resistance(data[anchor_tf])` 获取支撑阻力位（anchor_tf = timeframes[0]，默认 1h）
 - 数据获取失败则返回错误并终止
 
-### 第二步：生成图表（日志存档）
-- text 模式下是否生成图表由 `chart.save_in_text_mode` 控制（默认 false，跳过）
-- visual 模式必须生成，调用 `generate_chart.generate_multi_chart()` 生成各周期 PNG
-
-### 第三步：调用统一分析入口
-调用 `ai_analysis.analyze_symbol(multi_tf_data, symbol, support_levels, resistance_levels, image_paths)`
+### 第二步：调用统一分析入口
+调用 `ai_analysis.analyze_symbol(multi_tf_data, symbol, support_levels, resistance_levels)`
 
 **text 模式内部流程：**
 1. `indicator_engine.generate_market_snapshot()` 计算全部指标并生成结构化文本快照
    - EMA(21/55/200) 排列、ADX/+DI/-DI、RSI(14)、成交量/MA5 比值
    - 裸K形态识别（吞没线/锤子线/内包线/Pin Bar/十字星）
    - 各周期趋势结构（HH/HL/LH/LL）
-2. `indicator_engine.rule_engine_filter()` 单边趋势预过滤门卫
-   - 规则一：锚周期（默认4h）趋势必须非横盘（ADX >= adx_trending_threshold）
+2. `indicator_engine.rule_engine_filter()` 单边趋势预过滤
+   - 规则一：锚周期（默认1h）趋势必须非横盘（ADX >= adx_trending_threshold）
    - 规则二：非锚周期中至少 min_trending_timeframes 个与锚周期方向对齐
    - 规则三：至少一个周期量比 >= volume_ratio_threshold
    - 任一不通过：返回 signal=wait，_analysis_mode=rule_filter_rejected，节省 token
-3. 规则通过后调用文本LLM：qwen3.5-plus → kimi-k2.5（兜底）
+3. 规则通过后调用文本LLM：primary_model → fallback_model（兜底）
    - 发送结构化快照文本，要求输出标准 JSON 决策
 
-**visual 模式内部流程：**
-- 将各周期图表路径（顺序由 `timeframes` 配置决定）传入视觉LLM降级链：qwen3-vl-flash → qwen3-vl-plus → qwen-vl-max
-
-### 第四步：返回决策
-标准决策 JSON 格式（两种模式输出一致）：
+### 第三步：返回决策
+标准决策 JSON 格式：
 ```json
 {
-  "signal": "long/short/wait/close",
-  "confidence": "high/medium/low",
+  "signal": "long/short/wait",
+  "confidence": "high/low",
   "signal_strength": 1-10,
   "alignment_score": 0-3,
   "entry_price": 数字,
@@ -54,7 +47,7 @@
   "structure_broken": true/false,
   "reason": "不少于100字的分析",
   "_model_used": "模型名称",
-  "_analysis_mode": "text_llm/visual/rule_filter_rejected"
+  "_analysis_mode": "text_llm/rule_only/rule_filter_rejected"
 }
 ```
 

@@ -21,9 +21,7 @@
 **分析模式统计：**
 - text_llm 模式使用次数（`_analysis_mode == "text_llm"`）
 - rule_filter_rejected 次数（规则引擎拒绝，未消耗token）
-- visual 模式使用次数
-- 各文本模型使用次数（qwen3.5-plus / kimi-k2.5）
-- 各视觉模型使用次数（qwen3-vl-flash / qwen3-vl-plus / qwen-vl-max）
+- 各文本模型使用次数（primary_model / fallback_model）
 - 平均信号强度得分
 - 平均多周期共振得分（alignment_score）
 
@@ -59,7 +57,6 @@
 🤖 分析模式
   text_llm（规则通过后调用）：{text_count}次
   rule_filter_rejected（规则拒绝节省token）：{rejected_count}次
-  visual（视觉LLM）：{visual_count}次
   平均信号强度：{avg_strength}/10
   平均共振得分：{avg_alignment}/4
 

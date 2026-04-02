@@ -122,10 +122,8 @@ def check_env():
 
 # ── 便捷访问 ──────────────────────────────────
 EXCHANGE_CFG     = CFG.get("exchange", {})
-AI_CFG           = CFG.get("ai", {})
 RISK_CFG         = CFG.get("risk", {})
 SCANNER_CFG      = CFG.get("scanner", {})
-CHART_CFG        = CFG.get("chart", {})
 TRADING_CFG      = CFG.get("trading", {})
 ANALYSIS_CFG     = CFG.get("analysis", {})
 TRADE_MGR_CFG    = CFG.get("trade_manager", {})

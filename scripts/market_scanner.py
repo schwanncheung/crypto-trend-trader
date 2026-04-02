@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import ccxt  # noqa: F401 - 间接使用（create_exchange内部）
 from dotenv import load_dotenv
 
-from config_loader import check_env, RISK_CFG, SCANNER_CFG, TRADE_MGR_CFG, TRADING_CFG, ANALYSIS_CFG, CHART_CFG, BLACKLIST_CFG, TIMEFRAMES, setup_logging
+from config_loader import check_env, RISK_CFG, SCANNER_CFG, TRADE_MGR_CFG, TRADING_CFG, ANALYSIS_CFG, BLACKLIST_CFG, TIMEFRAMES, setup_logging
 check_env()
 setup_logging("market_scanner")
 
@@ -28,7 +28,6 @@ MAX_PRICE_USDT      = SCANNER_CFG.get("max_price_usdt", 2.0)
 MIN_SIGNAL_STRENGTH = TRADING_CFG.get("min_signal_strength", 7)
 MIN_RR_RATIO        = TRADING_CFG.get("min_rr_ratio", 2.0)
 _ANALYSIS_MODE      = ANALYSIS_CFG.get("mode", "text")
-_SAVE_CHART_IN_TEXT = CHART_CFG.get("save_in_text_mode", False)
 
 # 导入各模块
 from fetch_kline import (
@@ -37,7 +36,6 @@ from fetch_kline import (
     fetch_multi_timeframe,
     calculate_support_resistance,
 )
-from generate_chart import generate_multi_chart
 from ai_analysis import analyze_symbol, save_decision_log, passes_risk_filter
 from risk_filter import check_daily_loss
 from execute_trade import (
@@ -175,29 +173,17 @@ def main():
             anchor_tf = TIMEFRAMES[0]
             support, resistance = calculate_support_resistance(data[anchor_tf])
 
-            # 5.2 生成图表（visual模式必须；text模式按配置决定是否存档）
-            if _ANALYSIS_MODE == "visual" or _SAVE_CHART_IN_TEXT:
-                chart_paths = generate_multi_chart(
-                    multi_tf_data=data,
-                    symbol=symbol,
-                    support_levels=support,
-                    resistance_levels=resistance
-                )
-            else:
-                chart_paths = []
-
-            # 5.3 统一分析入口（text模式=规则引擎+文本LLM；visual模式=视觉LLM）
+            # 5.2 AI 分析（规则引擎预过滤 + 文本LLM）
             decision = analyze_symbol(
                 multi_tf_data=data,
                 symbol=symbol,
                 support_levels=support,
                 resistance_levels=resistance,
-                image_paths=chart_paths,
             )
             logger.info(f"{symbol} 分析结果: signal={decision.get('signal')}, "
                         f"confidence={decision.get('confidence')}, "
                         f"strength={decision.get('signal_strength')}, "
-                        f"mode={decision.get('_analysis_mode', 'visual')}")
+                        f"mode={decision.get('_analysis_mode', 'text')}")
 
             # 规则引擎拒绝的直接跳过，不再走风控
             if decision.get("_analysis_mode") == "rule_filter_rejected":
@@ -281,7 +267,6 @@ def main():
                 symbol=symbol,
                 timeframe="multi",
                 decision=decision,
-                image_paths=chart_paths
             )
             
         except Exception as e:
