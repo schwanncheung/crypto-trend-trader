@@ -122,14 +122,10 @@ def main():
     try:
         exchange = create_exchange()
         balance = exchange.fetch_balance()
-        end_balance = float(balance.get("USDT", {}).get("total", 0))
+        current_balance = float(balance.get("USDT", {}).get("total", 0))
     except Exception as e:
         logger.warning(f"余额获取失败：{e}")
-        end_balance = 0
-
-    # 计算期初余额（期末 - 已实现盈亏）
-    start_balance = end_balance - realized_pnl
-    pnl_pct = (realized_pnl / start_balance * 100) if start_balance > 0 else 0
+        current_balance = 0
 
     # 当前持仓
     try:
@@ -144,10 +140,9 @@ def main():
     report = f"""📊 每日交易报告 {today}
 ━━━━━━━━━━━━━━━━━
 💼 账户状态
-  期初余额：{start_balance:.2f} USDT
-  期末余额：{end_balance:.2f} USDT
-  已实现盈亏：{realized_pnl:+.2f} USDT（{pnl_pct:+.2f}%）
-  未实现盈亏：{unrealized_pnl:+.2f} USDT
+  当前余额：{current_balance:.2f} USDT
+  今日已实现盈亏：{realized_pnl:+.2f} USDT
+  当前未实现盈亏：{unrealized_pnl:+.2f} USDT
 
 📈 交易统计
   开仓次数：{total_opens}
@@ -195,11 +190,9 @@ def main():
         json.dump({
             "date": today,
             "account": {
-                "start_balance": start_balance,
-                "end_balance": end_balance,
+                "current_balance": current_balance,
                 "realized_pnl": realized_pnl,
                 "unrealized_pnl": unrealized_pnl,
-                "pnl_pct": pnl_pct,
             },
             "trades": {
                 "total_opens": total_opens,
