@@ -4,6 +4,9 @@
 # 2. fetch_hot_symbols() 失败时作为兜底列表使用
 
 priority:
+  - "PIPPIN/USDT:USDT"
+  - "ONT/USDT:USDT"
+  - "STABLE/USDT:USDT"
   - "XRP/USDT:USDT"
   - "NOT/USDT:USDT"
   - "DOGE/USDT:USDT"
@@ -12,5 +15,6 @@ priority:
   - "LINK/USDT:USDT"
   - "DOT/USDT:USDT"
   - "TRX/USDT:USDT"
-  - "BCH/USDT:USDT"
   - "PEPE/USDT:USDT"
+  - "TRUMP/USDT:USDT"
+  - "RESOLV/USDT:USDT"
