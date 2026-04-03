@@ -205,6 +205,25 @@ def main():
             pnl_pct = pos.get("percentage", 0)
             total_pnl += unrealized_pnl
 
+            # 2.0 获取止盈止损挂单（提前查询，后续复用）
+            # OKX 止损止盈是算法单，需要加 stop=True 参数
+            try:
+                algo_orders = exchange.fetch_open_orders(symbol, params={"stop": True})
+                sl_price = None
+                tp_price = None
+                for order in algo_orders:
+                    info = order.get("info", {})
+                    if info.get("slTriggerPx"):
+                        sl_price = float(info["slTriggerPx"])
+                    if info.get("tpTriggerPx"):
+                        tp_price = float(info["tpTriggerPx"])
+                pos["_sl_price"] = sl_price  # 缓存到 pos 字典
+                pos["_tp_price"] = tp_price
+            except Exception as e:
+                logger.warning(f"  获取算法单失败：{e}")
+                pos["_sl_price"] = None
+                pos["_tp_price"] = None
+
             # 2.1 获取最新K线数据
             data = fetch_multi_timeframe(symbol, exchange=exchange)
 
@@ -386,29 +405,15 @@ def main():
         pnl_sign = "+" if pnl >= 0 else ""
         liq_str = f"{liq:.4g}" if liq else "N/A"
 
-        # 获取止盈止损价格
-        try:
-            orders = exchange.fetch_open_orders(sym, params={"instType": "SWAP"})
-            sl_price = None
-            tp_price = None
-            for order in orders:
-                info = order.get("info", {})
-                if info.get("slTriggerPx"):
-                    sl_price = float(info["slTriggerPx"])
-                if info.get("tpTriggerPx"):
-                    tp_price = float(info["tpTriggerPx"])
+        # 复用前面缓存的止盈止损价格
+        sl_price = pos.get("_sl_price")
+        tp_price = pos.get("_tp_price")
+        sl_str = f"{sl_price:.4g}" if sl_price else "N/A"
+        tp_str = f"{tp_price:.4g}" if tp_price else "N/A"
 
-            sl_str = f"{sl_price:.4g}" if sl_price else "N/A"
-            tp_str = f"{tp_price:.4g}" if tp_price else "N/A"
-
-            lines.append(
-                f"{short_name} {side_label} {contracts}张 | 开仓:{entry:.4g} | 止损:{sl_str} | 止盈:{tp_str} | 强平:{liq_str} | {pnl_sign}{pnl:.2f}U ({pnl_sign}{pnl_pct:.1f}%)"
-            )
-        except Exception as e:
-            logger.warning(f"获取 {sym} 挂单失败：{e}")
-            lines.append(
-                f"{short_name} {side_label} {contracts}张 | 开仓:{entry:.4g} | 强平:{liq_str} | {pnl_sign}{pnl:.2f}U ({pnl_sign}{pnl_pct:.1f}%)"
-            )
+        lines.append(
+            f"{short_name} {side_label} {contracts}张 | 开仓:{entry:.4g} | 止损:{sl_str} | 止盈:{tp_str} | 强平:{liq_str} | {pnl_sign}{pnl:.2f}U ({pnl_sign}{pnl_pct:.1f}%)"
+        )
 
     detail = "\n".join(lines)
     send_notification(
