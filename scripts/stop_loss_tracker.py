@@ -79,7 +79,9 @@ def detect_and_record_stop_loss(current_positions: list):
             pnl = last_pos.get("unrealized_pnl", 0)
 
             # 只有亏损状态消失才记录冷却（推断为止损触发）
-            if pnl < 0:
+            # 设置阈值 0.01 USDT，避免浮点误差和极小盈利误判
+            pnl_threshold = 0.01
+            if pnl < pnl_threshold:
                 cooldown_data[symbol] = datetime.now(timezone.utc).isoformat()
                 logger.warning(
                     f"检测到止损触发：{symbol} 持仓消失（浮亏 {pnl:.2f} USDT），"
@@ -87,8 +89,8 @@ def detect_and_record_stop_loss(current_positions: list):
                 )
             else:
                 logger.info(
-                    f"{symbol} 持仓消失（浮盈 {pnl:.2f} USDT），"
-                    f"推断为止盈/手动平仓，不记录冷却"
+                    f"{symbol} 持仓消失（浮盈/微亏 {pnl:.2f} USDT），"
+                    f"推断为止盈/手动平仓/微亏止损，不记录冷却"
                 )
 
         # 保存冷却记录
