@@ -205,40 +205,6 @@ def main():
             pnl_pct = pos.get("percentage", 0)
             total_pnl += unrealized_pnl
 
-            # 2.0 获取止盈止损价格（从开仓日志读取）
-            # 注：交易所查询返回0条记录，说明止损止盈单创建失败或不以独立挂单形式存在
-            # 临时方案：从开仓日志读取当时设置的止损止盈价格
-            try:
-                import json
-                from pathlib import Path
-
-                symbol_safe = symbol.replace("/", "_").replace(":", "_")
-                trades_dir = Path("logs/trades")
-
-                # 查找该合约最近的开仓记录
-                open_logs = sorted(
-                    trades_dir.glob(f"open_{symbol_safe}_*.json"),
-                    key=lambda f: f.stat().st_mtime,
-                    reverse=True
-                )
-
-                sl_price = None
-                tp_price = None
-
-                if open_logs:
-                    with open(open_logs[0], encoding="utf-8") as f:
-                        open_data = json.load(f)
-                        sl_price = open_data.get("stop_loss")
-                        tp_price = open_data.get("take_profit")
-
-                pos["_sl_price"] = sl_price
-                pos["_tp_price"] = tp_price
-
-            except Exception as e:
-                logger.warning(f"  读取开仓日志失败：{e}")
-                pos["_sl_price"] = None
-                pos["_tp_price"] = None
-
             # 2.1 获取最新K线数据
             data = fetch_multi_timeframe(symbol, exchange=exchange)
 
@@ -404,7 +370,7 @@ def main():
     logger.info(f"持仓巡检完成 | 持仓数：{remaining} | 净盈亏：{total_pnl:.2f} USDT")
     logger.info("=" * 20)
 
-    # 构建持仓明细（增加止盈止损显示）
+    # 构建持仓明细
     lines = []
     for pos in positions:
         sym = pos.get("symbol", "")
@@ -420,14 +386,8 @@ def main():
         pnl_sign = "+" if pnl >= 0 else ""
         liq_str = f"{liq:.4g}" if liq else "N/A"
 
-        # 复用前面缓存的止盈止损价格
-        sl_price = pos.get("_sl_price")
-        tp_price = pos.get("_tp_price")
-        sl_str = f"{sl_price:.4g}" if sl_price else "N/A"
-        tp_str = f"{tp_price:.4g}" if tp_price else "N/A"
-
         lines.append(
-            f"{short_name} {side_label} {contracts}张 | 开仓:{entry:.4g} | 止损:{sl_str} | 止盈:{tp_str} | 强平:{liq_str} | {pnl_sign}{pnl:.2f}U ({pnl_sign}{pnl_pct:.1f}%)"
+            f"{short_name} {side_label} {contracts}张 | 开仓:{entry:.4g} | 强平:{liq_str} | {pnl_sign}{pnl:.2f}U ({pnl_sign}{pnl_pct:.1f}%)"
         )
 
     detail = "\n".join(lines)
