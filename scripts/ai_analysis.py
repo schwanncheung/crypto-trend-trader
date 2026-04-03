@@ -131,7 +131,17 @@ def _build_rule_only_decision(tf_indicators: dict, direction: str, symbol: str) 
         signal=direction,
         adx=adx
     )
-    take_profit = calculate_take_profit(entry, stop_loss, direction)
+
+    # 计算关键支撑/阻力位（用于止盈限制）
+    key_support = entry * 0.97 if direction == "short" else None
+    key_resistance = entry * 1.03 if direction == "long" else None
+
+    take_profit, tp_reason = calculate_take_profit(
+        entry, stop_loss, direction,
+        key_support=key_support,
+        key_resistance=key_resistance,
+        adx=adx
+    )
     risk   = abs(entry - stop_loss)
     reward = abs(take_profit - entry)
     rr     = round(reward / risk, 2) if risk > 0 else 0.0
@@ -461,6 +471,43 @@ def analyze_symbol(
         anchor_adx = anchor_ind.get("adx", {}).get("adx", None)
         if anchor_adx is not None:
             result["_anchor_adx"] = anchor_adx
+
+        # 统一应用动态止损止盈逻辑（覆盖 LLM 返回值）
+        signal = result.get("signal")
+        if signal in ["long", "short"]:
+            entry = result.get("entry_price", 0)
+            if entry > 0:
+                from dynamic_stop_loss import calculate_dynamic_stop_loss, calculate_take_profit
+                base_tf = TIMEFRAMES[-1] if TIMEFRAMES else "15m"
+                base_ind = tf_indicators.get(base_tf, {})
+                atr = base_ind.get("atr", entry * 0.01)
+                adx = anchor_ind.get("adx", {}).get("adx", 0) if isinstance(anchor_ind.get("adx"), dict) else float(anchor_ind.get("adx", 0) or 0)
+
+                # 动态止损
+                stop_loss, multiplier_used = calculate_dynamic_stop_loss(
+                    entry_price=entry,
+                    atr=atr,
+                    signal=signal,
+                    adx=adx
+                )
+
+                # 智能止盈（考虑关键位）
+                key_support = result.get("key_support")
+                key_resistance = result.get("key_resistance")
+                take_profit, tp_reason = calculate_take_profit(
+                    entry, stop_loss, signal,
+                    key_support=key_support,
+                    key_resistance=key_resistance,
+                    adx=adx
+                )
+
+                # 覆盖 LLM 返回的止损止盈
+                result["stop_loss"] = stop_loss
+                result["take_profit"] = take_profit
+                result["_dynamic_stop_loss_applied"] = True
+                result["_tp_reason"] = tp_reason
+                logger.info(f"已应用动态止损止盈：SL={stop_loss:.6g}, TP={take_profit:.6g}, {tp_reason}")
+
         return result
 
 

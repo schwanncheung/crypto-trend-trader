@@ -72,26 +72,96 @@ def calculate_dynamic_stop_loss(
 def calculate_take_profit(
     entry_price: float,
     stop_loss: float,
-    signal: str
-) -> float:
+    signal: str,
+    key_support: float = None,
+    key_resistance: float = None,
+    adx: float = None
+) -> tuple[float, str]:
     """
-    根据止损距离计算止盈价格
+    智能计算止盈价格（考虑关键位和 ADX）
+
+    优先级：
+    1. 关键位优先：止盈不超过最近的关键支撑/阻力
+    2. ADX 调整：强趋势可以适当放宽止盈距离
+    3. 最小 R:R 保护：确保至少 1:1
 
     参数：
         entry_price: 入场价格
         stop_loss: 止损价格
         signal: "long" 或 "short"
+        key_support: 关键支撑位（做空时的目标）
+        key_resistance: 关键阻力位（做多时的目标）
+        adx: ADX 值（用于动态调整）
 
     返回：
-        take_profit: 止盈价格
+        (take_profit, reason): 止盈价格和设置原因
     """
     target_rr_ratio = TRADING_CFG.get("target_rr_ratio", 1.2)
+    risk = abs(entry_price - stop_loss)
 
+    # 基础止盈：按 R:R 计算
     if signal == "long":
-        risk = entry_price - stop_loss
-        take_profit = entry_price + target_rr_ratio * risk
+        base_tp = entry_price + target_rr_ratio * risk
     else:  # short
-        risk = stop_loss - entry_price
-        take_profit = entry_price - target_rr_ratio * risk
+        base_tp = entry_price - target_rr_ratio * risk
 
-    return take_profit
+    # 检查关键位限制
+    key_level = None
+    if signal == "long" and key_resistance:
+        # 做多：止盈不能超过阻力位
+        if 0 < key_resistance < entry_price * 1.5:  # 阻力位合理性检查
+            buffer = key_resistance * 0.003  # 0.3% 缓冲
+            key_level = key_resistance - buffer
+    elif signal == "short" and key_support:
+        # 做空：止盈不能低于支撑位
+        if 0 < key_support < entry_price:  # 支撑位合理性检查
+            buffer = key_support * 0.003  # 0.3% 缓冲
+            key_level = key_support + buffer
+
+    # ADX 动态调整（强趋势可以适当放宽）
+    adx_scaling_cfg = TRADING_CFG.get("stop_loss_adx_scaling", {})
+    if adx_scaling_cfg.get("enabled", False) and adx is not None and adx >= 50:
+        # ADX >= 50 的强趋势，允许止盈距离 × 1.3
+        extended_tp = entry_price + (base_tp - entry_price) * 1.3 if signal == "long" else entry_price - (entry_price - base_tp) * 1.3
+        logger.info(f"ADX={adx:.1f} 强趋势，止盈距离可放宽 30%")
+    else:
+        extended_tp = base_tp
+
+    # 决策逻辑
+    if key_level:
+        # 有关键位限制
+        if signal == "long":
+            if extended_tp > key_level:
+                # 止盈超过阻力位，收缩到阻力位前
+                actual_tp = key_level
+                actual_rr = (actual_tp - entry_price) / risk
+                if actual_rr < 1.0:
+                    # R:R 不足 1:1，放弃关键位限制
+                    actual_tp = entry_price + risk  # 至少 1:1
+                    reason = f"阻力位 {key_level:.6g} 过近，使用最小 R:R=1:1"
+                else:
+                    reason = f"受阻力位 {key_level:.6g} 限制，R:R={actual_rr:.2f}"
+            else:
+                actual_tp = extended_tp
+                reason = f"基础 R:R={target_rr_ratio}"
+        else:  # short
+            if extended_tp < key_level:
+                # 止盈低于支撑位，收缩到支撑位上
+                actual_tp = key_level
+                actual_rr = (entry_price - actual_tp) / risk
+                if actual_rr < 1.0:
+                    # R:R 不足 1:1，放弃关键位限制
+                    actual_tp = entry_price - risk  # 至少 1:1
+                    reason = f"支撑位 {key_level:.6g} 过近，使用最小 R:R=1:1"
+                else:
+                    reason = f"受支撑位 {key_level:.6g} 限制，R:R={actual_rr:.2f}"
+            else:
+                actual_tp = extended_tp
+                reason = f"基础 R:R={target_rr_ratio}"
+    else:
+        # 无关键位限制
+        actual_tp = extended_tp
+        reason = f"基础 R:R={target_rr_ratio}"
+
+    logger.info(f"止盈计算：{reason}")
+    return actual_tp, reason
