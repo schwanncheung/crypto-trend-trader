@@ -131,13 +131,22 @@ trading:
   warning_position_ratio: 0.5   # AI返回 warning 时仓位折减比例（0.5=标准仓位的50%）
   # 触发仓位折减的 warning 关键词列表
   warning_keywords: ["低市值", "高波动", "插针", "流动性", "小市值", "波动大"]
-  stop_loss_atr_multiplier: 2.5  # ATR动态止损倍数：止损 = entry ± atr×此倍数
+
+  # ── 动态止损配置（根据 ADX 自动调整止损距离）──────────────────────
+  stop_loss_atr_multiplier: 2.5  # ATR 基础倍数：止损 = entry ± atr × 此倍数
+  stop_loss_adx_scaling:
+    enabled: true                # 是否启用 ADX 动态调整
+    strong_trend_threshold: 40   # ADX >= 此值视为强趋势，止损距离 × strong_multiplier
+    strong_trend_multiplier: 1.5 # 强趋势止损倍数（40 <= ADX < 60）
+    extreme_trend_threshold: 60  # ADX >= 此值视为极强趋势，止损距离 × extreme_multiplier
+    extreme_trend_multiplier: 2.0  # 极强趋势止损倍数（ADX >= 60）
 
 # ── 账户风控 ────────────────────────────────────────────────────────
 risk:
   max_open_positions: 5    # 最大同时持仓数，达到上限后停止开新仓
   max_loss_pct: -5.0       # 日亏损上限（%），超过后当日停止自动交易
   leverage: 10             # 风控模块使用的杠杆（与 trading.default_leverage 保持一致）
+  stop_loss_cooldown_hours: 4  # 止损后冷却时间（小时），防止短期内重复开仓同一合约
 
 # ── 持仓管理阈值 ─────────────────────────────────────────────────────
 trade_manager:

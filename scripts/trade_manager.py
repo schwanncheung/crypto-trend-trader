@@ -6,18 +6,16 @@ trade_manager.py
 
 import sys
 import logging
-from datetime import datetime
 from pathlib import Path
 
 # 添加 scripts 目录到路径
 sys.path.insert(0, str(Path(__file__).parent))
 
-import yaml
 from dotenv import load_dotenv
 load_dotenv()
 
 # 配置日志：同时输出到控制台和文件
-from config_loader import check_env, RISK_CFG, TRADE_MGR_CFG, setup_logging, now_cst_str
+from config_loader import check_env, TRADE_MGR_CFG, setup_logging, now_cst_str
 check_env()
 setup_logging("trade_manager")
 logger = logging.getLogger(__name__)
@@ -44,6 +42,7 @@ from fetch_kline import (
 
 from notifier import send_notification
 from trade_report import generate_close_report
+from stop_loss_tracker import record_stop_loss_manual
 
 
 def _cancel_all_symbol_orders(exchange, symbol: str):
@@ -288,10 +287,12 @@ def main():
             if pnl_pct < FORCE_CLOSE_PCT:
                 logger.info(f"  亏损{pnl_pct:.1f}%（<{FORCE_CLOSE_PCT}%），触发动态止损")
                 try:
-                    close_position(exchange, symbol, reason=f"动态止损：亏损{pnl_pct:.1f}%")
+                    reason = f"动态止损：亏损{pnl_pct:.1f}%"
+                    close_position(exchange, symbol, reason=reason)
+                    record_stop_loss_manual(symbol, reason)  # 记录冷却
                     send_notification(f"{symbol} 亏损{pnl_pct:.1f}%，触发动态止损，已强制平仓")
                     closed_count += 1
-                    generate_close_report(symbol, f"动态止损：亏损{pnl_pct:.1f}%", unrealized_pnl, pnl_pct)
+                    generate_close_report(symbol, reason, unrealized_pnl, pnl_pct)
                     _clear_breakeven_state(symbol, side)
                     _clear_partial_profit_state(symbol, side)
                 except Exception as e:
@@ -347,6 +348,7 @@ def main():
                 if should_close:
                     logger.warning(f"  {symbol} 触发结构平仓：{close_reason}")
                     close_position(exchange, symbol, reason=close_reason)
+                    record_stop_loss_manual(symbol, close_reason)  # 记录冷却
                     send_notification(f"{symbol} 结构平仓\n原因：{close_reason}")
                     closed_count += 1
                     generate_close_report(symbol, close_reason, unrealized_pnl, pnl_pct)
@@ -399,7 +401,6 @@ def main():
 def _save_position_log(position: dict, pnl_pct: float):
     """保存持仓状态到日志"""
     import json
-    from datetime import timezone
 
     log_dir = Path("logs/trades")
     log_dir.mkdir(parents=True, exist_ok=True)

@@ -69,12 +69,20 @@ def check_account_risk(
 ) -> tuple[bool, str]:
     """
     检查账户级别风控
+    - 止损冷却期检查
     - 当日亏损是否超限
     - 当前持仓数量是否超限
     - 是否已有同方向持仓
     """
     try:
-        # 检查当前持仓数量
+        # 1. 止损冷却期检查
+        from stop_loss_tracker import check_cooldown
+        cooldown_hours = RISK_CFG.get("stop_loss_cooldown_hours", 4)
+        passed, reason = check_cooldown(symbol, cooldown_hours)
+        if not passed:
+            return False, reason
+
+        # 2. 检查当前持仓数量
         positions = exchange.fetch_positions([symbol])
         open_positions = [
             p for p in positions
@@ -85,7 +93,7 @@ def check_account_risk(
         if len(open_positions) >= max_positions:
             return False, f"持仓数量已达上限：{len(open_positions)}/{max_positions}"
 
-        # 检查是否已有同品种持仓
+        # 3. 检查是否已有同品种持仓
         symbol_positions = [
             p for p in open_positions
             if p.get("symbol") == symbol

@@ -122,12 +122,16 @@ def _build_rule_only_decision(tf_indicators: dict, direction: str, symbol: str) 
         return _default_wait_response("rule_only模式无法获取当前价格")
 
     atr = base_ind.get("atr", entry * 0.01)
-    if direction == "long":
-        stop_loss   = entry - atr_multiplier * atr
-        take_profit = entry + target_rr_ratio * (entry - stop_loss)
-    else:
-        stop_loss   = entry + atr_multiplier * atr
-        take_profit = entry - target_rr_ratio * (stop_loss - entry)
+
+    # 使用动态止损（根据 ADX 自动调整）
+    from dynamic_stop_loss import calculate_dynamic_stop_loss, calculate_take_profit
+    stop_loss, multiplier_used = calculate_dynamic_stop_loss(
+        entry_price=entry,
+        atr=atr,
+        signal=direction,
+        adx=adx
+    )
+    take_profit = calculate_take_profit(entry, stop_loss, direction)
     risk   = abs(entry - stop_loss)
     reward = abs(take_profit - entry)
     rr     = round(reward / risk, 2) if risk > 0 else 0.0

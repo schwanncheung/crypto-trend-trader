@@ -53,6 +53,10 @@ logger = logging.getLogger(__name__)
 
 
 from notifier import send_notification
+from stop_loss_tracker import (
+    save_position_snapshot,
+    detect_and_record_stop_loss,
+)
 
 
 def main():
@@ -93,13 +97,18 @@ def main():
         logger.warning("日亏损超限，终止执行")
         return
     
-    # ── 第三步：持仓数量预检 ──
+    # ── 第三步：持仓数量预检 & 止损检测 ──
     logger.info("=" * 50)
-    logger.info("第三步：持仓数量预检")
+    logger.info("第三步：持仓数量预检 & 止损检测")
     logger.info("=" * 50)
-    
+
     positions = get_open_positions(exchange)
     current_position_count = len(positions)
+
+    # 检测止损触发（对比上次持仓快照）
+    detect_and_record_stop_loss(positions)
+    # 保存当前持仓快照（供下次对比）
+    save_position_snapshot(positions)
     
     if current_position_count >= MAX_POSITIONS:
         logger.warning(f"当前持仓已达上限（{current_position_count}/{MAX_POSITIONS}），跳过本轮扫描")
