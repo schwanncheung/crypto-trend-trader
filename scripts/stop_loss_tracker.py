@@ -76,11 +76,15 @@ def detect_and_record_stop_loss(current_positions: list):
         for key in disappeared:
             last_pos = last_positions[key]
             symbol = key.rsplit("_", 1)[0]
+            side = key.rsplit("_", 1)[1]
             pnl = last_pos.get("unrealized_pnl", 0)
 
+            # 清理状态文件（无论止盈还是止损）
+            _clear_position_states(symbol, side)
+
             # 只有亏损状态消失才记录冷却（推断为止损触发）
-            # 设置阈值 0.01 USDT，避免浮点误差和极小盈利误判
-            pnl_threshold = 0.01
+            # 设置阈值 -0.01 USDT，避免浮点误差误判
+            pnl_threshold = -0.01
             if pnl < pnl_threshold:
                 cooldown_data[symbol] = datetime.now(timezone.utc).isoformat()
                 logger.warning(
@@ -153,6 +157,36 @@ def check_cooldown(symbol: str, cooldown_hours: int = 4) -> tuple[bool, str]:
     except Exception as e:
         logger.warning(f"冷却检查异常：{e}")
         return True, "冷却检查异常，保守放行"
+
+
+def _clear_position_states(symbol: str, side: str):
+    """
+    清理持仓相关的状态文件
+    在持仓消失时调用（无论止盈还是止损）
+    """
+    try:
+        # 清理保本状态
+        breakeven_file = Path("logs/breakeven_state.json")
+        if breakeven_file.exists():
+            state = json.loads(breakeven_file.read_text())
+            key = f"{symbol}_{side}"
+            if key in state:
+                del state[key]
+                breakeven_file.write_text(json.dumps(state, indent=2))
+                logger.info(f"已清理 {symbol} 的保本状态")
+
+        # 清理部分止盈状态
+        partial_profit_file = Path("logs/partial_profit_state.json")
+        if partial_profit_file.exists():
+            state = json.loads(partial_profit_file.read_text())
+            key = f"{symbol}_{side}"
+            if key in state:
+                del state[key]
+                partial_profit_file.write_text(json.dumps(state, indent=2))
+                logger.info(f"已清理 {symbol} 的部分止盈状态")
+
+    except Exception as e:
+        logger.error(f"清理持仓状态异常：{e}")
 
 
 def clear_cooldown(symbol: str):
