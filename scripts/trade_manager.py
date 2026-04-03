@@ -370,7 +370,7 @@ def main():
     logger.info(f"持仓巡检完成 | 持仓数：{remaining} | 净盈亏：{total_pnl:.2f} USDT")
     logger.info("=" * 20)
 
-    # 构建持仓明细
+    # 构建持仓明细（增加止盈止损显示）
     lines = []
     for pos in positions:
         sym = pos.get("symbol", "")
@@ -385,9 +385,30 @@ def main():
         pnl_pct = pos.get("percentage", 0)
         pnl_sign = "+" if pnl >= 0 else ""
         liq_str = f"{liq:.4g}" if liq else "N/A"
-        lines.append(
-            f"{short_name} {side_label} {contracts}张 | 开仓:{entry:.4g} | 强平:{liq_str} | {pnl_sign}{pnl:.2f}U ({pnl_sign}{pnl_pct:.1f}%)"
-        )
+
+        # 获取止盈止损价格
+        try:
+            orders = exchange.fetch_open_orders(sym, params={"instType": "SWAP"})
+            sl_price = None
+            tp_price = None
+            for order in orders:
+                info = order.get("info", {})
+                if info.get("slTriggerPx"):
+                    sl_price = float(info["slTriggerPx"])
+                if info.get("tpTriggerPx"):
+                    tp_price = float(info["tpTriggerPx"])
+
+            sl_str = f"{sl_price:.4g}" if sl_price else "N/A"
+            tp_str = f"{tp_price:.4g}" if tp_price else "N/A"
+
+            lines.append(
+                f"{short_name} {side_label} {contracts}张 | 开仓:{entry:.4g} | 止损:{sl_str} | 止盈:{tp_str} | 强平:{liq_str} | {pnl_sign}{pnl:.2f}U ({pnl_sign}{pnl_pct:.1f}%)"
+            )
+        except Exception as e:
+            logger.warning(f"获取 {sym} 挂单失败：{e}")
+            lines.append(
+                f"{short_name} {side_label} {contracts}张 | 开仓:{entry:.4g} | 强平:{liq_str} | {pnl_sign}{pnl:.2f}U ({pnl_sign}{pnl_pct:.1f}%)"
+            )
 
     detail = "\n".join(lines)
     send_notification(
