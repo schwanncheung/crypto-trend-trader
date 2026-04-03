@@ -205,22 +205,37 @@ def main():
             pnl_pct = pos.get("percentage", 0)
             total_pnl += unrealized_pnl
 
-            # 2.0 获取止盈止损挂单（提前查询，后续复用）
-            # OKX 止损止盈是算法单，需要加 stop=True 参数
+            # 2.0 获取止盈止损价格（从开仓日志读取）
+            # 注：交易所查询返回0条记录，说明止损止盈单创建失败或不以独立挂单形式存在
+            # 临时方案：从开仓日志读取当时设置的止损止盈价格
             try:
-                algo_orders = exchange.fetch_open_orders(symbol, params={"stop": True})
+                import json
+                from pathlib import Path
+
+                symbol_safe = symbol.replace("/", "_").replace(":", "_")
+                trades_dir = Path("logs/trades")
+
+                # 查找该合约最近的开仓记录
+                open_logs = sorted(
+                    trades_dir.glob(f"open_{symbol_safe}_*.json"),
+                    key=lambda f: f.stat().st_mtime,
+                    reverse=True
+                )
+
                 sl_price = None
                 tp_price = None
-                for order in algo_orders:
-                    info = order.get("info", {})
-                    if info.get("slTriggerPx"):
-                        sl_price = float(info["slTriggerPx"])
-                    if info.get("tpTriggerPx"):
-                        tp_price = float(info["tpTriggerPx"])
-                pos["_sl_price"] = sl_price  # 缓存到 pos 字典
+
+                if open_logs:
+                    with open(open_logs[0], encoding="utf-8") as f:
+                        open_data = json.load(f)
+                        sl_price = open_data.get("stop_loss")
+                        tp_price = open_data.get("take_profit")
+
+                pos["_sl_price"] = sl_price
                 pos["_tp_price"] = tp_price
+
             except Exception as e:
-                logger.warning(f"  获取算法单失败：{e}")
+                logger.warning(f"  读取开仓日志失败：{e}")
                 pos["_sl_price"] = None
                 pos["_tp_price"] = None
 

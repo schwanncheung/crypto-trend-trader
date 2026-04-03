@@ -50,6 +50,6 @@ if __name__ == "__main__":
     exchange = create_exchange()
 
     # 测试
-    symbol = "BTC/USDT:USDT"
+    symbol = "SENT/USDT:USDT"
     orders = get_position_orders(exchange, symbol)
     print(f"{symbol} 止损: {orders['stop_loss']}, 止盈: {orders['take_profit']}")
