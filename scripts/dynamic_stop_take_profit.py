@@ -66,6 +66,24 @@ def calculate_dynamic_stop_loss(
     else:  # short
         stop_loss = entry_price + multiplier * atr
 
+    # ── 硬性上限检查（风控红线）──────────────────────
+    max_stop_loss_pct = TRADING_CFG.get("max_stop_loss_pct", 3.0) / 100
+    stop_loss_distance = abs(stop_loss - entry_price)
+    stop_loss_distance_pct = stop_loss_distance / entry_price
+
+    if stop_loss_distance_pct > max_stop_loss_pct:
+        # 超过上限，强制收缩到上限
+        logger.warning(
+            f"止损距离 {stop_loss_distance_pct*100:.2f}% 超过上限 {max_stop_loss_pct*100:.1f}%，"
+            f"强制收缩到上限"
+        )
+        if signal == "long":
+            stop_loss = entry_price * (1 - max_stop_loss_pct)
+        else:  # short
+            stop_loss = entry_price * (1 + max_stop_loss_pct)
+
+        logger.info(f"止损价格已调整为：{stop_loss:.6g}（距离：{max_stop_loss_pct*100:.1f}%）")
+
     return stop_loss, multiplier
 
 
@@ -162,6 +180,25 @@ def calculate_take_profit(
         # 无关键位限制
         actual_tp = extended_tp
         reason = f"基础 R:R={target_rr_ratio}"
+
+    # ── 硬性上限检查（风控红线）──────────────────────
+    max_take_profit_pct = TRADING_CFG.get("max_take_profit_pct", 5.0) / 100
+    take_profit_distance = abs(actual_tp - entry_price)
+    take_profit_distance_pct = take_profit_distance / entry_price
+
+    if take_profit_distance_pct > max_take_profit_pct:
+        # 超过上限，强制收缩到上限
+        logger.warning(
+            f"止盈距离 {take_profit_distance_pct*100:.2f}% 超过上限 {max_take_profit_pct*100:.1f}%，"
+            f"强制收缩到上限"
+        )
+        if signal == "long":
+            actual_tp = entry_price * (1 + max_take_profit_pct)
+        else:  # short
+            actual_tp = entry_price * (1 - max_take_profit_pct)
+
+        logger.info(f"止盈价格已调整为：{actual_tp:.6g}（距离：{max_take_profit_pct*100:.1f}%）")
+        reason = f"受上限 {max_take_profit_pct*100:.1f}% 限制"
 
     logger.info(f"止盈计算：{reason}")
     return actual_tp, reason

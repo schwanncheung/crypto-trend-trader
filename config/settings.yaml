@@ -133,13 +133,17 @@ trading:
   warning_keywords: ["低市值", "高波动", "插针", "流动性", "小市值", "波动大", "仓位减半"]
 
   # ── 动态止损配置（根据 ADX 自动调整止损距离）──────────────────────
-  stop_loss_atr_multiplier: 2.5  # ATR 基础倍数：止损 = entry ± atr × 此倍数
+  stop_loss_atr_multiplier: 2.0  # ATR 基础倍数：止损 = entry ± atr × 此倍数（从 2.5 降至 2.0）
   stop_loss_adx_scaling:
     enabled: true                # 是否启用 ADX 动态调整
     strong_trend_threshold: 40   # ADX >= 此值视为强趋势，止损距离 × strong_multiplier
-    strong_trend_multiplier: 1.5 # 强趋势止损倍数（40 <= ADX < 60）
+    strong_trend_multiplier: 1.2 # 强趋势止损倍数（40 <= ADX < 60）（从 1.5 降至 1.2）
     extreme_trend_threshold: 60  # ADX >= 此值视为极强趋势，止损距离 × extreme_multiplier
-    extreme_trend_multiplier: 2.0  # 极强趋势止损倍数（ADX >= 60）
+    extreme_trend_multiplier: 1.5  # 极强趋势止损倍数（ADX >= 60）（从 2.0 降至 1.5）
+
+  # ── 止损止盈硬性上限（风控红线，不可突破）────────────────────────
+  max_stop_loss_pct: 2.0         # 止损距离上限（%），10x 杠杆 = 20% 账户风险
+  max_take_profit_pct: 5.0       # 止盈距离上限（%），防止止盈设置过远
 
 # ── 账户风控 ────────────────────────────────────────────────────────
 risk:

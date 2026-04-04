@@ -395,7 +395,51 @@ def execute_from_decision(
         order_id = order.get("id", "unknown")
         logger.info(f"开仓订单已提交 | 订单ID：{order_id}")
 
-        # ── 6. 挂止损单 ──────────────────────────────
+        # ── 6. 获取实际成交价，重新计算止损止盈 ──────────
+        time.sleep(0.5)  # 等待订单成交
+        try:
+            # 查询实际成交价格
+            positions = exchange.fetch_positions([symbol])
+            actual_entry = None
+            for p in positions:
+                if float(p.get("contracts", 0)) > 0:
+                    actual_entry = float(p.get("entryPrice", 0))
+                    break
+
+            if actual_entry and actual_entry > 0:
+                # 计算滑点
+                slippage_pct = (actual_entry - entry_price) / entry_price * 100
+                logger.info(f"实际成交价：{actual_entry}（计划：{entry_price}，滑点：{slippage_pct:+.2f}%）")
+
+                # 如果滑点超过 5%，基于实际成交价重新计算止损止盈
+                if abs(slippage_pct) > 5.0:
+                    logger.warning(f"滑点超过 5%，基于实际成交价重新计算止损止盈")
+
+                    # 重新计算止损止盈
+                    from dynamic_stop_take_profit import calculate_dynamic_stop_loss, calculate_take_profit
+                    from config_loader import TIMEFRAMES
+
+                    # 获取 ATR 和 ADX（从之前的计算中获取）
+                    base_tf = TIMEFRAMES[-1] if TIMEFRAMES else "15m"
+                    # 这里简化处理：使用原始止损距离的比例
+                    stop_loss_distance = abs(stop_loss - entry_price)
+                    take_profit_distance = abs(take_profit - entry_price)
+
+                    # 基于实际成交价调整
+                    if signal == "long":
+                        stop_loss = actual_entry - stop_loss_distance
+                        take_profit = actual_entry + take_profit_distance
+                    else:  # short
+                        stop_loss = actual_entry + stop_loss_distance
+                        take_profit = actual_entry - take_profit_distance
+
+                    logger.info(f"重新计算后 | 止损：{stop_loss}，止盈：{take_profit}")
+            else:
+                logger.warning("无法获取实际成交价，使用计划价格创建止损止盈")
+        except Exception as e:
+            logger.warning(f"获取实际成交价失败，使用计划价格：{e}")
+
+        # ── 7. 挂止损单 ──────────────────────────────
         try:
             sl_order = exchange.create_order(
                 symbol=symbol,
@@ -415,7 +459,7 @@ def execute_from_decision(
         except Exception as e:
             logger.error(f"止损单挂单失败（请手动处理）：{e}")
 
-        # ── 7. 挂止盈单 ──────────────────────────────
+        # ── 8. 挂止盈单 ──────────────────────────────
         try:
             tp_order = exchange.create_order(
                 symbol=symbol,

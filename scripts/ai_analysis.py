@@ -124,7 +124,7 @@ def _build_rule_only_decision(tf_indicators: dict, direction: str, symbol: str) 
     atr = base_ind.get("atr", entry * 0.01)
 
     # 使用动态止损（根据 ADX 自动调整）
-    from dynamic_stop_loss import calculate_dynamic_stop_loss, calculate_take_profit
+    from dynamic_stop_take_profit import calculate_dynamic_stop_loss, calculate_take_profit
     stop_loss, multiplier_used = calculate_dynamic_stop_loss(
         entry_price=entry,
         atr=atr,
