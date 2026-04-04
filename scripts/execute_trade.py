@@ -439,45 +439,91 @@ def execute_from_decision(
         except Exception as e:
             logger.warning(f"获取实际成交价失败，使用计划价格：{e}")
 
-        # ── 7. 挂止损单 ──────────────────────────────
-        try:
-            sl_order = exchange.create_order(
-                symbol=symbol,
-                type="conditional",
-                side=sl_side,
-                amount=contracts,
-                price=None,
-                params={
-                    "ordType": "conditional",
-                    "slTriggerPx": str(float(stop_loss)),
-                    "slOrdPx": "-1",   # -1 表示市价触发
-                    "reduceOnly": True,
-                    "tdMode": "cross",
-                },
-            )
-            logger.info(f"止损单已挂 | 价格：{stop_loss} | 订单ID：{sl_order.get('id')}")
-        except Exception as e:
-            logger.error(f"止损单挂单失败（请手动处理）：{e}")
+        # ── 7. 挂止损单（带重试机制）──────────────────
+        sl_success = False
+        sl_error = None
+        for attempt in range(2):  # 最多尝试 2 次
+            try:
+                sl_order = exchange.create_order(
+                    symbol=symbol,
+                    type="conditional",
+                    side=sl_side,
+                    amount=contracts,
+                    price=None,
+                    params={
+                        "ordType": "conditional",
+                        "slTriggerPx": str(float(stop_loss)),
+                        "slOrdPx": "-1",   # -1 表示市价触发
+                        "reduceOnly": True,
+                        "tdMode": "cross",
+                    },
+                )
+                logger.info(f"止损单已挂 | 价格：{stop_loss} | 订单ID：{sl_order.get('id')}")
+                sl_success = True
+                break
+            except Exception as e:
+                sl_error = str(e)
+                if attempt == 0:
+                    logger.warning(f"止损单挂单失败（第 {attempt + 1} 次），等待 1 秒后重试：{e}")
+                    time.sleep(1)
+                else:
+                    logger.error(f"止损单挂单失败（第 {attempt + 1} 次），已达最大重试次数：{e}")
 
-        # ── 8. 挂止盈单 ──────────────────────────────
-        try:
-            tp_order = exchange.create_order(
-                symbol=symbol,
-                type="conditional",
-                side=tp_side,
-                amount=contracts,
-                price=None,
-                params={
-                    "ordType": "conditional",
-                    "tpTriggerPx": str(float(take_profit)),
-                    "tpOrdPx": "-1",   # -1 表示市价触发
-                    "reduceOnly": True,
-                    "tdMode": "cross",
-                },
+        # ── 8. 挂止盈单（带重试机制）──────────────────
+        tp_success = False
+        tp_error = None
+        for attempt in range(2):  # 最多尝试 2 次
+            try:
+                tp_order = exchange.create_order(
+                    symbol=symbol,
+                    type="conditional",
+                    side=tp_side,
+                    amount=contracts,
+                    price=None,
+                    params={
+                        "ordType": "conditional",
+                        "tpTriggerPx": str(float(take_profit)),
+                        "tpOrdPx": "-1",   # -1 表示市价触发
+                        "reduceOnly": True,
+                        "tdMode": "cross",
+                    },
+                )
+                logger.info(f"止盈单已挂 | 价格：{take_profit} | 订单ID：{tp_order.get('id')}")
+                tp_success = True
+                break
+            except Exception as e:
+                tp_error = str(e)
+                if attempt == 0:
+                    logger.warning(f"止盈单挂单失败（第 {attempt + 1} 次），等待 1 秒后重试：{e}")
+                    time.sleep(1)
+                else:
+                    logger.error(f"止盈单挂单失败（第 {attempt + 1} 次），已达最大重试次数：{e}")
+
+        # ── 9. 检查止损止盈状态，失败时发送飞书通知 ────
+        if not sl_success or not tp_success:
+            from notifier import send_notification
+            failed_items = []
+            if not sl_success:
+                failed_items.append(f"止损单（价格：{stop_loss}）")
+            if not tp_success:
+                failed_items.append(f"止盈单（价格：{take_profit}）")
+
+            error_msg = (
+                f"⚠️ {symbol} 开仓成功，但以下订单创建失败：\n"
+                f"{'、'.join(failed_items)}\n\n"
+                f"请立即手动设置！\n"
+                f"开仓价：{entry_price}\n"
+                f"止损价：{stop_loss}\n"
+                f"止盈价：{take_profit}\n"
+                f"张数：{contracts}"
             )
-            logger.info(f"止盈单已挂 | 价格：{take_profit} | 订单ID：{tp_order.get('id')}")
-        except Exception as e:
-            logger.error(f"止盈单挂单失败（请手动处理）：{e}")
+            if sl_error:
+                error_msg += f"\n\n止损错误：{sl_error}"
+            if tp_error:
+                error_msg += f"\n止盈错误：{tp_error}"
+
+            send_notification(error_msg)
+            logger.error(error_msg)
 
         result = {
             "type":      "open",
