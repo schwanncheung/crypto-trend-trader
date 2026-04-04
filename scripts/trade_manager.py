@@ -147,21 +147,23 @@ def _move_stop_to_breakeven(exchange, symbol: str, side: str, contracts: float, 
                 _save_breakeven_state(state)
                 return False
 
-        # 3. 撤销旧挂单并创建新止损单
+        # 3. 撤销旧挂单并创建新止损单（与开仓时保持一致的参数格式）
         _cancel_all_symbol_orders(exchange, symbol)
-        exchange.create_order(
+        sl_order = exchange.create_order(
             symbol=symbol,
-            type="stop_market",
+            type="conditional",
             side="sell" if side == "long" else "buy",
             amount=contracts,
-            price=float(entry_price),
+            price=None,
             params={
-                "stopLossPrice": float(entry_price),
+                "ordType": "conditional",
+                "slTriggerPx": str(float(entry_price)),
+                "slOrdPx": "-1",  # -1 表示市价触发
                 "reduceOnly": True,
                 "tdMode": "cross",
             },
         )
-        logger.info(f"  止损已移至保本位 {entry_price}")
+        logger.info(f"  止损已移至保本位 {entry_price}（市价触发）| 订单ID：{sl_order.get('id')}")
         state[state_key] = float(entry_price)
         _save_breakeven_state(state)
         return True
