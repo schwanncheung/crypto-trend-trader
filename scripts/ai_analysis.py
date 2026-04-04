@@ -305,6 +305,7 @@ def _build_text_analysis_prompt() -> str:
 - RSI 趋势与信号方向相反（如做空但 RSI 连升2轮）：-2分
 - ADX 处于边缘区（{adx_edge_min}-{adx_edge_max}）：-1分
 - 量能不足（量比 < {vol_ratio_thresh}）：-2分
+- 极端缩量（任一周期量比 < 0.1）：额外-2分（流动性陷阱风险）
 
 ## 三、入场价格选择（激进型策略）
 
