@@ -130,7 +130,7 @@ trading:
   adx_edge_min_signal_strength: 8  # ADX边缘区间内要求的最低信号强度
   warning_position_ratio: 0.6   # AI返回 warning 时仓位折减比例（0.5=标准仓位的50%）
   # 触发仓位折减的 warning 关键词列表
-  warning_keywords: ["低市值", "高波动", "插针", "流动性", "小市值", "波动大", "仓位减半"]
+  warning_keywords: ["低市值", "高波动", "插针", "流动性", "小市值", "波动大", "仓位减半", "极端缩量"]
 
   # ── 动态止损配置（根据 ADX 自动调整止损距离）──────────────────────
   stop_loss_atr_multiplier: 2.0  # ATR 基础倍数：止损 = entry ± atr × 此倍数（从 2.5 降至 2.0）
