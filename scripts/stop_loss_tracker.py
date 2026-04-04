@@ -15,6 +15,51 @@ COOLDOWN_FILE = Path("logs/stop_loss_cooldown.json")
 POSITION_SNAPSHOT_FILE = Path("logs/position_snapshot.json")
 
 
+def _save_close_trade_log(symbol: str, side: str, position_data: dict, pnl: float, close_reason: str):
+    """
+    生成平仓日志文件（用于日报统计）
+
+    参数：
+    - symbol: 合约符号
+    - side: 方向（long/short）
+    - position_data: 持仓快照数据
+    - pnl: 已实现盈亏
+    - close_reason: 平仓原因（stop_loss/take_profit_or_manual）
+    """
+    try:
+        from config_loader import now_cst_str
+
+        log_dir = Path("logs/trades")
+        log_dir.mkdir(parents=True, exist_ok=True)
+
+        timestamp = now_cst_str()
+        safe_symbol = symbol.replace("/", "_").replace(":", "_")
+        log_path = log_dir / f"{safe_symbol}_close_{timestamp}.json"
+
+        close_log = {
+            "type": "close",
+            "status": "success",
+            "symbol": symbol,
+            "side": side,
+            "close_reason": close_reason,
+            "contracts": position_data.get("contracts", 0),
+            "entry_price": position_data.get("entry_price", 0),
+            "orders": [{
+                "realized_pnl": pnl,
+                "pnl": pnl,
+            }],
+            "timestamp": datetime.now(timezone(timedelta(hours=8))).isoformat(),
+        }
+
+        with open(log_path, "w", encoding="utf-8") as f:
+            json.dump(close_log, f, ensure_ascii=False, indent=2)
+
+        logger.info(f"平仓日志已保存：{log_path}")
+
+    except Exception as e:
+        logger.error(f"保存平仓日志失败：{e}")
+
+
 def _ensure_file(file_path: Path):
     """确保文件存在"""
     file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -91,11 +136,15 @@ def detect_and_record_stop_loss(current_positions: list):
                     f"检测到止损触发：{symbol} 持仓消失（浮亏 {pnl:.2f} USDT），"
                     f"记录冷却时间"
                 )
+                # 生成平仓日志文件（用于日报统计）
+                _save_close_trade_log(symbol, side, last_pos, pnl, "stop_loss")
             else:
                 logger.info(
                     f"{symbol} 持仓消失（浮盈/微亏 {pnl:.2f} USDT），"
                     f"推断为止盈/手动平仓/微亏止损，不记录冷却"
                 )
+                # 生成平仓日志文件（用于日报统计）
+                _save_close_trade_log(symbol, side, last_pos, pnl, "take_profit_or_manual")
 
         # 保存冷却记录
         COOLDOWN_FILE.write_text(json.dumps(cooldown_data, indent=2))
