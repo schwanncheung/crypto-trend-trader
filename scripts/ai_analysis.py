@@ -62,8 +62,6 @@ def _build_rule_only_decision(tf_indicators: dict, direction: str, symbol: str) 
 
     min_signal_strength  = TRADING_CFG.get("min_signal_strength", 7)
     min_rr_ratio         = TRADING_CFG.get("min_rr_ratio", 2.0)  # 风控门槛
-    target_rr_ratio      = TRADING_CFG.get("target_rr_ratio", 1.2)  # 止盈设置
-    atr_multiplier       = TRADING_CFG.get("stop_loss_atr_multiplier", 2.5)
     vol_ratio_threshold  = rule_filter_cfg.get("volume_ratio_threshold", 0.8)
     strong_trend_adx     = rule_filter_cfg.get("strong_trend_adx_threshold", 60)
     strong_trend_di_diff = rule_filter_cfg.get("strong_trend_di_diff_threshold", 20)
@@ -87,16 +85,43 @@ def _build_rule_only_decision(tf_indicators: dict, direction: str, symbol: str) 
         1 for tf in timeframes
         if tf_indicators.get(tf, {}).get("ema", {}).get("alignment") == ("bullish" if direction == "long" else "bearish")
     )
-    score += ema_align_ok * (6.0 / total_tfs)
 
+    # 跨周期趋势一致性检测（新增）
+    # 当非锚周期有强趋势且方向一致时，即使锚周期 EMA 对齐失败，也给予部分加分
+    non_anchor_tfs = [tf for tf in timeframes if tf != anchor_tf]
+    strong_trend_count = 0
+    cross_tf_bonus = 0.0
+
+    for tf in non_anchor_tfs:
+        tf_ind = tf_indicators.get(tf, {})
+        tf_adx = tf_ind.get("adx", {}).get("adx", 0) if isinstance(tf_ind.get("adx"), dict) else 0
+        tf_trend = tf_ind.get("trend", "sideways")
+        # 降低阈值：ADX >= 35 且趋势一致
+        if tf_adx >= strong_trend_adx * 0.58 and tf_trend == expected:  # ADX >= 35
+            strong_trend_count += 1
+
+    if strong_trend_count >= len(non_anchor_tfs) * 0.5:  # 至少一半非锚周期有强趋势
+        cross_tf_bonus = 2.0  # 跨周期趋势一致性加分
+        logger.info(f"[rule_only] {symbol} 跨周期趋势一致性加分+2（{strong_trend_count}/{len(non_anchor_tfs)}强趋势）")
+
+    score += ema_align_ok * (6.0 / total_tfs) + cross_tf_bonus
+
+    # 量能评分（对齐 AI prompt 逻辑）
     vol_ratio = tf_indicators.get(base_tf, {}).get("volume_ratio", 0)
     volume_confirmed = any(
         tf_indicators.get(tf, {}).get("volume_ratio", 0) >= vol_ratio_threshold
         for tf in timeframes
         if tf_indicators.get(tf, {}).get("valid")
     )
-    if vol_ratio >= vol_ratio_threshold * 2:  score += 2.0
-    elif vol_ratio >= vol_ratio_threshold:    score += 1.0
+    if vol_ratio >= vol_ratio_threshold * 2:
+        score += 2.0
+    elif vol_ratio >= vol_ratio_threshold:
+        score += 1.0
+    elif vol_ratio < vol_ratio_threshold:
+        score -= 2.0  # 量能不足减分
+        if vol_ratio < 0.1:
+            score -= 1.0  # 极端缩量额外减分
+
     if strong_trend_exemption:
         volume_confirmed = True
 
@@ -116,28 +141,83 @@ def _build_rule_only_decision(tf_indicators: dict, direction: str, symbol: str) 
         vol_price_note = f"动量加速（实体比={anchor_mom_accel.get('ratio', 1.0):.2f}）"
         logger.info(f"[rule_only] {symbol} 动量加速，信号强度+1")
 
-    patterns_list = tf_indicators.get(base_tf, {}).get("patterns", [])
-    pattern = patterns_list[0]["pattern"] if patterns_list else "none"
+    # K 线形态检测（检查所有周期，优先使用有形态的周期）
+    pattern = "none"
+    pattern_tf = base_tf
+    for tf in timeframes:
+        patterns_list = tf_indicators.get(tf, {}).get("patterns", [])
+        if patterns_list and patterns_list[0].get("pattern") not in ("none", "", None):
+            pattern = patterns_list[0]["pattern"]
+            pattern_tf = tf
+            break
+
     if pattern not in ("none", "", None):
         score += 1.5
 
-    rsi = tf_indicators.get(base_tf, {}).get("rsi", 50)
-    if 25 <= rsi <= 65:
-        score += 1.5
-    elif strong_trend_exemption and direction == "short" and rsi < 25:
-        score += 1.5
-    elif strong_trend_exemption and direction == "long" and rsi > 75:
-        score += 1.5
+    # ADX 边缘区减分（对齐 AI prompt）
+    adx_edge_min = TRADING_CFG.get("adx_edge_min", 20)
+    adx_edge_max = TRADING_CFG.get("adx_edge_max", 25)
+    if adx_edge_min <= adx < adx_edge_max:
+        score -= 1.0
+
+    # RSI 评分（对齐 AI prompt 的精准区间）
+    # 优先使用有形态周期的 RSI，若无形态则使用 base_tf
+    rsi_tf = pattern_tf if pattern != "none" else base_tf
+    rsi = tf_indicators.get(rsi_tf, {}).get("rsi", 50)
+    long_rsi_low = rule_filter_cfg.get("long_signal_rsi_low", 40)
+    rsi_oversold = rule_filter_cfg.get("rsi_oversold", 20)
+    rsi_overbought = rule_filter_cfg.get("rsi_overbought", 80)
+
+    if direction == "long":
+        if rsi_oversold <= rsi <= long_rsi_low:
+            score += 1.5  # 回调充分但未超卖
+    else:  # short
+        if long_rsi_low <= rsi <= (rsi_overbought - 10):
+            score += 1.5  # 反弹充分但未超买
+        # 新增：极端超卖后的整理形态（下跌中继）
+        elif rsi < rsi_oversold:
+            # 检查是否有 inside_bar 或横盘整理形态
+            if pattern in ["inside_bar", "doji", "hammer"] or strong_trend_count > 0:
+                score += 1.5  # 超卖后整理，典型下跌中继
+                logger.info(f"[rule_only] {symbol} RSI极端超卖({rsi:.1f})后整理形态，加分+1.5")
+
+    # 强趋势豁免（保留原逻辑）
+    if strong_trend_exemption:
+        if direction == "short" and rsi < rsi_oversold:
+            score += 1.5
+        elif direction == "long" and rsi > rsi_overbought:
+            score += 1.5
+
+    # RSI 趋势反向检测（新增）
+    rsi_series = tf_indicators.get(base_tf, {}).get("rsi_series", [])
+    if len(rsi_series) >= 3:
+        # 检测最近 3 根 RSI 的变化趋势
+        rsi_trend = "up" if rsi_series[-1] > rsi_series[-2] > rsi_series[-3] else \
+                    "down" if rsi_series[-1] < rsi_series[-2] < rsi_series[-3] else "mixed"
+        if (direction == "long" and rsi_trend == "down") or \
+           (direction == "short" and rsi_trend == "up"):
+            score -= 2.0  # RSI 趋势与信号方向相反
+
+    # 近期动能占比（新增）
+    momentum = tf_indicators.get(base_tf, {}).get("momentum", {})
+    if momentum:
+        bull_pct = momentum.get("bull_pct", 0)
+        bear_pct = momentum.get("bear_pct", 0)
+        momentum_threshold = rule_filter_cfg.get("recent_trend_min_pct", 0.65)
+        if (direction == "long" and bull_pct >= momentum_threshold) or \
+           (direction == "short" and bear_pct >= momentum_threshold):
+            score += 1.0
 
     signal_strength = min(10, int(score))
 
-    base_ind = tf_indicators.get(base_tf, {})
-    entry = base_ind.get("current_price", 0)
+    # 使用有形态周期的价格/ATR，若无形态则使用 base_tf
+    signal_ind = tf_indicators.get(pattern_tf, {}) if pattern != "none" else tf_indicators.get(base_tf, {})
+    entry = signal_ind.get("current_price", 0)
     if entry <= 0:
         logger.warning(f"[rule_only] {symbol} 无法获取当前价格，返回wait")
         return _default_wait_response("rule_only模式无法获取当前价格")
 
-    atr = base_ind.get("atr", entry * 0.01)
+    atr = signal_ind.get("atr", entry * 0.01)
 
     # 使用动态止损（根据 ADX 自动调整）
     from dynamic_stop_take_profit import calculate_dynamic_stop_loss, calculate_take_profit
@@ -150,10 +230,10 @@ def _build_rule_only_decision(tf_indicators: dict, direction: str, symbol: str) 
 
     # 计算关键支撑/阻力位（从指标数据中取，无则置 None）
     # rule_only 模式下没有 LLM 标注，用 price_series 的近期高低点近似
-    base_price_series = tf_indicators.get(base_tf, {}).get("price_series", [])
-    if base_price_series and len(base_price_series) >= 2:
-        key_support    = min(base_price_series) if direction == "short" else None
-        key_resistance = max(base_price_series) if direction == "long" else None
+    signal_price_series = signal_ind.get("price_series", [])
+    if signal_price_series and len(signal_price_series) >= 2:
+        key_support    = min(signal_price_series) if direction == "short" else None
+        key_resistance = max(signal_price_series) if direction == "long" else None
     else:
         key_support    = None
         key_resistance = None
@@ -174,6 +254,11 @@ def _build_rule_only_decision(tf_indicators: dict, direction: str, symbol: str) 
     confidence    = "high" if (signal_strength >= min_signal_strength and volume_confirmed) else "low"
     trend_strength = min(10, int(adx / 4))
 
+    # 构建详细的评分说明
+    momentum_info = momentum.get("direction", "mixed") if momentum else "mixed"
+    bull_pct_val = momentum.get("bull_pct", 0) if momentum else 0
+    bear_pct_val = momentum.get("bear_pct", 0) if momentum else 0
+
     return {
         "signal":           direction,
         "signal_type":      pattern or "pullback",
@@ -193,9 +278,10 @@ def _build_rule_only_decision(tf_indicators: dict, direction: str, symbol: str) 
         "structure_broken": False,
         "confidence":       confidence,
         "reason":           (
-            f"规则引擎信号：{direction}，ADX={adx:.1f}，"
-            f"EMA对齐={ema_align_ok}/{total_tfs}，"
-            f"量比={vol_ratio:.2f}，形态={pattern}，RSI={rsi:.1f}"
+            f"规则引擎信号：{direction}，信号强度={signal_strength}/10，"
+            f"ADX={adx:.1f}，EMA对齐={ema_align_ok}/{total_tfs}，"
+            f"量比={vol_ratio:.2f}，形态={pattern}({pattern_tf})，RSI={rsi:.1f}({rsi_tf})，"
+            f"动能={momentum_info}(多{bull_pct_val:.0%}/空{bear_pct_val:.0%})"
         ),
         "warning":          None,
     }
@@ -281,7 +367,6 @@ def _build_text_analysis_prompt() -> str:
 
     rule_cfg = _ANALYSIS_CFG.get("rule_filter", {})
     vol_ratio_thresh = rule_cfg.get("volume_ratio_threshold", 0.8)
-    adx_trending = rule_cfg.get("adx_trending_threshold", 20)
     adx_edge_min = TRADING_CFG.get("adx_edge_min", 20)
     adx_edge_max = TRADING_CFG.get("adx_edge_max", 25)
     long_rsi_low = rule_cfg.get("long_signal_rsi_low", 40)
@@ -538,9 +623,14 @@ def analyze_symbol(
                 # 覆盖 LLM 返回的止损止盈
                 result["stop_loss"] = stop_loss
                 result["take_profit"] = take_profit
+                # 重新计算 RR 字段（关键修复：避免风控检查读取错误的 RR）
+                risk = abs(entry - stop_loss)
+                reward = abs(take_profit - entry)
+                rr = round(reward / risk, 2) if risk > 0 else 0.0
+                result["risk_reward"] = f"1:{rr:.1f}"
                 result["_dynamic_stop_loss_applied"] = True
                 result["_tp_reason"] = tp_reason
-                logger.info(f"已应用动态止损止盈：SL={stop_loss:.6g}, TP={take_profit:.6g}, {tp_reason}")
+                logger.info(f"已应用动态止损止盈：SL={stop_loss:.6g}, TP={take_profit:.6g}, RR={rr:.2f}, {tp_reason}")
 
         return result
 
