@@ -118,23 +118,28 @@ def detect_and_record_stop_loss(current_positions: list):
             # 清理状态文件（无论止盈还是止损）
             _clear_position_states(symbol, side)
 
-            # 只有亏损状态消失才记录冷却（推断为止损触发）
-            # 设置阈值 -0.01 USDT，避免浮点误差误判
             pnl_threshold = -0.01
             if pnl < pnl_threshold:
-                cooldown_data[symbol] = datetime.now(timezone.utc).isoformat()
+                # 止损触发：记录长冷却（stop_loss_cooldown_hours）
+                cooldown_data[symbol] = {
+                    "time": datetime.now(timezone.utc).isoformat(),
+                    "type": "stop_loss",
+                }
                 logger.warning(
                     f"检测到止损触发：{symbol} 持仓消失（浮亏 {pnl:.2f} USDT），"
-                    f"记录冷却时间"
+                    f"记录止损冷却"
                 )
-                # 生成平仓日志文件（用于日报统计）
                 _save_close_trade_log(symbol, side, last_pos, pnl, "stop_loss")
             else:
+                # 止盈/手动平仓：记录短冷却（take_profit_cooldown_minutes），防止立即重新开仓
+                cooldown_data[symbol] = {
+                    "time": datetime.now(timezone.utc).isoformat(),
+                    "type": "take_profit",
+                }
                 logger.info(
                     f"{symbol} 持仓消失（浮盈/微亏 {pnl:.2f} USDT），"
-                    f"推断为止盈/手动平仓/微亏止损，不记录冷却"
+                    f"推断为止盈/手动平仓，记录短冷却"
                 )
-                # 生成平仓日志文件（用于日报统计）
                 _save_close_trade_log(symbol, side, last_pos, pnl, "take_profit_or_manual")
 
         # 保存冷却记录
@@ -155,7 +160,10 @@ def record_stop_loss_manual(symbol: str, reason: str):
     """
     try:
         def _add_cooldown(data: dict) -> dict:
-            data[symbol] = datetime.now(timezone.utc).isoformat()
+            data[symbol] = {
+                "time": datetime.now(timezone.utc).isoformat(),
+                "type": "stop_loss",
+            }
             return data
         atomic_update_json(COOLDOWN_FILE, _add_cooldown, default={})
         logger.warning(f"记录止损冷却：{symbol} | 原因：{reason}")
@@ -169,22 +177,32 @@ def check_cooldown(symbol: str, cooldown_hours: int = 4) -> tuple[bool, str]:
 
     返回：(是否通过, 原因)
     - (True, "无冷却记录") - 可以开仓
-    - (False, "冷却中，剩余X小时") - 禁止开仓
+    - (False, "冷却中，剩余X小时/分钟") - 禁止开仓
     """
     try:
         cooldown_data = atomic_read_json(COOLDOWN_FILE, default={})
-        last_stop_loss = cooldown_data.get(symbol)
+        entry = cooldown_data.get(symbol)
 
-        if not last_stop_loss:
+        if not entry:
             return True, "无冷却记录"
 
-        last_time = datetime.fromisoformat(last_stop_loss)
-        cooldown_until = last_time + timedelta(hours=cooldown_hours)
+        last_time = datetime.fromisoformat(entry["time"])
+        cooldown_type = entry.get("type", "stop_loss")
+
         now = datetime.now(timezone.utc)
 
-        if now < cooldown_until:
-            remaining = (cooldown_until - now).total_seconds() / 3600
-            return False, f"止损冷却中，剩余 {remaining:.1f} 小时"
+        if cooldown_type == "take_profit":
+            from config_loader import RISK_CFG as _RISK_CFG
+            tp_minutes = _RISK_CFG.get("take_profit_cooldown_minutes", 30)
+            cooldown_until = last_time + timedelta(minutes=tp_minutes)
+            if now < cooldown_until:
+                remaining_min = (cooldown_until - now).total_seconds() / 60
+                return False, f"止盈冷却中，剩余 {remaining_min:.0f} 分钟"
+        else:
+            cooldown_until = last_time + timedelta(hours=cooldown_hours)
+            if now < cooldown_until:
+                remaining_hr = (cooldown_until - now).total_seconds() / 3600
+                return False, f"止损冷却中，剩余 {remaining_hr:.1f} 小时"
 
         # 冷却期已过，清理记录
         def _remove_cooldown(data: dict) -> dict:
@@ -224,6 +242,14 @@ def _clear_position_states(symbol: str, side: str):
             logger.info(f"已清理 {symbol} 的部分止盈状态")
     except Exception as e:
         logger.error(f"清理部分止盈状态异常：{e}")
+
+    try:
+        trailing_stop_file = Path("logs/trailing_stop_state.json")
+        if trailing_stop_file.exists():
+            atomic_update_json(trailing_stop_file, _remove_key, default={})
+            logger.info(f"已清理 {symbol} 的跟踪止损状态")
+    except Exception as e:
+        logger.error(f"清理跟踪止损状态异常：{e}")
 
 
 def clear_cooldown(symbol: str):

@@ -44,7 +44,7 @@ from fetch_kline import (
 
 from notifier import send_notification
 from trade_report import generate_close_report
-from stop_loss_tracker import record_stop_loss_manual
+from stop_loss_tracker import record_stop_loss_manual, detect_and_record_stop_loss, save_position_snapshot
 from file_lock import atomic_read_json, atomic_write_json, atomic_update_json
 from dynamic_stop_take_profit import calculate_trailing_stop
 from indicator_engine import detect_momentum_decay
@@ -258,6 +258,10 @@ def main():
 
     # ── 第一步：获取当前持仓 ──
     positions = get_open_positions(exchange)
+
+    # 检测交易所自动止损/止盈（对比上次持仓快照），记录冷却
+    detect_and_record_stop_loss(positions)
+    save_position_snapshot(positions)
 
     if not positions:
         logger.info("无持仓，跳过本轮管理")

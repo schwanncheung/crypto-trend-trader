@@ -40,8 +40,8 @@ python scripts/daily_report.py
 
 ```bash
 # crontab -e
-*/15 * * * * cd /path/to/crypto-trend-trader && python scripts/market_scanner.py
-*/5  * * * * cd /path/to/crypto-trend-trader && python scripts/trade_manager.py
+*/5 * * * * cd /path/to/crypto-trend-trader && python scripts/market_scanner.py
+*/4  * * * * cd /path/to/crypto-trend-trader && python scripts/trade_manager.py
 0 8  * * * cd /path/to/crypto-trend-trader && python scripts/daily_report.py
 ```
 
@@ -68,7 +68,7 @@ python backtest/run_backtest.py optimize --workers 4
 
 ## 核心特性
 
-- **多周期共振**：1h/30m/15m 三周期趋势确认
+- **多周期共振**：1h/15m/5m 三周期趋势确认
 - **规则引擎预过滤**：EMA 排列 + ADX 趋势 + RSI 保护
 - **AI 辅助决策**：规则通过后，LLM 文本分析（可切换纯规则模式）
 - **动态止损**：根据 ADX 强度自动调整止损距离

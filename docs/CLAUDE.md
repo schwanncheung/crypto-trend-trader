@@ -7,7 +7,7 @@
 ## 一、核心架构
 
 ```
-market_scanner.py (主调度，每15分钟)
+market_scanner.py (主调度，每5分钟)
     ├── fetch_kline.py       # K线获取、热门合约筛选
     ├── indicator_engine.py  # 指标计算、规则预过滤、市场快照
     ├── ai_analysis.py       # LLM 文本分析（可选纯规则模式）
@@ -15,7 +15,7 @@ market_scanner.py (主调度，每15分钟)
     ├── execute_trade.py     # 开仓/止损止盈/平仓
     └── notifier.py          # 飞书通知
 
-trade_manager.py (持仓管理，每5分钟)
+trade_manager.py (持仓管理，每4分钟)
     ├── 移动止损（浮盈 >20% → 保本位）
     ├── 分批止盈（40%@+20%, 100%@+50%）
     ├── 强制平仓（浮亏 <-30%）
