@@ -128,11 +128,19 @@ class SignalPipeline:
             logger.warning(f"  {symbol} 规则引擎异常：{e}")
             return None
 
+        # rule_only 模式：预过滤是硬性门槛
+        # llm_real 模式：预过滤只是建议，AI 可以覆盖（但需要记录）
         if not passed:
-            logger.debug(f"  {_bar_tag} 规则引擎拒绝：{filter_reason}")
-            return None
+            if self.ai_mode == "rule_only":
+                logger.debug(f"  {_bar_tag} 规则引擎拒绝：{filter_reason}")
+                return None
+            else:
+                # llm_real 模式：预过滤未通过，但让 AI 继续分析
+                logger.info(f"  {_bar_tag} 规则引擎建议拒绝：{filter_reason}（但 AI 可覆盖）")
+                direction = "wait"  # 让 AI 自己判断方向
 
-        logger.info(f"  {_bar_tag} 规则引擎通过 → {direction}")
+        if passed:
+            logger.info(f"  {_bar_tag} 规则引擎通过 → {direction}")
 
         # ── 步骤 4：AI Mock 构造决策 ────────────────────────────────────
         base_tf = self.timeframes[-1]
@@ -157,8 +165,9 @@ class SignalPipeline:
             logger.debug(f"  {_bar_tag} AI Mock 返回 wait")
             return None
 
-        # 注入规则引擎方向，作为最终方向验证
-        if decision["signal"] != direction:
+        # 方向验证：如果规则引擎有明确方向，需要与 AI 方向一致
+        # 如果规则引擎返回 "wait"（llm_real 覆盖场景），则信任 AI 方向
+        if direction != "wait" and decision["signal"] != direction:
             logger.debug(
                 f"  {_bar_tag} AI方向({decision['signal']}) 与规则引擎方向({direction}) 不一致，跳过"
             )

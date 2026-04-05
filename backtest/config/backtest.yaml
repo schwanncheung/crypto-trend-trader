@@ -24,7 +24,7 @@ backtest:
   # rule_only : 纯规则引擎构造伪AI决策（推荐，可重复执行，无API成本）
   # llm_mock  : 读取预缓存的LLM响应JSON（用于验证AI效果）
   # llm_real  : 调用生产环境真实文本LLM API（用于验证生产LLM逻辑，需API Key）
-  ai_mode: "rule_only"
+  ai_mode: "llm_real"
 
   # ── 下载时间框架 ───────────────────────────────
   # download 子命令默认下载的周期列表（可被 --timeframes 命令行参数覆盖）
@@ -42,15 +42,8 @@ backtest:
 # ── 参数覆盖（覆盖 settings.yaml 对应值，用于单次回测调参）──────────────
 # 不填则使用 settings.yaml 中的值
 override:
-  # timeframes: ["1h", "15m", "5m"]
-  # 预过滤条件放宽（捕捉边缘趋势信号）
-  require_anchor_aligned: false      # 不强制要求锚周期对齐（依赖跨周期趋势一致性）
-  min_trending_timeframes: 1         # 降低对齐周期要求（从2降到1）
-  adx_trending_threshold: 18         # 降低ADX门槛（从20降到18，捕捉边缘趋势）
-  # 信号质量门槛
-  min_signal_strength: 6             # 从7降到6，允许RSI超卖区信号通过
-  min_rr_ratio: 1.2                  # 从1.5降到1.2，适应深跌行情支撑位缺失场景
-  min_trend_strength: 5              # 从6降到5，捕捉趋势早期机会（ADX 18-24）
+  min_signal_strength: 6
+  min_rr_ratio: 1.2
   # trailing_stop_trigger_pct: 15.0
   # partial_profit_trigger_pct: 25.0
   # partial_profit_trigger_pct_2: 50.0
