@@ -16,6 +16,11 @@ logger = logging.getLogger(__name__)
 COOLDOWN_FILE = Path("logs/stop_loss_cooldown.json")
 POSITION_SNAPSHOT_FILE = Path("logs/position_snapshot.json")
 
+# 延迟导入，避免循环依赖
+def _get_generate_close_report():
+    from trade_report import generate_close_report
+    return generate_close_report
+
 
 def _save_close_trade_log(symbol: str, side: str, position_data: dict, pnl: float, close_reason: str):
     """
@@ -60,6 +65,26 @@ def _save_close_trade_log(symbol: str, side: str, position_data: dict, pnl: floa
 
     except Exception as e:
         logger.error(f"保存平仓日志失败：{e}")
+
+
+def _call_generate_report(symbol: str, pnl: float, position_data: dict, reason: str):
+    """
+    调用交易报告生成函数
+    """
+    try:
+        generate_close_report = _get_generate_close_report()
+        entry_price = position_data.get("entry_price", 0)
+        contracts = position_data.get("contracts", 0)
+
+        # 计算 pnl_pct
+        if entry_price and contracts:
+            pnl_pct = pnl / (entry_price * contracts) * 100
+        else:
+            pnl_pct = 0
+
+        generate_close_report(symbol, reason, pnl, pnl_pct)
+    except Exception as e:
+        logger.error(f"生成交易报告失败：{e}")
 
 
 def save_position_snapshot(positions: list):
@@ -130,6 +155,7 @@ def detect_and_record_stop_loss(current_positions: list):
                     f"记录止损冷却"
                 )
                 _save_close_trade_log(symbol, side, last_pos, pnl, "stop_loss")
+                _call_generate_report(symbol, pnl, last_pos, "止损触发")
             else:
                 # 止盈/手动平仓：记录短冷却（take_profit_cooldown_minutes），防止立即重新开仓
                 cooldown_data[symbol] = {
@@ -141,6 +167,7 @@ def detect_and_record_stop_loss(current_positions: list):
                     f"推断为止盈/手动平仓，记录短冷却"
                 )
                 _save_close_trade_log(symbol, side, last_pos, pnl, "take_profit_or_manual")
+                _call_generate_report(symbol, pnl, last_pos, "止盈/手动平仓")
 
         # 保存冷却记录
         atomic_write_json(COOLDOWN_FILE, cooldown_data)
