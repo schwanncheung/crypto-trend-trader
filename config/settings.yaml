@@ -4,209 +4,198 @@
 # ── 交易所配置 ───────────────────────────────────────────────────────
 exchange:
   name: "okx"       # 交易所名称（仅支持 okx）
-  testnet: false      # true=模拟盘  false=实盘（上线前务必先在模拟盘验证全流程）
+  testnet: false    # true=模拟盘  false=实盘（上线前务必先在模拟盘验证全流程）
 
-# ── 全局时间框架（所有模块统一使用）────────────────────────────────────
+# ── 全局时间框架 ─────────────────────────────────────────────────────
 # 从高到低排列：最高周期作为方向锚，最低周期用于入场确认
 # 修改此处后，规则引擎、K线获取、Prompt 均自动适配
 timeframes: ["1h", "30m", "15m"]
 
-# ── 分析模式 ─────────────────────────────────────────────────────────
+# ── 分析配置 ─────────────────────────────────────────────────────────
 analysis:
-  # mode: "text"      = 规则引擎预过滤 + LLM文本分析（推荐，省token，速度快）
-  # mode: "rule_only" = 纯规则引擎，不调用任何LLM（速度最快，适合测试/低成本运行）
+  # mode: "text"      = 规则引擎预过滤 + LLM 文本分析（推荐）
+  # mode: "rule_only" = 纯规则引擎，不调用 LLM（适合测试/低成本运行）
   mode: "text"
 
-  # 文本LLM配置（text模式使用，兼容 OpenAI 接口）
+  # 文本 LLM 配置（text 模式使用，兼容 OpenAI 接口）
   text_llm:
-    primary_model: "kimi-k2.5"   # 主力文本模型
-    fallback_model: "glm-5"     # 兜底文本模型
-    max_tokens: 2000                 # 最大输出 token 数
-    timeout: 30                      # API 超时秒数
-    base_url: "https://coding.dashscope.aliyuncs.com/v1"  # 阿里云百炼 Coding Plan 接口
+    primary_model: "kimi-k2.5"
+    fallback_model: "glm-5"
+    max_tokens: 2000
+    timeout: 30
+    base_url: "https://coding.dashscope.aliyuncs.com/v1"
 
-  # ── LLM 熔断配置（API 故障自动降级）────────────────────────────────
+  # LLM 熔断配置（API 故障自动降级到 rule_only）
   circuit_breaker:
-    enabled: true                  # 是否启用熔断器
-    failure_threshold: 3           # 连续失败多少次后熔断
-    success_threshold: 1           # 半开状态下成功多少次后恢复
-    recovery_window_sec: 300       # 熔断后多少秒尝试恢复（5 分钟）
-    fallback_mode: "rule_only"     # 熔断后的降级模式："rule_only" | "reject"
-
-  # 规则引擎预过滤（进入LLM分析前必须通过，不通过直接返回 wait，节省 token）
-  # ⚠️ 完整配置见下方 rule_filter 节
+    enabled: true
+    failure_threshold: 3        # 连续失败多少次后熔断
+    success_threshold: 1        # 半开状态下成功多少次后恢复正常
+    recovery_window_sec: 300    # 熔断后多少秒进入半开状态（5 分钟）
+    fallback_mode: "rule_only"  # 熔断后降级模式："rule_only" | "reject"
 
   # 指标计算参数
   indicator:
-    ema_periods: [21, 55, 200]  # EMA周期列表（短/中/长），用于趋势排列判断
-    adx_period: 14              # ADX 计算周期（标准值 14）
-    rsi_period: 14              # RSI 计算周期（标准值 14）
-    volume_ma_period: 5         # 成交量均线周期（量比 = 当前量 / MA5）
-    swing_lookback: 5           # 波段高低点回看K线数（用于 HH/HL/LH/LL 结构判断）
+    ema_periods: [21, 55, 200]  # EMA 周期（短/中/长），用于趋势排列判断
+    adx_period: 14              # ADX 计算周期
+    rsi_period: 14              # RSI 计算周期
+    volume_ma_period: 5         # 量比分母：成交量 MA 周期（量比 = 当前量 / MA5）
+    swing_lookback: 5           # 波段高低点回看 K 线数（用于 HH/HL/LH/LL 结构判断）
     swing_count: 3              # 最少需要识别的波段高低点数量
 
-  # ── 近期趋势动能评估（解决EMA200惯性滞后，捕捉趋势刚启动） ──────────
-  # 背景：EMA200惯性极强，横盘后刚启动的趋势需55+小时才能形成空头/多头排列。
-  # 解决方案：单独评估最近N根K线的方向连续性，作为趋势判断的第5个评分项，
-  #           并在ADX尚低（趋势刚启动）但近期价格突破背景中位价时豁免ADX门槛。
+  # 规则引擎预过滤（进入 LLM 前的门卫，不通过直接返回 wait）
   rule_filter:
+
     # ═══════════════════════════════════════════════════════════════════
-    # 一、基础趋势判断参数
+    # 一、基础趋势判断
     # ═══════════════════════════════════════════════════════════════════
-    anchor_timeframe: "1h"              # 锚周期：用于宏观方向判断
+    anchor_timeframe: "1h"              # 锚周期：宏观方向判断，必须非横盘才放行
     require_anchor_aligned: true        # 是否要求锚周期与信号方向对齐
-    min_trending_timeframes: 2          # 最少需要几个周期显示趋势（非锚周期）
-    adx_trending_threshold: 20          # ADX >= 此值视为趋势（低于此值为横盘）
+    min_trending_timeframes: 2          # 非锚周期中至少几个显示趋势
+    adx_trending_threshold: 20          # ADX >= 此值视为趋势，低于此值为横盘
     volume_ratio_threshold: 0.8         # 量比阈值：当前量 / MA5 >= 此值视为放量
 
     # ═══════════════════════════════════════════════════════════════════
-    # 二、RSI 保护机制（多层防护，优先级从高到低）
+    # 二、RSI 保护机制（多层，优先级从高到低）
     # ═══════════════════════════════════════════════════════════════════
 
-    # ── 2.1 基础 RSI 极值过滤（可被 ADX 豁免）──────────────────────────
+    # 2.1 基础 RSI 极值过滤（可被 ADX 豁免）
+    # 只检查锚周期 RSI，小周期波动大不检查
     rsi_overbought: 80                  # RSI 超买线（做多保护）
     rsi_oversold: 20                    # RSI 超卖线（做空保护）
-    # 说明：只检查锚周期（1h）RSI，小周期波动大不检查
 
-    # ── 2.2 RSI ADX 豁免（中等强度趋势豁免基础 RSI 过滤）────────────────
-    rsi_adx_exemption_enabled: true     # 是否启用 ADX 豁免
-    rsi_adx_exemption_threshold: 40     # ADX >= 此值即豁免基础 RSI 过滤
-    # 说明：防止强趋势中 RSI 钝化导致漏单（ADX 40-60 为中等强度趋势）
+    # 2.2 ADX 豁免基础 RSI 过滤（防止强趋势 RSI 钝化漏单）
+    rsi_adx_exemption_enabled: true
+    rsi_adx_exemption_threshold: 40     # ADX >= 此值豁免基础 RSI 过滤
 
-    # ── 2.3 极强趋势豁免（豁免范围更广）────────────────────────────────
-    strong_trend_adx_threshold: 60      # ADX >= 此值视为极强趋势
-    strong_trend_di_diff_threshold: 20  # DI 差值 >= 此值视为方向明确
-    # 说明：同时满足 ADX >= 60 且 DI 差值 >= 20 时，豁免：
-    #   - 基础 RSI 过滤
-    #   - 量能确认
-    #   - RSI 反弹保护
-    #   - RSI 转折预警
-    # 但不豁免：RSI 持续保护、RSI 背离保护（最高优先级）
+    # 2.3 极强趋势豁免（同时满足 ADX + DI 差值条件时，额外豁免量能/反弹/转折保护）
+    # 不豁免：RSI 持续保护、RSI 背离保护
+    strong_trend_adx_threshold: 60
+    strong_trend_di_diff_threshold: 20  # +DI 与 -DI 差值 >= 此值视为方向明确
 
-    # ── 2.4 RSI 持续保护（最高优先级，即使极强趋势也执行）─────────────
-    rsi_oversold_persist_bars: 10       # 做空保护：RSI <= 超卖线连续 N 根 K 线后禁止做空
+    # 2.4 RSI 持续保护（最高优先级，极强趋势也不豁免）
+    # 防止在动能耗尽时追单
+    rsi_oversold_persist_bars: 10       # 做空保护：RSI 连续 N 根 <= 超卖线后禁止做空
     rsi_oversold_persist_level: 20      # 超卖判定线（锚周期）
-    rsi_overbought_persist_bars: 48     # 做多保护：RSI >= 超买线连续 N 根 K 线后禁止做多
-    rsi_overbought_persist_level: 80    # 超买判定线（锚周期）
-    # 说明：防止在动能耗尽时追单，即使 ADX 很高也不豁免
 
-    # ── 2.5 RSI 背离保护（最高优先级，即使极强趋势也执行）─────────────
-    rsi_divergence_enabled: true        # 是否启用背离检测
+    # 2.5 RSI 背离保护（最高优先级，极强趋势也不豁免）
+    # 价格新低但 RSI 未新低 = 底背离，动能衰竭，禁止做空
+    rsi_divergence_enabled: true
     rsi_divergence_lookback: 10         # 背离检测的 K 线历史窗口（根）
     rsi_divergence_min_drop_pct: 0.005  # 价格新低幅度最低要求（0.5%），过滤噪音
     rsi_divergence_min_rsi_diff: 3.0    # RSI 未跟随价格的最小差值（点）
-    # 说明：检测动能衰竭（价格新低但 RSI 未新低 = 底背离），即使 ADX 很高也不豁免
 
-    # ── 2.6 RSI 反弹保护（可被极强趋势豁免）────────────────────────────
-    rsi_bounce_guard_delta: 15          # RSI 从低点反弹超过 N 点，判定"修复中"禁止做空
-    rsi_bounce_guard_oversold: 15       # 超卖判定线（从 20 降至 15，缩小保护范围）
-    # 说明：防止在反弹初期做空，极强趋势时可豁免
+    # 2.6 RSI 反弹保护（可被极强趋势豁免）
+    # RSI 从超卖区反弹超过阈值，判定"修复中"，禁止做空
+    rsi_bounce_guard_delta: 15          # 反弹幅度阈值（点）
+    rsi_bounce_guard_oversold: 15       # 超卖判定线（低于此值才触发反弹保护）
 
-    # ── 2.7 RSI 转折预警（可被极强趋势豁免）────────────────────────────
-    rsi_reversal_warning_timeframes: ["15m", "30m"]  # 检测转折的小周期
-    rsi_reversal_consecutive_rounds: 2               # 连续 N 轮 RSI 同向运动触发预警
-    rsi_reversal_vol_confirm: true                   # 是否要求量能放大才触发预警
-    # 说明：小周期 RSI 连续回升 + 放量 → 可能转折，暂停做空，极强趋势时可豁免
+    # 2.7 RSI 转折预警（可被极强趋势豁免）
+    # 小周期 RSI 连续回升 + 放量，可能转折，暂停做空
+    rsi_reversal_warning_timeframes: ["15m", "30m"]
+    rsi_reversal_consecutive_rounds: 2  # 连续 N 轮 RSI 同向运动触发预警
+    rsi_reversal_vol_confirm: true      # 是否要求量能放大才触发预警
 
     # ═══════════════════════════════════════════════════════════════════
-    # 三、多头信号质量参数（非硬过滤，仅记录质量）
+    # 三、多头信号质量（非硬过滤，仅记录质量供 LLM 参考）
     # ═══════════════════════════════════════════════════════════════════
-    long_signal_rsi_low: 40             # RSI 低于此值视为充分回调（适合做多介入）
+    long_signal_rsi_low: 40             # RSI 低于此值视为充分回调，适合做多介入
     long_signal_vol_ratio: 1.0          # 做多量比最低要求
 
     # ═══════════════════════════════════════════════════════════════════
-    # 四、近期趋势动能评估（解决 EMA200 惯性滞后）
+    # 四、近期趋势动能评估（解决 EMA200 惯性滞后，捕捉趋势刚启动）
     # ═══════════════════════════════════════════════════════════════════
-    # 背景：EMA200 惯性极强，横盘后刚启动的趋势需 55+ 小时才能形成排列
-    # 解决：单独评估最近 N 根 K 线的方向连续性，作为趋势判断的补充
+    # EMA200 惯性极强，横盘后刚启动的趋势需 55+ 小时才能形成排列。
+    # 解决：单独评估最近 N 根 K 线的方向连续性，作为趋势判断的补充评分项，
+    # 并在 ADX 尚低但近期价格突破背景中位价时豁免 ADX 门槛。
     recent_trend_window: 24             # 近期窗口（根）：1h 周期下 24 根 = 近 24 小时
-    recent_trend_min_pct: 0.65          # 方向一致 K 线占比下限（65% = 24 根里至少 16 根同向）
+    recent_trend_min_pct: 0.65          # 方向一致 K 线占比下限（65%）
     recent_trend_min_move: 0.015        # 窗口内总振幅下限（1.5%），过滤横盘假信号
-    context_trend_window: 60            # 背景窗口（根）：用于判断近期是否突破了横盘区间
+    context_trend_window: 60            # 背景窗口（根）：判断近期是否突破了横盘区间
 
+# ── 交易执行配置 ─────────────────────────────────────────────────────
 trading:
-  # ── 交易执行参数 ───────────────────────────
-  max_slippage_pct: 5.0         # 滑点超过此百分比时重新计算止损止盈
-  max_margin_usage_ratio: 0.5   # 保证金占可用余额的最大比例（50%）
-  enable_open_position: true    # 开仓总开关：false=禁止开仓（紧急关闭），true=允许开仓
-  allowed_confidence: ["high"]  # 只有 confidence=high 的信号才允许交易
-  min_signal_strength: 6        # 最低信号强度（1-10），低于此值不交易
-  min_trend_strength: 6         # 最低趋势强度（1-10），低于此值不交易（优化：从7降到6，捕捉趋势早期机会 ADX 24-28）
-  min_rr_ratio: 1.5             # 风控门槛：信号盈亏比低于此值不允许开仓
-  target_rr_ratio: 1.2          # 止盈设置：实际止盈距离 = 止损距离 × 1.2
+  enable_open_position: true    # 开仓总开关：false=禁止开仓（紧急关闭）
   default_leverage: 10          # 默认杠杆倍数
-  max_position_pct: 0.15        # 单笔最大仓位占账户净值比例（15%，从10%调整）
-  adx_edge_min: 20              # ADX边缘区间下限：低于此值为横盘
-  adx_edge_max: 25              # ADX边缘区间上限：处于20-25边缘时提高信号强度门槛至8
-  adx_edge_min_signal_strength: 8  # ADX边缘区间内要求的最低信号强度
-  warning_position_ratio: 0.6   # AI返回 warning 时仓位折减比例（0.5=标准仓位的50%）
-  # 触发仓位折减的 warning 关键词列表
+
+  # 信号质量门槛
+  allowed_confidence: ["high"]  # 只有 confidence=high 的信号才允许交易
+  min_signal_strength: 6        # 最低信号强度（1-10）
+  min_trend_strength: 6         # 最低趋势强度（1-10）
+  min_rr_ratio: 1.5             # 最低盈亏比，低于此值不开仓
+  target_rr_ratio: 1.2          # 止盈设置：止盈距离 = 止损距离 × 此倍数
+
+  # ADX 边缘区间加严（ADX 处于 20-25 时提高信号强度门槛）
+  adx_edge_min: 20
+  adx_edge_max: 25
+  adx_edge_min_signal_strength: 8  # 边缘区间内要求的最低信号强度
+
+  # 仓位控制
+  max_position_pct: 0.15        # 单笔最大仓位占账户净值比例（15%）
+  max_margin_usage_ratio: 0.5   # 保证金占可用余额的最大比例（50%）
+  max_slippage_pct: 5.0         # 滑点超过此百分比时重新计算止损止盈
+
+  # AI warning 仓位折减
+  warning_position_ratio: 0.6   # 触发 warning 时仓位折减比例（0.6 = 标准仓位的 60%）
   warning_keywords: ["低市值", "高波动", "插针", "流动性", "小市值", "波动大", "仓位减半", "极端缩量"]
 
-  # ── 动态止损配置（根据 ADX 自动调整止损距离）──────────────────────
-  stop_loss_atr_multiplier: 2.0  # ATR 基础倍数：止损 = entry ± atr × 此倍数（从 2.5 降至 2.0）
+  # 动态止损（止损距离 = ATR × 倍数，倍数随 ADX 动态调整）
+  stop_loss_atr_multiplier: 2.0  # ATR 基础倍数
   stop_loss_adx_scaling:
-    enabled: true                # 是否启用 ADX 动态调整
-    strong_trend_threshold: 40   # ADX >= 此值视为强趋势，止损距离 × strong_multiplier
-    strong_trend_multiplier: 1.2 # 强趋势止损倍数（40 <= ADX < 60）（从 1.5 降至 1.2）
-    extreme_trend_threshold: 60  # ADX >= 此值视为极强趋势，止损距离 × extreme_multiplier
-    extreme_trend_multiplier: 1.5  # 极强趋势止损倍数（ADX >= 60）（从 2.0 降至 1.5）
+    enabled: true
+    strong_trend_threshold: 40   # ADX >= 此值视为强趋势
+    strong_trend_multiplier: 1.2 # 强趋势止损倍数（40 <= ADX < 60）
+    extreme_trend_threshold: 60  # ADX >= 此值视为极强趋势
+    extreme_trend_multiplier: 1.5  # 极强趋势止损倍数（ADX >= 60）
 
-  # ── 止损止盈硬性上限（风控红线，不可突破）────────────────────────
-  max_stop_loss_pct: 2.0         # 止损距离上限（%），10x 杠杆 = 20% 账户风险
-  max_take_profit_pct: 5.0       # 止盈距离上限（%），防止止盈设置过远
+  # 止损止盈硬性上限（风控红线）
+  max_stop_loss_pct: 2.0         # 止损距离上限（%）
+  max_take_profit_pct: 5.0       # 止盈距离上限（%）
 
-# ── 账户风控 ────────────────────────────────────────────────────────
+# ── 账户风控 ─────────────────────────────────────────────────────────
 risk:
-  max_open_positions: 5    # 最大同时持仓数，达到上限后停止开新仓
-  max_loss_pct: -5.0       # 日亏损上限（%），超过后当日停止自动交易
-  leverage: 10             # 风控模块使用的杠杆（与 trading.default_leverage 保持一致）
-  stop_loss_cooldown_hours: 4  # 止损后冷却时间（小时），防止短期内重复开仓同一合约
+  leverage: 10                   # 杠杆倍数（与 trading.default_leverage 保持一致）
+  risk_per_trade_pct: 1.0        # 单笔最大风险占可用余额比例（%）
+  max_open_positions: 5          # 最大同时持仓数
+  max_loss_pct: -5.0             # 日亏损上限（%），超过后当日停止自动交易
+  stop_loss_cooldown_hours: 4    # 止损后冷却时间（小时），防止短期内重复开仓同一合约
 
-# ── 持仓管理阈值 ─────────────────────────────────────────────────────
+# ── 持仓管理 ─────────────────────────────────────────────────────────
 trade_manager:
-  # 浮盈达到此百分比时，将止损移动至保本位（入场价），锁定不亏损
+  # 移动止损：浮盈达到此百分比时，将止损移至保本位（入场价）
   trailing_stop_trigger_pct: 20.0
-  # 第一批部分止盈触发阈值（%），达到时平掉 partial_profit_ratio_1 比例的仓位
-  partial_profit_trigger_pct: 20.0
-  # 第一批止盈平仓比例（0.4 = 平掉40%）
-  partial_profit_ratio_1: 0.4
-  # 第二批部分止盈触发阈值（%），达到时再平掉 partial_profit_ratio_2 比例的仓位
-  partial_profit_trigger_pct_2: 50.0
-  # 第二批止盈平仓比例（0.5 = 再平掉50%，1.0 = 全部平仓）
-  partial_profit_ratio_2: 1.0
-  # 浮亏超过此百分比时强制平仓（保证金维度）
-  # 三层止损机制：
-  # 1. 交易所止损单（最快）：动态止损 2.5%-5%（根据ADX）
-  # 2. 结构平仓（8分钟）：支撑/阻力突破、趋势破坏 → 提前止损
-  # 3. 强制平仓（8分钟）：兜底保护，防止止损单失效
-  #
-  # 设置为 -30%（对应价格反向约3%）：
-  # - 比动态止损最大值（5%）更严格，作为中间保护层
-  # - 给结构平仓留出空间（结构平仓优先级更高）
-  # - 防止止损单失效时亏损扩大
-  force_close_loss_pct: -30.0
-  # 结构判断使用的时间框架（用于支撑/阻力突破检测）
-  structure_check_timeframe: "1h"
-  # 支撑/阻力位突破判定的缓冲区（百分比，如 0.3 = 收盘价偏离0.3%内不算突破）
-  support_buffer_pct: 0.3
 
-# ── K线拉取数量（按周期单独配置）────────────────────────────────────────
-# 注意：EMA(200) 计算需要至少200根数据才能保证精度，不建议低于200
+  # 分批止盈
+  partial_profit_trigger_pct: 20.0    # 第一批触发阈值（%）
+  partial_profit_ratio_1: 0.4         # 第一批平仓比例（40%）
+  partial_profit_trigger_pct_2: 50.0  # 第二批触发阈值（%）
+  partial_profit_ratio_2: 1.0         # 第二批平仓比例（100% = 全部平仓）
+
+  # 强制平仓（三层止损机制的最后兜底）
+  # 层1：交易所止损单（最快，动态止损 2%-3%）
+  # 层2：结构平仓（每5分钟）：支撑/阻力突破、趋势破坏
+  # 层3：强制平仓（每5分钟）：兜底保护，防止止损单失效
+  force_close_loss_pct: -30.0         # 浮亏超过此百分比时强制平仓
+
+  # 结构平仓参数
+  structure_check_timeframe: "1h"     # 结构判断使用的时间框架
+  support_buffer_pct: 0.3             # 支撑/阻力突破判定缓冲区（%）
+
+# ── K 线拉取数量 ─────────────────────────────────────────────────────
+# EMA(200) 计算需要至少 200 根数据，不建议低于 200
 kline:
   limits:
-    "15m": 300   # 300根 ≈ 75小时，覆盖近3天短线结构
-    "30m": 300   # 300根 ≈ 150小时，覆盖近6天结构
-    "1h":  200   # 200根 ≈ 8天，覆盖近1周中线结构
+    "15m": 300   # 300 根 ≈ 75 小时，覆盖近 3 天短线结构
+    "30m": 300   # 300 根 ≈ 150 小时，覆盖近 6 天结构
+    "1h":  200   # 200 根 ≈ 8 天，覆盖近 1 周中线结构
 
-# ── 扫描器配置 ──────────────────────────────────────────────────────
+# ── 扫描器配置 ───────────────────────────────────────────────────────
 scanner:
-  top_n_symbols: 50          # 每轮扫描的热门合约数量（按24h成交量降序取前N个）
-  min_volume_usdt: 50000000  # 最低24h成交量门槛（USDT），过滤流动性不足的合约
-  max_price_usdt: 10.0        # 最高价格门槛（USDT），过滤高价币，0 = 不限制
+  top_n_symbols: 50           # 每轮扫描的热门合约数量（按 24h 成交量降序）
+  min_volume_usdt: 50000000   # 最低 24h 成交量门槛（USDT），过滤流动性不足的合约
+  max_price_usdt: 10.0        # 最高价格门槛（USDT），0 = 不限制
 
-# ── 黑名单配置 ──────────────────────────────────────────────────────
-# 扫描时自动跳过黑名单中的合约（格式："币种/USDT:USDT" 或简写 "币种"）
+# ── 黑名单 ───────────────────────────────────────────────────────────
+# 扫描时自动跳过，格式："币种/USDT:USDT" 或简写 "币种"
 blacklist:
   - "SKY/USDT:USDT"
   - "LINEA/USDT:USDT"
