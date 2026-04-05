@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import ccxt  # noqa: F401 - 间接使用（create_exchange内部）
 from dotenv import load_dotenv
 
-from config_loader import check_env, RISK_CFG, SCANNER_CFG, TRADE_MGR_CFG, TRADING_CFG, ANALYSIS_CFG, BLACKLIST_CFG, TIMEFRAMES, setup_logging
+from config_loader import check_env, RISK_CFG, SCANNER_CFG, TRADE_MGR_CFG, TRADING_CFG, ANALYSIS_CFG, TIMEFRAMES, setup_logging
 check_env()
 setup_logging("market_scanner")
 
@@ -27,14 +27,14 @@ MIN_VOLUME_USDT     = SCANNER_CFG.get("min_volume_usdt", 50_000_000)
 MAX_PRICE_USDT      = SCANNER_CFG.get("max_price_usdt", 2.0)
 MIN_SIGNAL_STRENGTH = TRADING_CFG.get("min_signal_strength", 7)
 MIN_RR_RATIO        = TRADING_CFG.get("min_rr_ratio", 2.0)
-_ANALYSIS_MODE      = ANALYSIS_CFG.get("mode", "text")
 
 # 导入各模块
 from fetch_kline import (
     fetch_hot_symbols,
-    _load_fallback_symbols,
+    _load_symbols_from_config,
     fetch_multi_timeframe,
     calculate_support_resistance,
+    _load_blacklist,
 )
 from ai_analysis import analyze_symbol, save_decision_log, passes_risk_filter
 from risk_filter import check_daily_loss
@@ -82,7 +82,7 @@ def main():
     )
     if not symbols:
         logger.warning("热门合约列表为空，使用兜底列表")
-        symbols = _load_fallback_symbols()
+        symbols = _load_symbols_from_config()
 
     logger.info(f"本轮扫描合约数量：{len(symbols)}")
     logger.info(f"前5个合约：{symbols[:5]}")
@@ -142,8 +142,9 @@ def main():
 
     for idx, symbol in enumerate(symbols):
         # 黑名单检查（双重保险）
+        blacklist = _load_blacklist()
         base_name = symbol.split("/")[0]
-        if BLACKLIST_CFG and (symbol in BLACKLIST_CFG or base_name in BLACKLIST_CFG):
+        if blacklist and (symbol in blacklist or base_name in blacklist):
             logger.info(f"⏭️  跳过黑名单合约：{symbol}")
             continue
         

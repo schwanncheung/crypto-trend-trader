@@ -22,7 +22,7 @@ load_dotenv()
 # 项目根目录
 PROJECT_ROOT = Path(__file__).parent.parent
 
-from config_loader import CFG, SCANNER_CFG, KLINE_CFG, BLACKLIST_CFG, TIMEFRAMES, setup_logging
+from config_loader import KLINE_CFG, TIMEFRAMES, setup_logging
 setup_logging("fetch_kline")
 logger = logging.getLogger(__name__)
 
@@ -275,13 +275,14 @@ def fetch_hot_symbols(
         hot_list.sort(key=lambda x: x["volume_usdt"], reverse=True)
         top_symbols = [item["symbol"] for item in hot_list[:top_n]]
 
-        # 黑名单过滤
-        if BLACKLIST_CFG:
+        # 从 symbols.yaml 加载黑名单并过滤
+        blacklist = _load_blacklist()
+        if blacklist:
             filtered = []
             for sym in top_symbols:
                 base_name = sym.split("/")[0]
                 is_blacklisted = False
-                for bl in BLACKLIST_CFG:
+                for bl in blacklist:
                     if bl == sym or bl == base_name:
                         is_blacklisted = True
                         break
@@ -306,7 +307,7 @@ def fetch_hot_symbols(
                 logger.info(f"  {i:>2}. {item['symbol']:<25} [黑名单已过滤]")
 
         # 合并 symbols.yaml 配置列表，去重
-        config_symbols = _load_config_symbols()
+        config_symbols = _load_symbols_from_config()
         if config_symbols:
             before = len(top_symbols)
             merged = list(dict.fromkeys(top_symbols + config_symbols))  # 保持顺序，热门优先
@@ -319,48 +320,53 @@ def fetch_hot_symbols(
 
     except Exception as e:
         logger.error(f"获取热门合约失败：{e}")
-        return _load_fallback_symbols()
+        return _load_symbols_from_config()
 
 
-def _load_config_symbols() -> list[str]:
-    """从 symbols.yaml 读取配置合约列表（用于与热门列表合并）"""
+def _load_blacklist() -> list[str]:
+    """从 symbols.yaml 加载黑名单列表"""
     try:
         cfg_path = Path(__file__).parent.parent / "config" / "symbols.yaml"
         with open(cfg_path, "r", encoding="utf-8") as f:
             cfg = yaml.safe_load(f)
-        symbols = cfg.get("priority", [])
-        valid = [s for s in symbols if s.endswith(":USDT")]
-        # 黑名单过滤
-        if BLACKLIST_CFG:
-            valid = [
-                s for s in valid
-                if s not in BLACKLIST_CFG and s.split("/")[0] not in BLACKLIST_CFG
-            ]
-        return valid
+        return cfg.get("blacklist", [])
     except Exception as e:
-        logger.warning(f"读取 symbols.yaml 配置列表失败：{e}")
+        logger.warning(f"加载黑名单失败：{e}")
         return []
 
 
-def _load_fallback_symbols() -> list[str]:
-    """兜底列表，格式严格使用 OKX 永续合约格式"""
+def _load_symbols_from_config() -> list[str]:
+    """
+    从 symbols.yaml 读取合约列表
+    - 自动过滤黑名单
+    - 自动过滤无效格式（必须以 :USDT 结尾）
+    """
     try:
         cfg_path = Path(__file__).parent.parent / "config" / "symbols.yaml"
         with open(cfg_path, "r", encoding="utf-8") as f:
             cfg = yaml.safe_load(f)
-        symbols = cfg.get("priority", [])
 
+        symbols = cfg.get("priority", [])
+        blacklist = cfg.get("blacklist", [])
+
+        # 过滤无效格式
         valid = [s for s in symbols if s.endswith(":USDT")]
         invalid = [s for s in symbols if not s.endswith(":USDT")]
         if invalid:
-            logger.warning(f"兜底列表中发现非 OKX 格式合约，已过滤：{invalid}")
+            logger.warning(f"过滤无效格式合约：{invalid}")
 
-        logger.warning(f"使用兜底合约列表，共 {len(valid)} 个")
+        # 过滤黑名单
+        if blacklist:
+            valid = [
+                s for s in valid
+                if s not in blacklist and s.split("/")[0] not in blacklist
+            ]
+
         return valid
 
     except Exception as e:
-        logger.error(f"兜底合约列表加载失败：{e}")
-        return ["BTC/USDT:USDT", "ETH/USDT:USDT", "SOL/USDT:USDT"]
+        logger.error(f"读取 symbols.yaml 失败：{e}")
+        return []
 
 
 def filter_symbols_by_trend(

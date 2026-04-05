@@ -128,7 +128,6 @@ TRADING_CFG      = CFG.get("trading", {})
 ANALYSIS_CFG     = CFG.get("analysis", {})
 TRADE_MGR_CFG    = CFG.get("trade_manager", {})
 KLINE_CFG        = CFG.get("kline", {})
-BLACKLIST_CFG    = CFG.get("blacklist", [])
 # 全局时间框架列表（高周期→低周期），所有模块统一使用
 TIMEFRAMES       = CFG.get("timeframes", ["4h", "1h", "15m"])
 

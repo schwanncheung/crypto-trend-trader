@@ -1,8 +1,8 @@
 # symbols.yaml
-# 此文件有两个用途：
+
+# 合约白名单列表
 # 1. 正常情况下，与 fetch_hot_symbols() 的动态热门列表合并（去重，热门优先）
 # 2. fetch_hot_symbols() 失败时作为兜底列表使用
-
 priority:
   - "PIPPIN/USDT:USDT"
   - "ONT/USDT:USDT"
@@ -21,3 +21,9 @@ priority:
   - "GALA/USDT:USDT"
   - "ZIL/USDT:USDT"
   - "MEME/USDT:USDT"
+
+
+# 黑名单：扫描时自动跳过
+blacklist:
+  - "SKY/USDT:USDT"
+  - "LINEA/USDT:USDT"

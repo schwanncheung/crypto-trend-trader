@@ -123,7 +123,7 @@ analysis:
     recent_trend_window: 30             # 近期窗口（根）：1h 周期下 24 根 = 近 24 小时
     recent_trend_min_pct: 0.7           # 方向一致 K 线占比下限（65%）
     recent_trend_min_move: 0.015        # 窗口内总振幅下限（1.5%），过滤横盘假信号
-    context_trend_window: 60            # 背景窗口（根）：判断近期是否突破了横盘区间
+    context_trend_window: 90            # 背景窗口（根）：判断近期是否突破了横盘区间
 
 # ── 交易执行配置 ─────────────────────────────────────────────────────
 trading:
@@ -214,9 +214,3 @@ scanner:
   top_n_symbols: 50           # 每轮扫描的热门合约数量（按 24h 成交量降序）
   min_volume_usdt: 80000000   # 最低 24h 成交量门槛（USDT），过滤流动性不足的合约
   max_price_usdt: 5.0        # 最高价格门槛（USDT），0 = 不限制
-
-# ── 黑名单 ───────────────────────────────────────────────────────────
-# 扫描时自动跳过，格式："币种/USDT:USDT" 或简写 "币种"
-blacklist:
-  - "SKY/USDT:USDT"
-  - "LINEA/USDT:USDT"
