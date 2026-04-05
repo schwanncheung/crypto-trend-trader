@@ -11,6 +11,7 @@ OKX 永续合约自动交易系统。详细文档见 [CLAUDE.md](CLAUDE.md)
 5. **时区**：统一使用北京时间（CST），通过 `config_loader.now_cst()` 获取
 6. **日志**：使用 `config_loader.setup_logging(module_name)` 初始化
 7. **本地开发**：网络无法连接 OKX，修改后验证语法+分析链路影响
+8. **提交代码**：提交代码前读取 `.github/*.md` 进行 check list 检查
 
 ## 关键文件
 
