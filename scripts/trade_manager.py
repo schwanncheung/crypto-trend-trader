@@ -305,9 +305,9 @@ def main():
                     logger.error(f"  ⚠️ 移动止损失败：{e}")
 
             # 情况 B：分两批部分止盈（使用实时持仓量，止盈后立即保本）
-            # 第二批：浮盈 > PARTIAL_PROFIT_PCT_2，平 PARTIAL_PROFIT_RATIO_2 仓位
-            # 第一批：浮盈 > PARTIAL_PROFIT_PCT，平 PARTIAL_PROFIT_RATIO_1 仓位
-            if pnl_pct > PARTIAL_PROFIT_PCT_2:
+            # 第二批：浮盈 >= PARTIAL_PROFIT_PCT_2，平 PARTIAL_PROFIT_RATIO_2 仓位
+            # 第一批：浮盈 >= PARTIAL_PROFIT_PCT，平 PARTIAL_PROFIT_RATIO_1 仓位
+            if pnl_pct >= PARTIAL_PROFIT_PCT_2:
                 if _is_partial_profit_done(symbol, side, 2):
                     logger.info(f"  第二批止盈已执行过，跳过")
                 else:
@@ -335,7 +335,7 @@ def main():
                             _move_stop_to_breakeven(exchange, symbol, side, live_contracts - partial_contracts, entry_price)
                         except Exception as e:
                             logger.error(f"  ⚠️ 第二批止盈失败：{e}")
-            elif pnl_pct > PARTIAL_PROFIT_PCT:
+            elif pnl_pct >= PARTIAL_PROFIT_PCT:
                 if _is_partial_profit_done(symbol, side, 1):
                     logger.info(f"  第一批止盈已执行过，跳过")
                 else:
