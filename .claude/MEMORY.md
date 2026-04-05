@@ -4,12 +4,13 @@ OKX 永续合约自动交易系统。详细文档见 [CLAUDE.md](CLAUDE.md)
 
 ## 全局约定
 
-1. **配置优先**：所有阈值通过 `config/settings.yaml` 配置，禁止硬编码
-2. **合约格式**：OKX 永续格式为 `BTC/USDT:USDT`
-3. **止损单**：使用 `conditional` 类型，`slOrdPx: "-1"` 市价触发
-4. **时区**：统一使用北京时间（CST），通过 `config_loader.now_cst()` 获取
-5. **日志**：使用 `config_loader.setup_logging(module_name)` 初始化
-6. **本地开发**：网络无法连接 OKX，修改后验证语法 + 分析链路影响
+1. **MEMORY.md 内容**：仅记录广泛适用的全局约定，保持简短
+2. **配置优先**：所有阈值通过 `config/settings.yaml` 配置，禁止硬编码
+3. **合约格式**：OKX 永续格式为 `BTC/USDT:USDT`
+4. **止损单**：使用 `conditional` 类型，`slOrdPx: "-1"` 市价触发
+5. **时区**：统一使用北京时间（CST），通过 `config_loader.now_cst()` 获取
+6. **日志**：使用 `config_loader.setup_logging(module_name)` 初始化
+7. **本地开发**：网络无法连接 OKX，修改后验证语法+分析链路影响
 
 ## 关键文件
 

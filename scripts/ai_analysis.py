@@ -369,11 +369,21 @@ def _get_text_llm_cfg() -> dict:
 
 def analyze_with_text_llm(market_snapshot: str) -> dict:
     """
-    使用文本LLM分析市场快照。
+    使用文本 LLM 分析市场快照。
     调用链：primary_model → fallback_model
+    集成熔断器：连续失败 3 次后自动降级到 rule_only 模式
     """
     from openai import OpenAI
     import os
+    from circuit_breaker import get_llm_circuit_breaker
+
+    # 获取熔断器实例
+    cb = get_llm_circuit_breaker()
+
+    # 检查熔断器状态
+    if cb.state.value == "open":
+        logger.warning(f"[熔断器] LLM 熔断中，返回降级结果")
+        return cb._get_fallback_result()
 
     text_cfg = _get_text_llm_cfg()
     primary_model  = text_cfg.get("primary_model",  "qwen3.5-plus")
@@ -389,9 +399,10 @@ def analyze_with_text_llm(market_snapshot: str) -> dict:
     prompt = TEXT_ANALYSIS_PROMPT.format(market_snapshot=market_snapshot)
     messages = [{"role": "user", "content": prompt}]
 
+    last_error = None
     for model_name in [primary_model, fallback_model]:
         try:
-            logger.info(f"[文本LLM] 调用 {model_name} 分析市场快照...")
+            logger.info(f"[文本 LLM] 调用 {model_name} 分析市场快照...")
             resp = client.chat.completions.create(
                 model=model_name,
                 messages=messages,
@@ -402,15 +413,22 @@ def analyze_with_text_llm(market_snapshot: str) -> dict:
             result = parse_ai_response(text)
             result["_model_used"] = model_name
             result["_analysis_mode"] = "text_llm"
-            logger.info(f"[文本LLM] {model_name} 返回：signal={result.get('signal')}, "
+            logger.info(f"[文本 LLM] {model_name} 返回：signal={result.get('signal')}, "
                         f"confidence={result.get('confidence')}, "
                         f"strength={result.get('signal_strength')}")
+            # 成功返回，重置熔断器计数
+            cb._on_success()
             return result
         except Exception as e:
-            logger.warning(f"[文本LLM] {model_name} 调用失败：{e}")
+            last_error = e
+            logger.warning(f"[文本 LLM] {model_name} 调用失败：{e}")
 
-    logger.error("[文本LLM] 所有文本模型均失败")
-    return _default_wait_response("文本LLM所有模型均失败")
+    logger.error("[文本 LLM] 所有文本模型均失败")
+    # 记录失败到熔断器
+    cb._on_failure()
+    return _default_wait_response(f"文本 LLM 所有模型均失败：{last_error}")
+
+
 
 
 def analyze_symbol(
@@ -478,7 +496,7 @@ def analyze_symbol(
         if signal in ["long", "short"]:
             entry = result.get("entry_price", 0)
             if entry > 0:
-                from dynamic_stop_loss import calculate_dynamic_stop_loss, calculate_take_profit
+                from dynamic_stop_take_profit import calculate_dynamic_stop_loss, calculate_take_profit
                 base_tf = TIMEFRAMES[-1] if TIMEFRAMES else "15m"
                 base_ind = tf_indicators.get(base_tf, {})
                 atr = base_ind.get("atr", entry * 0.01)

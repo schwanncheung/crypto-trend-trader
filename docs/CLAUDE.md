@@ -35,6 +35,8 @@ trade_manager.py (持仓管理，每5分钟)
 | [execute_trade.py](scripts/execute_trade.py) | `execute_from_decision()`, `get_open_positions()` | 交易执行 |
 | [trade_manager.py](scripts/trade_manager.py) | `main()` | 持仓巡检 |
 | [dynamic_stop_take_profit.py](scripts/dynamic_stop_take_profit.py) | `calculate_dynamic_stop_loss()` | 动态止损计算 |
+| [file_lock.py](scripts/file_lock.py) | `atomic_read_json()`, `atomic_write_json()` | 状态文件原子读写 |
+| [circuit_breaker.py](scripts/circuit_breaker.py) | `CircuitBreaker`, `get_llm_circuit_breaker()` | LLM API 熔断器 |
 
 ---
 
@@ -101,6 +103,14 @@ risk:
 
 analysis:
   mode: "text"                  # "text" / "rule_only"
+  circuit_breaker:
+    failure_threshold: 3        # LLM 连续失败次数熔断
+    recovery_window_sec: 300    # 熔断后恢复窗口 (秒)
+    fallback_mode: "rule_only"  # 降级模式
+
+trading:
+  max_slippage_pct: 5.0         # 滑点超过此值重新计算止损止盈
+  max_margin_usage_ratio: 0.5   # 保证金占可用余额上限
 ```
 
 ---
@@ -140,6 +150,8 @@ python -m py_compile backtest/**/*.py
 | `breakeven_state.json` | 保本位状态 |
 | `partial_profit_state.json` | 分批止盈状态 |
 | `position_snapshot.json` | 持仓快照（检测止损触发） |
+
+**状态文件读写**：使用 `file_lock.py` 中的 `atomic_read_json()`、`atomic_write_json()`、`atomic_update_json()` 保证原子性
 
 ---
 

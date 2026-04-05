@@ -43,6 +43,7 @@ from fetch_kline import (
 from notifier import send_notification
 from trade_report import generate_close_report
 from stop_loss_tracker import record_stop_loss_manual
+from file_lock import atomic_read_json, atomic_write_json, atomic_update_json
 
 
 def _cancel_all_symbol_orders(exchange, symbol: str):
@@ -63,51 +64,37 @@ PARTIAL_PROFIT_STATE_FILE = Path("logs/partial_profit_state.json")
 
 
 def _load_breakeven_state() -> dict:
-    if BREAKEVEN_STATE_FILE.exists():
-        import json
-        try:
-            return json.loads(BREAKEVEN_STATE_FILE.read_text())
-        except Exception:
-            pass
-    return {}
+    return atomic_read_json(BREAKEVEN_STATE_FILE, default={})
 
 
 def _save_breakeven_state(state: dict):
-    import json
-    BREAKEVEN_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    BREAKEVEN_STATE_FILE.write_text(json.dumps(state, ensure_ascii=False, indent=2))
+    atomic_write_json(BREAKEVEN_STATE_FILE, state)
 
 
 def _clear_breakeven_state(symbol: str, side: str):
-    state = _load_breakeven_state()
-    state.pop(f"{symbol}_{side}", None)
-    _save_breakeven_state(state)
+    def update_fn(state: dict) -> dict:
+        state.pop(f"{symbol}_{side}", None)
+        return state
+    atomic_update_json(BREAKEVEN_STATE_FILE, update_fn, default={})
 
 
 def _load_partial_profit_state() -> dict:
-    if PARTIAL_PROFIT_STATE_FILE.exists():
-        import json
-        try:
-            return json.loads(PARTIAL_PROFIT_STATE_FILE.read_text())
-        except Exception:
-            pass
-    return {}
+    return atomic_read_json(PARTIAL_PROFIT_STATE_FILE, default={})
 
 
 def _save_partial_profit_state(state: dict):
-    import json
-    PARTIAL_PROFIT_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    PARTIAL_PROFIT_STATE_FILE.write_text(json.dumps(state, ensure_ascii=False, indent=2))
+    atomic_write_json(PARTIAL_PROFIT_STATE_FILE, state)
 
 
 def _mark_partial_profit_done(symbol: str, side: str, batch: int):
-    """标记某批次止盈已执行，batch=1或2"""
-    state = _load_partial_profit_state()
-    key = f"{symbol}_{side}"
-    if key not in state:
-        state[key] = {"batch1": False, "batch2": False}
-    state[key][f"batch{batch}"] = True
-    _save_partial_profit_state(state)
+    """标记某批次止盈已执行，batch=1 或 2，使用原子更新"""
+    def update_fn(state: dict) -> dict:
+        key = f"{symbol}_{side}"
+        if key not in state:
+            state[key] = {"batch1": False, "batch2": False}
+        state[key][f"batch{batch}"] = True
+        return state
+    atomic_update_json(PARTIAL_PROFIT_STATE_FILE, update_fn, default={})
 
 
 def _is_partial_profit_done(symbol: str, side: str, batch: int) -> bool:
@@ -118,9 +105,10 @@ def _is_partial_profit_done(symbol: str, side: str, batch: int) -> bool:
 
 
 def _clear_partial_profit_state(symbol: str, side: str):
-    state = _load_partial_profit_state()
-    state.pop(f"{symbol}_{side}", None)
-    _save_partial_profit_state(state)
+    def update_fn(state: dict) -> dict:
+        state.pop(f"{symbol}_{side}", None)
+        return state
+    atomic_update_json(PARTIAL_PROFIT_STATE_FILE, update_fn, default={})
 
 
 def _move_stop_to_breakeven(exchange, symbol: str, side: str, contracts: float, entry_price: float) -> bool:
@@ -163,7 +151,7 @@ def _move_stop_to_breakeven(exchange, symbol: str, side: str, contracts: float, 
                 "tdMode": "cross",
             },
         )
-        logger.info(f"  止损已移至保本位 {entry_price}（市价触发）| 订单ID：{sl_order.get('id')}")
+        logger.info(f"  止损已移至保本位 {entry_price}（市价触发）| 订单 ID：{sl_order.get('id')}")
         state[state_key] = float(entry_price)
         _save_breakeven_state(state)
         return True
@@ -207,13 +195,10 @@ def main():
             pnl_pct = pos.get("percentage", 0)
             total_pnl += unrealized_pnl
 
-            # 2.1 获取最新K线数据
-            data = fetch_multi_timeframe(symbol, exchange=exchange)
-
             # ── 2.2 盈亏状态判断 ──
 
-            # 情况A：浮盈在移动止损阈值和第一批止盈阈值之间，仅移止损至保本
-            # 注：浮盈超过 PARTIAL_PROFIT_PCT 时，止盈逻辑（情况B）内部会自行移止损，无需重复
+            # 情况 A：浮盈在移动止损阈值和第一批止盈阈值之间，仅移止损至保本
+            # 注：浮盈超过 PARTIAL_PROFIT_PCT 时，止盈逻辑（情况 B）内部会自行移止损，无需重复
             if TRAILING_STOP_PCT < pnl_pct < PARTIAL_PROFIT_PCT:
                 logger.info(f"  浮盈{pnl_pct:.1f}%（>{TRAILING_STOP_PCT}%），检查是否需要移动止损至保本位")
                 try:
@@ -225,7 +210,7 @@ def main():
                 except Exception as e:
                     logger.error(f"  ⚠️ 移动止损失败：{e}")
 
-            # 情况B：分两批部分止盈（使用实时持仓量，止盈后立即保本）
+            # 情况 B：分两批部分止盈（使用实时持仓量，止盈后立即保本）
             # 第二批：浮盈 > PARTIAL_PROFIT_PCT_2，平 PARTIAL_PROFIT_RATIO_2 仓位
             # 第一批：浮盈 > PARTIAL_PROFIT_PCT，平 PARTIAL_PROFIT_RATIO_1 仓位
             if pnl_pct > PARTIAL_PROFIT_PCT_2:
@@ -239,7 +224,7 @@ def main():
                     live_contracts = live_pos["contracts"] if live_pos else contracts
                     partial_contracts = int(live_contracts * PARTIAL_PROFIT_RATIO_2)
                     if partial_contracts > 0:
-                        logger.info(f"  浮盈{pnl_pct:.1f}%（>{PARTIAL_PROFIT_PCT_2:.0f}%），第二批止盈{int(PARTIAL_PROFIT_RATIO_2*100)}%（{partial_contracts}张）")
+                        logger.info(f"  浮盈{pnl_pct:.1f}%（>{PARTIAL_PROFIT_PCT_2:.0f}%），第二批止盈{int(PARTIAL_PROFIT_RATIO_2*100)}%（{partial_contracts} 张）")
                         try:
                             exchange.create_order(
                                 symbol=symbol,
@@ -250,7 +235,7 @@ def main():
                             )
                             _mark_partial_profit_done(symbol, side, 2)
                             send_notification(
-                                f"{symbol} 浮盈{pnl_pct:.1f}%，第二批止盈{int(PARTIAL_PROFIT_RATIO_2*100)}%（{partial_contracts}张），剩余持仓继续运行"
+                                f"{symbol} 浮盈{pnl_pct:.1f}%，第二批止盈{int(PARTIAL_PROFIT_RATIO_2*100)}%（{partial_contracts} 张），剩余持仓继续运行"
                             )
                             closed_count += 1
                             _move_stop_to_breakeven(exchange, symbol, side, live_contracts - partial_contracts, entry_price)
@@ -267,7 +252,7 @@ def main():
                     live_contracts = live_pos["contracts"] if live_pos else contracts
                     partial_contracts = int(live_contracts * PARTIAL_PROFIT_RATIO_1)
                     if partial_contracts > 0:
-                        logger.info(f"  浮盈{pnl_pct:.1f}%（>{PARTIAL_PROFIT_PCT}%），第一批止盈{int(PARTIAL_PROFIT_RATIO_1*100)}%（{partial_contracts}张）")
+                        logger.info(f"  浮盈{pnl_pct:.1f}%（>{PARTIAL_PROFIT_PCT}%），第一批止盈{int(PARTIAL_PROFIT_RATIO_1*100)}%（{partial_contracts} 张）")
                         try:
                             exchange.create_order(
                                 symbol=symbol,
@@ -278,20 +263,20 @@ def main():
                             )
                             _mark_partial_profit_done(symbol, side, 1)
                             send_notification(
-                                f"{symbol} 浮盈{pnl_pct:.1f}%，第一批止盈{int(PARTIAL_PROFIT_RATIO_1*100)}%（{partial_contracts}张），剩余持仓继续运行"
+                                f"{symbol} 浮盈{pnl_pct:.1f}%，第一批止盈{int(PARTIAL_PROFIT_RATIO_1*100)}%（{partial_contracts} 张），剩余持仓继续运行"
                             )
                             closed_count += 1
                             _move_stop_to_breakeven(exchange, symbol, side, live_contracts - partial_contracts, entry_price)
                         except Exception as e:
                             logger.error(f"  ⚠️ 第一批止盈失败：{e}")
 
-            # 情况C：亏损超过阈值，强制平仓
+            # 情况 C：亏损超过阈值，强制平仓
             if pnl_pct < FORCE_CLOSE_PCT:
                 logger.info(f"  亏损{pnl_pct:.1f}%（<{FORCE_CLOSE_PCT}%），触发动态止损")
                 try:
                     reason = f"动态止损：亏损{pnl_pct:.1f}%"
                     close_position(exchange, symbol, reason=reason)
-                    record_stop_loss_manual(symbol, reason)  # 记录冷却
+                    record_stop_loss_manual(symbol, reason)
                     send_notification(f"{symbol} 亏损{pnl_pct:.1f}%，触发动态止损，已强制平仓")
                     closed_count += 1
                     generate_close_report(symbol, reason, unrealized_pnl, pnl_pct)
@@ -300,11 +285,12 @@ def main():
                 except Exception as e:
                     logger.error(f"  强制平仓失败：{e}")
 
-            # 情况D：盈亏在正常范围内
+            # 情况 D：盈亏在正常范围内
             if FORCE_CLOSE_PCT <= pnl_pct <= TRAILING_STOP_PCT:
                 logger.info(f"  持仓状态正常，盈亏{pnl_pct:.1f}%")
 
-            # ── 2.3 趋势反转检测（纯价格结构，不调用AI）──
+            # ── 2.3 趋势反转检测（纯价格结构，不调用 AI）──
+            data = fetch_multi_timeframe(symbol, exchange=exchange)
             if STRUCTURE_TF in data and not data[STRUCTURE_TF].empty:
                 structure_tf = detect_trend_structure(data[STRUCTURE_TF])
                 structure_broken = structure_tf.get("structure_broken", False)
@@ -389,7 +375,7 @@ def main():
         liq_str = f"{liq:.4g}" if liq else "N/A"
 
         lines.append(
-            f"{short_name} {side_label} {contracts}张 | 开仓:{entry:.4g} | 强平:{liq_str} | {pnl_sign}{pnl:.2f}U ({pnl_sign}{pnl_pct:.1f}%)"
+            f"{short_name} {side_label} {contracts} 张 | 开仓:{entry:.4g} | 强平:{liq_str} | {pnl_sign}{pnl:.2f}U ({pnl_sign}{pnl_pct:.1f}%)"
         )
 
     detail = "\n".join(lines)

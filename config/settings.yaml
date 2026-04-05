@@ -8,7 +8,7 @@ exchange:
 
 # ── 全局时间框架（所有模块统一使用）────────────────────────────────────
 # 从高到低排列：最高周期作为方向锚，最低周期用于入场确认
-# 修改此处后，规则引擎、K线获取、图表生成、Prompt 均自动适配
+# 修改此处后，规则引擎、K线获取、Prompt 均自动适配
 timeframes: ["1h", "30m", "15m"]
 
 # ── 分析模式 ─────────────────────────────────────────────────────────
@@ -25,8 +25,16 @@ analysis:
     timeout: 30                      # API 超时秒数
     base_url: "https://coding.dashscope.aliyuncs.com/v1"  # 阿里云百炼 Coding Plan 接口
 
+  # ── LLM 熔断配置（API 故障自动降级）────────────────────────────────
+  circuit_breaker:
+    enabled: true                  # 是否启用熔断器
+    failure_threshold: 3           # 连续失败多少次后熔断
+    success_threshold: 1           # 半开状态下成功多少次后恢复
+    recovery_window_sec: 300       # 熔断后多少秒尝试恢复（5 分钟）
+    fallback_mode: "rule_only"     # 熔断后的降级模式："rule_only" | "reject"
+
   # 规则引擎预过滤（进入LLM分析前必须通过，不通过直接返回 wait，节省 token）
-  # ⚠️ 完整配置见下方 rule_filter 节（含v2新增的RSI保护和近期动能参数）
+  # ⚠️ 完整配置见下方 rule_filter 节
 
   # 指标计算参数
   indicator:
@@ -117,6 +125,9 @@ analysis:
     context_trend_window: 60            # 背景窗口（根）：用于判断近期是否突破了横盘区间
 
 trading:
+  # ── 交易执行参数 ───────────────────────────
+  max_slippage_pct: 5.0         # 滑点超过此百分比时重新计算止损止盈
+  max_margin_usage_ratio: 0.5   # 保证金占可用余额的最大比例（50%）
   enable_open_position: true    # 开仓总开关：false=禁止开仓（紧急关闭），true=允许开仓
   allowed_confidence: ["high"]  # 只有 confidence=high 的信号才允许交易
   min_signal_strength: 6        # 最低信号强度（1-10），低于此值不交易

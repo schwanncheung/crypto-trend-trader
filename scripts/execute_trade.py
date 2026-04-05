@@ -29,6 +29,10 @@ check_env()
 setup_logging("execute_trade")
 logger = logging.getLogger(__name__)
 
+# ── 交易执行参数（从配置读取）──────────────────────────
+_MAX_SLIPPAGE_PCT = TRADING_CFG.get("max_slippage_pct", 5.0)
+_MAX_MARGIN_USAGE_RATIO = TRADING_CFG.get("max_margin_usage_ratio", 0.5)
+
 
 # ── 交易所连接 ─────────────────────────────────
 
@@ -89,7 +93,11 @@ def open_position(
         # 等待成交确认
         time.sleep(1)
 
-        # 3. 设置止损单（OKX algo 条件单）
+        # 3. 计算保证金（用于返回结果）
+        contract_size = float(exchange.market(symbol).get("contractSize") or 1.0)
+        margin_usdt = round((contracts * contract_size * entry_price) / leverage, 2)
+
+        # 4. 设置止损单（OKX algo 条件单）
         sl_order_id = None
         try:
             sl_order = exchange.create_order(
@@ -411,8 +419,8 @@ def execute_from_decision(
                 slippage_pct = (actual_entry - entry_price) / entry_price * 100
                 logger.info(f"实际成交价：{actual_entry}（计划：{entry_price}，滑点：{slippage_pct:+.2f}%）")
 
-                # 如果滑点超过 5%，基于实际成交价重新计算止损止盈
-                if abs(slippage_pct) > 5.0:
+                # 如果滑点超过阈值，基于实际成交价重新计算止损止盈
+                if abs(slippage_pct) > _MAX_SLIPPAGE_PCT:
                     logger.warning(f"滑点超过 5%，基于实际成交价重新计算止损止盈")
 
                     # 重新计算止损止盈
@@ -610,9 +618,9 @@ def _calculate_position(
         contracts   = int(risk_usdt / (price_diff * contract_size))
         margin_usdt = round((contracts * contract_size * entry_price) / leverage, 2)
 
-        # 安全检查：保证金不得超过可用余额的 50%
-        if margin_usdt > available_usdt * 0.5:
-            contracts   = int((available_usdt * 0.5 * leverage) / (contract_size * entry_price))
+        # 安全检查：保证金不得超过可用余额的阈值
+        if margin_usdt > available_usdt * _MAX_MARGIN_USAGE_RATIO:
+            contracts   = int((available_usdt * _MAX_MARGIN_USAGE_RATIO * leverage) / (contract_size * entry_price))
             margin_usdt = round((contracts * contract_size * entry_price) / leverage, 2)
             logger.warning(f"仓位超限，已按可用余额50%上限调整：{contracts}张，保证金：{margin_usdt} USDT")
 
