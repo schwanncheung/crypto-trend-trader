@@ -27,6 +27,23 @@ _MIN_SIGNAL_STRENGTH = TRADING_CFG.get("min_signal_strength", 7)
 _MIN_RR_RATIO        = TRADING_CFG.get("min_rr_ratio", 2.0)
 
 
+def reload_config_from_dict(config: dict) -> None:
+    """
+    从外部配置字典重新加载参数（回测系统 override 机制）。
+    """
+    global _MIN_SIGNAL_STRENGTH, _MIN_RR_RATIO
+
+    trading_cfg = config.get("trading", {})
+
+    _MIN_SIGNAL_STRENGTH = trading_cfg.get("min_signal_strength", _MIN_SIGNAL_STRENGTH)
+    _MIN_RR_RATIO = trading_cfg.get("min_rr_ratio", _MIN_RR_RATIO)
+
+    logger.info(
+        f"[ai_analysis] 配置已重新加载："
+        f"min_signal_strength={_MIN_SIGNAL_STRENGTH}, min_rr_ratio={_MIN_RR_RATIO}"
+    )
+
+
 def parse_ai_response(text: str) -> dict:
     """解析AI返回，兼容纯JSON和markdown包裹格式"""
     try:
@@ -45,6 +62,7 @@ def parse_ai_response(text: str) -> dict:
 
 
 def _default_wait_response(reason: str) -> dict:
+    logger.info(f"[rule_only] 返回 wait: {reason}")
     return {
         "signal": "wait",
         "confidence": "low",
@@ -60,8 +78,8 @@ def _build_rule_only_decision(tf_indicators: dict, direction: str, symbol: str) 
     from config_loader import TIMEFRAMES as _TFS
     rule_filter_cfg = _ANALYSIS_CFG.get("rule_filter", {})
 
-    min_signal_strength  = TRADING_CFG.get("min_signal_strength", 7)
-    min_rr_ratio         = TRADING_CFG.get("min_rr_ratio", 2.0)  # 风控门槛
+    min_signal_strength  = _MIN_SIGNAL_STRENGTH  # 使用全局变量（可被 reload 更新）
+    min_rr_ratio         = _MIN_RR_RATIO         # 使用全局变量（可被 reload 更新）
     vol_ratio_threshold  = rule_filter_cfg.get("volume_ratio_threshold", 0.8)
     strong_trend_adx     = rule_filter_cfg.get("strong_trend_adx_threshold", 60)
     strong_trend_di_diff = rule_filter_cfg.get("strong_trend_di_diff_threshold", 20)

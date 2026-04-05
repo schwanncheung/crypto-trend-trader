@@ -19,6 +19,31 @@ check_env()
 setup_logging("risk_filter")
 logger = logging.getLogger(__name__)
 
+# 全局变量，可被 reload 更新
+_MIN_TREND_STRENGTH = TRADING_CFG.get("min_trend_strength", 7)
+_MIN_SIGNAL_STRENGTH = TRADING_CFG.get("min_signal_strength", 7)
+_MIN_RR_RATIO = TRADING_CFG.get("min_rr_ratio", 2.0)
+
+
+def reload_config_from_dict(config: dict) -> None:
+    """
+    从外部配置字典重新加载参数（回测系统 override 机制）。
+    """
+    global _MIN_TREND_STRENGTH, _MIN_SIGNAL_STRENGTH, _MIN_RR_RATIO
+
+    trading_cfg = config.get("trading", {})
+
+    _MIN_TREND_STRENGTH = trading_cfg.get("min_trend_strength", _MIN_TREND_STRENGTH)
+    _MIN_SIGNAL_STRENGTH = trading_cfg.get("min_signal_strength", _MIN_SIGNAL_STRENGTH)
+    _MIN_RR_RATIO = trading_cfg.get("min_rr_ratio", _MIN_RR_RATIO)
+
+    logger.info(
+        f"[risk_filter] 配置已重新加载："
+        f"min_signal_strength={_MIN_SIGNAL_STRENGTH}, "
+        f"min_trend_strength={_MIN_TREND_STRENGTH}, "
+        f"min_rr_ratio={_MIN_RR_RATIO}"
+    )
+
 
 # ── 单笔交易风控 ───────────────────────────────
 
@@ -42,19 +67,18 @@ def check_signal_quality(decision: dict) -> tuple[bool, str]:
     if confidence not in TRADING_CFG.get("allowed_confidence", ["high"]):
         return False, f"置信度不足：{confidence}"
 
-    if signal_strength < TRADING_CFG.get("min_signal_strength", 7):
+    if signal_strength < _MIN_SIGNAL_STRENGTH:
         return False, f"信号强度不足：{signal_strength}/10"
 
-    min_trend_strength = TRADING_CFG.get("min_trend_strength", 7)
-    if trend_strength > 0 and trend_strength < min_trend_strength:
-        return False, f"趋势强度不足：{trend_strength}/10（要求≥{min_trend_strength}）"
+    if trend_strength > 0 and trend_strength < _MIN_TREND_STRENGTH:
+        return False, f"趋势强度不足：{trend_strength}/10（要求≥{_MIN_TREND_STRENGTH}）"
     if trend_strength == 0:
         logger.debug("trend_strength=0（ADX极低或未提供），跳过趋势强度检查")
 
     if not volume_confirmed:
         return False, "成交量未确认，可能为假突破"
 
-    if rr < TRADING_CFG.get("min_rr_ratio", 2.0):
+    if rr < _MIN_RR_RATIO:
         return False, f"风险回报比不足：{decision.get('risk_reward')}"
 
     if divergence:

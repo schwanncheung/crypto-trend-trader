@@ -42,7 +42,36 @@ MIN_TRENDING_TF   = _RULE_CFG.get("min_trending_timeframes", 2)
 ADX_THRESHOLD     = _RULE_CFG.get("adx_trending_threshold", 20)
 VOL_RATIO_THRESH  = _RULE_CFG.get("volume_ratio_threshold", 1.2)
 RSI_OVERBOUGHT    = _RULE_CFG.get("rsi_overbought", 75)
-RSI_OVERSOLD      = _RULE_CFG.get("rsi_oversold", 25)
+RSI_OVERSOLD      = _RULE_CFG.get("rsi_overbought", 25)
+
+
+def reload_config_from_dict(config: dict) -> None:
+    """
+    从外部配置字典重新加载参数（回测系统 override 机制）。
+    在回测 pipeline 导入 indicator_engine 后调用此函数。
+    """
+    global REQUIRE_ANCHOR, MIN_TRENDING_TF, ADX_THRESHOLD, VOL_RATIO_THRESH, \
+           RSI_OVERBOUGHT, RSI_OVERSOLD, ANCHOR_TF, \
+           STRONG_TREND_ADX_THRESHOLD, STRONG_TREND_DI_DIFF_THRESHOLD
+
+    rule_cfg = config.get("analysis", {}).get("rule_filter", {})
+    ind_cfg = config.get("analysis", {}).get("indicator", {})
+
+    # 更新全局变量
+    ANCHOR_TF = rule_cfg.get("anchor_timeframe", ANCHOR_TF)
+    REQUIRE_ANCHOR = rule_cfg.get("require_anchor_aligned", REQUIRE_ANCHOR)
+    MIN_TRENDING_TF = rule_cfg.get("min_trending_timeframes", MIN_TRENDING_TF)
+    ADX_THRESHOLD = rule_cfg.get("adx_trending_threshold", ADX_THRESHOLD)
+    VOL_RATIO_THRESH = rule_cfg.get("volume_ratio_threshold", VOL_RATIO_THRESH)
+    RSI_OVERBOUGHT = rule_cfg.get("rsi_overbought", RSI_OVERBOUGHT)
+    RSI_OVERSOLD = rule_cfg.get("rsi_oversold", RSI_OVERSOLD)
+    STRONG_TREND_ADX_THRESHOLD = rule_cfg.get("strong_trend_adx_threshold", STRONG_TREND_ADX_THRESHOLD)
+    STRONG_TREND_DI_DIFF_THRESHOLD = rule_cfg.get("strong_trend_di_diff_threshold", STRONG_TREND_DI_DIFF_THRESHOLD)
+
+    logger.info(
+        f"[indicator_engine] 配置已重新加载：ADX_THRESHOLD={ADX_THRESHOLD}, "
+        f"REQUIRE_ANCHOR={REQUIRE_ANCHOR}, MIN_TRENDING_TF={MIN_TRENDING_TF}"
+    )
 
 # ── 新增：趋势转折预警 & 超卖反弹保护参数 ───────────────────────────
 # 优化1：趋势转折预警 —— 小周期连续N轮RSI回升+量能放大触发做空暂停

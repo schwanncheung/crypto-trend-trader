@@ -75,23 +75,32 @@ def _load_yaml(path: Path, label: str) -> dict:
     return data
 
 
+def _set_nested(config: dict, key: str, value) -> bool:
+    """在 config 中递归查找 key（不区分层级），找到则覆盖；找不到则写入顶层。返回是否找到。"""
+    # 先尝试在当前层级查找
+    if key in config:
+        old = config[key]
+        config[key] = value
+        logger.debug("[config_loader] override %s: %s → %s", key, old, value)
+        return True
+
+    # 递归查找子层级
+    for section_key, section_val in config.items():
+        if isinstance(section_val, dict):
+            if _set_nested(section_val, key, value):
+                return True
+
+    # 未找到
+    return False
+
+
 def _deep_override(config: dict, overrides: dict) -> None:
     """将 overrides 中的键值递归覆盖到 config 各层级。"""
     for key, value in overrides.items():
-        _set_nested(config, key, value)
-
-
-def _set_nested(config: dict, key: str, value) -> None:
-    """在 config 中查找 key（不区分层级），找到则覆盖；找不到则写入顶层。"""
-    for section_key, section_val in config.items():
-        if isinstance(section_val, dict) and key in section_val:
-            old = section_val[key]
-            section_val[key] = value
-            logger.debug("[config_loader] override %s.%s: %s → %s", section_key, key, old, value)
-            return
-    # 未找到则写入顶层
-    config[key] = value
-    logger.debug("[config_loader] override (toplevel) %s = %s", key, value)
+        if not _set_nested(config, key, value):
+            # 未找到则写入顶层
+            config[key] = value
+            logger.debug("[config_loader] override (toplevel) %s = %s", key, value)
 
 
 def _inject_env_vars(config: dict) -> None:

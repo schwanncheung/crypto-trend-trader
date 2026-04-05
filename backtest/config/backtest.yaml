@@ -43,13 +43,14 @@ backtest:
 # 不填则使用 settings.yaml 中的值
 override:
   # timeframes: ["1h", "15m", "5m"]
-  # adx_trending_threshold: 20
-  # volume_ratio_threshold: 1.2
-  # min_trending_timeframes: 2
-  # require_anchor_aligned: true
-  min_signal_strength: 6        # 方案A：从7降到6，允许RSI超卖区信号通过
-  min_rr_ratio: 1.5             # 方案A：从2.0降到1.6，适应深跌行情支撑位缺失场景
-  min_trend_strength: 6         # 优化：从7降到6，捕捉趋势早期机会（ADX 24-28）
+  # 预过滤条件放宽（捕捉边缘趋势信号）
+  require_anchor_aligned: false      # 不强制要求锚周期对齐（依赖跨周期趋势一致性）
+  min_trending_timeframes: 1         # 降低对齐周期要求（从2降到1）
+  adx_trending_threshold: 18         # 降低ADX门槛（从20降到18，捕捉边缘趋势）
+  # 信号质量门槛
+  min_signal_strength: 6             # 从7降到6，允许RSI超卖区信号通过
+  min_rr_ratio: 1.2                  # 从1.5降到1.2，适应深跌行情支撑位缺失场景
+  min_trend_strength: 5              # 从6降到5，捕捉趋势早期机会（ADX 18-24）
   # trailing_stop_trigger_pct: 15.0
   # partial_profit_trigger_pct: 25.0
   # partial_profit_trigger_pct_2: 50.0

@@ -290,8 +290,15 @@ class SignalPipeline:
     def _get_indicator_engine(self):
         if self._indicator_engine is None:
             import indicator_engine as ie
+            # 重新加载配置（应用 override 参数）
+            ie.reload_config_from_dict(self.config)
             self._indicator_engine = ie
             logger.debug("indicator_engine 模块已加载")
+
+            # 同时重新加载 ai_analysis 配置
+            import ai_analysis as aa
+            aa.reload_config_from_dict(self.config)
+            logger.debug("ai_analysis 模块配置已重新加载")
         return self._indicator_engine
 
     def _get_risk_filter(self):
@@ -310,6 +317,8 @@ class SignalPipeline:
                 cl.check_env = lambda: None
                 import risk_filter as rf
                 cl.check_env = _orig
+                # 重新加载配置（应用 override 参数）
+                rf.reload_config_from_dict(self.config)
                 self._risk_filter = rf
                 logger.debug("risk_filter 模块已加载")
             finally:
