@@ -120,8 +120,8 @@ analysis:
     # EMA200 惯性极强，横盘后刚启动的趋势需 55+ 小时才能形成排列。
     # 解决：单独评估最近 N 根 K 线的方向连续性，作为趋势判断的补充评分项，
     # 并在 ADX 尚低但近期价格突破背景中位价时豁免 ADX 门槛。
-    recent_trend_window: 24             # 近期窗口（根）：1h 周期下 24 根 = 近 24 小时
-    recent_trend_min_pct: 0.65          # 方向一致 K 线占比下限（65%）
+    recent_trend_window: 30             # 近期窗口（根）：1h 周期下 24 根 = 近 24 小时
+    recent_trend_min_pct: 0.7           # 方向一致 K 线占比下限（65%）
     recent_trend_min_move: 0.015        # 窗口内总振幅下限（1.5%），过滤横盘假信号
     context_trend_window: 60            # 背景窗口（根）：判断近期是否突破了横盘区间
 
@@ -182,9 +182,9 @@ trade_manager:
   trailing_stop_trigger_pct: 20.0
 
   # 分批止盈
-  partial_profit_trigger_pct: 20.0    # 第一批触发阈值（%）
+  partial_profit_trigger_pct: 15.0    # 第一批触发阈值（%）
   partial_profit_ratio_1: 0.4         # 第一批平仓比例（40%）
-  partial_profit_trigger_pct_2: 50.0  # 第二批触发阈值（%）
+  partial_profit_trigger_pct_2: 40.0  # 第二批触发阈值（%）
   partial_profit_ratio_2: 1.0         # 第二批平仓比例（100% = 全部平仓）
 
   # 强制平仓（三层止损机制的最后兜底）
@@ -212,8 +212,8 @@ kline:
 # ── 扫描器配置 ───────────────────────────────────────────────────────
 scanner:
   top_n_symbols: 50           # 每轮扫描的热门合约数量（按 24h 成交量降序）
-  min_volume_usdt: 50000000   # 最低 24h 成交量门槛（USDT），过滤流动性不足的合约
-  max_price_usdt: 10.0        # 最高价格门槛（USDT），0 = 不限制
+  min_volume_usdt: 80000000   # 最低 24h 成交量门槛（USDT），过滤流动性不足的合约
+  max_price_usdt: 5.0        # 最高价格门槛（USDT），0 = 不限制
 
 # ── 黑名单 ───────────────────────────────────────────────────────────
 # 扫描时自动跳过，格式："币种/USDT:USDT" 或简写 "币种"
