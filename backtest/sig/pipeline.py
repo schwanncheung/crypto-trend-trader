@@ -177,12 +177,14 @@ class SignalPipeline:
 
         # ── 步骤 7：计算仓位大小 ──────────────────────────────────────
         balance = self._get_available_balance()
+        leverage = self.config.get("backtest", {}).get("leverage", 10)
+        max_margin_ratio = self.config.get("trading", {}).get("max_margin_usage_ratio", 0.5)
         try:
             pos_info = rf.calculate_position_size(
                 balance_usdt=balance,
                 entry_price=decision.get("entry_price", current_price),
                 stop_loss=decision.get("stop_loss", 0),
-                leverage=self.config.get("backtest", {}).get("leverage", 10),
+                leverage=leverage,
             )
         except Exception as e:
             logger.warning(f"  {symbol} 仓位计算异常：{e}")
@@ -191,6 +193,24 @@ class SignalPipeline:
         if not pos_info or pos_info.get("contracts", 0) <= 0:
             logger.debug(f"  {symbol} 仓位计算为0，跳过")
             return None
+
+        # 保证金上限检查（对齐生产 execute_trade.py 的 max_margin_usage_ratio 逻辑）
+        contracts = pos_info["contracts"]
+        entry = decision.get("entry_price", current_price)
+        margin = contracts * entry / leverage
+        max_margin = balance * max_margin_ratio
+        if margin > max_margin:
+            contracts = int(max_margin * leverage / entry)
+            if contracts <= 0:
+                logger.debug(f"  {symbol} 保证金上限后仓位为0，跳过")
+                return None
+            pos_info = dict(pos_info)
+            pos_info["contracts"] = contracts
+            pos_info["margin_usdt"] = round(contracts * entry / leverage, 2)
+            logger.info(
+                f"  {symbol} 保证金超限（{margin:.2f}>{max_margin:.2f}），"
+                f"已按{max_margin_ratio*100:.0f}%上限调整：{contracts}张"
+            )
 
         # ── 组装最终信号 ──────────────────────────────────────────────
         signal = {
