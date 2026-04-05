@@ -17,15 +17,18 @@ OKX 永续合约自动交易系统。详细文档见 [CLAUDE.md](CLAUDE.md)
 
 | 文件 | 职责 |
 |------|------|
-| `market_scanner.py` | 主调度（每5分钟） |
+| `market_scanner.py` | 主调度（每15分钟） |
+| `fetch_kline.py` | K线获取 |
 | `indicator_engine.py` | 规则引擎预过滤 |
 | `ai_analysis.py` | LLM 分析入口 |
 | `trade_manager.py` | 持仓管理（每4分钟） |
-| `config/settings.yaml` | 唯一配置入口 |
+| `stop_loss_tracker.py` | 止损止盈冷却记录 |
+| `config/settings.yaml` | 主配置入口 |
+| `config/symbols.yaml` | 白名单+黑名单配置 |
 
 ## 当前配置
 
-- 时间框架：`["1h", "30m", "15m"]`
+- 时间框架：`["1h", "15m", "5m"]`
 - 分析模式：`text`（规则 + LLM）
 - 默认杠杆：10x
-- 最大持仓：5
+- 最大持仓：3
