@@ -393,8 +393,9 @@ def main():
 
                 # ── 跟踪止损更新（优化2）──────────────────────────────────
                 if _is_trailing_stop_active(symbol, side):
-                    base_tf = TIMEFRAMES[-1] if TIMEFRAMES else "15m"
-                    base_data = data.get(base_tf) or data.get(STRUCTURE_TF)
+                    # 跟踪止损用 15m ATR，避免 5m ATR 过小导致止损过紧
+                    trailing_tf = "15m" if "15m" in data else (TIMEFRAMES[1] if len(TIMEFRAMES) > 1 else STRUCTURE_TF)
+                    base_data = data.get(trailing_tf) or data.get(STRUCTURE_TF)
                     if base_data is not None and not base_data.empty:
                         from indicator_engine import compute_adx
                         adx_info = compute_adx(base_data)

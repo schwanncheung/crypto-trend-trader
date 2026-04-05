@@ -52,7 +52,7 @@ analysis:
     vol_price_align_threshold: 1.0   # 方向量/反向量 > 此值视为量价同向
 
     # 动量衰减检测（优化4：持仓期间检测出场信号）
-    momentum_decay_lookback: 3       # 检测最近N根K线是否实体逐渐缩小
+    momentum_decay_lookback: 5       # 检测最近N根K线是否实体逐渐缩小（5m周期下5根=25分钟，避免误触发）
     momentum_decay_shadow_ratio: 1.0 # 影线/实体 > 此值视为反向压力显著
 
   # 规则引擎预过滤（进入 LLM 前的门卫，不通过直接返回 wait）
