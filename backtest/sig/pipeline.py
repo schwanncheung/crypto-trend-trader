@@ -47,6 +47,7 @@ class SignalPipeline:
         self.config   = config
         self.ai_mock  = ai_mock
         self.timeframes = config.get("timeframes", ["1h", "15m", "5m"])
+        self.ai_mode = config.get("backtest", {}).get("ai_mode", "rule_only")
 
         # 从配置读取 K 线数量限制（与生产保持一致）
         kline_limits_cfg = config.get("kline", {}).get("limits", {})
@@ -64,7 +65,7 @@ class SignalPipeline:
 
         logger.info(
             f"SignalPipeline 初始化：timeframes={self.timeframes}，"
-            f"ai_mode={config.get('backtest', {}).get('ai_mode', 'rule_only')}"
+            f"ai_mode={self.ai_mode}"
         )
 
     # ─────────────────────────────────────────────────────────────────
