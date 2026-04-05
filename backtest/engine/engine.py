@@ -232,7 +232,7 @@ class BacktestEngine:
         self.positions.append(pos)
         open_cst = datetime.utcfromtimestamp(ts / 1000 + 8 * 3600).strftime("%Y-%m-%d %H:%M")
         logger.info(
-            f"开仓 [{open_cst} CST] {symbol} {signal['side'].upper()} "
+            f"🅾️ 开仓 [{open_cst} CST] {symbol} {signal['side'].upper()} "
             f"entry={entry_price:.4f} sl={signal['stop_loss']:.4f} "
             f"tp={signal['take_profit']:.4f} margin={margin:.2f} USDT"
         )
@@ -263,7 +263,7 @@ class BacktestEngine:
         open_cst  = datetime.utcfromtimestamp(position.open_time / 1000 + 8 * 3600).strftime("%Y-%m-%d %H:%M")
         close_cst = datetime.utcfromtimestamp(ts / 1000 + 8 * 3600).strftime("%Y-%m-%d %H:%M")
         logger.info(
-            f"平仓[{reason}] {position.symbol} {position.side.upper()} "
+            f"❎ 平仓[{reason}] {position.symbol} {position.side.upper()} "
             f"开={open_cst} 平={close_cst} CST "
             f"entry={position.entry_price:.4f} exit={price:.4f} "
             f"{icon}={pnl_usdt:+.2f} USDT ({pnl_pct:+.1f}%) "
@@ -294,7 +294,7 @@ class BacktestEngine:
             position.remaining_ratio -= actual_ratio
 
         logger.info(
-            f"分批止盈[{reason}] {position.symbol} "
+            f"‼️ 分批止盈[{reason}] {position.symbol} "
             f"平仓{actual_ratio*100:.0f}% price={price:.4f} "
             f"pnl={pnl_usdt:+.2f} USDT 剩余仓位={position.remaining_ratio*100:.0f}%"
         )

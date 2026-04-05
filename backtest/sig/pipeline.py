@@ -137,7 +137,7 @@ class SignalPipeline:
                 return None
             else:
                 # llm_real 模式：预过滤未通过，但让 AI 继续分析
-                logger.info(f"  {_bar_tag} 规则引擎建议拒绝：{filter_reason}（但 AI 可覆盖）")
+                logger.info(f"  {_bar_tag} 规则引擎建议拒绝：{filter_reason}")
                 direction = "wait"  # 让 AI 自己判断方向
 
         if passed:
