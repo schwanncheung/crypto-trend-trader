@@ -21,8 +21,8 @@ def send_notification(message: str, title: str = "") -> None:
     发送飞书 Webhook 消息（富文本卡片）
     未配置时降级为日志输出；title 为空时不显示卡片标题
     """
-    log_prefix = f"[{title}] " if title else ""
-    logger.info(f"📢 {log_prefix}{message}")
+    # log_prefix = f"[{title}] " if title else ""
+    # logger.info(f"📢 {log_prefix}{message}")
 
     if not FEISHU_WEBHOOK_URL:
         logger.warning("未配置 FEISHU_WEBHOOK_URL，消息仅记录到日志")
@@ -51,8 +51,8 @@ def send_notification(message: str, title: str = "") -> None:
         result = resp.json()
         if result.get("code", 0) != 0:
             logger.warning(f"飞书通知返回异常：{result}")
-        else:
-            logger.info("飞书通知发送成功")
+        # else:
+        #    logger.info("飞书通知发送成功")
     except Exception as e:
         logger.error(f"飞书通知发送失败：{e}")
 

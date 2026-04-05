@@ -297,8 +297,6 @@ def main():
     
     # ── 第六步：扫描完成 ──
     logger.info("=" * 50)
-    logger.info("第六步：扫描完成")
-    logger.info("=" * 50)
     
     positions = get_open_positions(exchange)
     final_position_count = len(positions)
