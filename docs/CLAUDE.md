@@ -29,12 +29,12 @@ trade_manager.py (持仓管理，每5分钟)
 | 文件 | 核心函数/类 | 职责 |
 |------|------------|------|
 | [config_loader.py](scripts/config_loader.py) | `CFG`, `setup_logging()` | 配置加载入口 |
-| [indicator_engine.py](scripts/indicator_engine.py) | `rule_engine_filter()`, `compute_timeframe_indicators()` | 规则引擎核心 |
+| [indicator_engine.py](scripts/indicator_engine.py) | `rule_engine_filter()`, `compute_timeframe_indicators()`, `detect_momentum_acceleration()`, `detect_momentum_decay()` | 规则引擎核心 |
 | [ai_analysis.py](scripts/ai_analysis.py) | `analyze_symbol()`, `passes_risk_filter()` | AI 分析入口 |
 | [risk_filter.py](scripts/risk_filter.py) | `calculate_position_size()`, `check_signal_quality()` | 风控过滤 |
 | [execute_trade.py](scripts/execute_trade.py) | `execute_from_decision()`, `get_open_positions()` | 交易执行 |
-| [trade_manager.py](scripts/trade_manager.py) | `main()` | 持仓巡检 |
-| [dynamic_stop_take_profit.py](scripts/dynamic_stop_take_profit.py) | `calculate_dynamic_stop_loss()` | 动态止损计算 |
+| [trade_manager.py](scripts/trade_manager.py) | `main()`, `_update_trailing_stop()` | 持仓巡检 |
+| [dynamic_stop_take_profit.py](scripts/dynamic_stop_take_profit.py) | `calculate_dynamic_stop_loss()`, `calculate_trailing_stop()` | 动态止损/跟踪止损计算 |
 | [file_lock.py](scripts/file_lock.py) | `atomic_read_json()`, `atomic_write_json()` | 状态文件原子读写 |
 | [circuit_breaker.py](scripts/circuit_breaker.py) | `CircuitBreaker`, `get_llm_circuit_breaker()` | LLM API 熔断器 |
 
@@ -45,15 +45,16 @@ trade_manager.py (持仓管理，每5分钟)
 ### 3.1 规则引擎预过滤 (`indicator_engine.py:rule_engine_filter`)
 
 ```
-流程：锚周期方向 → 多周期对齐 → RSI保护 → 量能确认
+流程：锚周期方向 → 多周期对齐 → 动量加速检测 → RSI保护 → 量能确认
 
 1. 锚周期(1h)必须非横盘
 2. 至少2个小周期与锚周期方向一致
-3. RSI保护（多层，部分可被ADX豁免）：
+3. 动量加速检测（优化1）：锚周期实体放大 >= 1.5x 加分，衰减 < 0.8x 减分
+4. RSI保护（多层，部分可被ADX豁免）：
    - 基础极值（>80禁多，<20禁空）
    - 持续保护（连续超买/超卖，不可豁免）
    - 背离保护（底背离禁空，不可豁免）
-4. 至少一个小周期量比 ≥ 0.8
+5. 至少一个小周期量比 ≥ 0.8
 ```
 
 ### 3.2 趋势判断 (`assess_trend_direction`)
@@ -75,6 +76,11 @@ trade_manager.py (持仓管理，每5分钟)
 #   ADX 40-60: 2.4x（强趋势）
 #   ADX ≥ 60:  3.0x（极强趋势）
 # 硬性上限：max_stop_loss_pct = 2.0%
+
+# ATR 跟踪止损（优化2，第一批止盈后启用）：
+# 跟踪止损 = 当前价 ± ATR × 1.5（多头减，空头加）
+# 仅向有利方向移动，不回退
+# 状态持久化：logs/trailing_stop_state.json
 ```
 
 ### 3.4 仓位计算
@@ -95,15 +101,28 @@ contracts = risk_usdt / (止损点数 × 合约面值)
 trade_manager 按持仓方向选择对应字段，避免多头创新高时被误平仓
 ```
 
+### 3.6 持仓管理出场逻辑 (`trade_manager.py`)
+
+```
+出场优先级（从高到低）：
+1. 强制平仓：浮亏 < -30%（兜底）
+2. 动量衰减出场（优化4）：浮盈 >= 5% 且 5m 周期实体连续缩小 + 反向影线
+3. 结构平仓：1h 结构破坏 / 支撑阻力突破
+止盈流程：
+- 浮盈 >= 20%：第一批止盈 40%，剩余启用 ATR 跟踪止损（优化2）
+- 浮盈 >= 50%：第二批止盈（全平剩余）
+```
+
 --- (`config/settings.yaml`)
 
 ```yaml
-timeframes: ["1h", "30m", "15m"]
+timeframes: ["1h", "15m", "5m"]
 
 trading:
   enable_open_position: true    # 开仓总开关
   min_signal_strength: 6        # 最低信号强度
   min_rr_ratio: 1.5             # 最低盈亏比
+  trailing_stop_atr_multiplier: 1.5  # 跟踪止损 ATR 倍数
 
 risk:
   max_open_positions: 5         # 最大持仓
@@ -112,12 +131,18 @@ risk:
 
 analysis:
   mode: "text"                  # "text" / "rule_only"
+  indicator:
+    momentum_accel_ratio: 1.5        # 动量加速阈值（实体放大倍数）
+    momentum_decay_lookback: 3       # 动量衰减检测窗口（根）
+    momentum_decay_shadow_ratio: 1.0 # 反向影线/实体比阈值
   circuit_breaker:
     failure_threshold: 3        # LLM 连续失败次数熔断
     recovery_window_sec: 300    # 熔断后恢复窗口 (秒)
     fallback_mode: "rule_only"  # 降级模式
 
-trading:
+trade_manager:
+  momentum_decay_exit_enabled: true   # 动量衰减出场开关
+  momentum_decay_min_profit_pct: 5.0  # 触发动量衰减出场的最低浮盈(%)
   max_slippage_pct: 5.0         # 滑点超过此值重新计算止损止盈
   max_margin_usage_ratio: 0.5   # 保证金占可用余额上限
 ```
@@ -158,6 +183,7 @@ python -m py_compile backtest/**/*.py
 | `stop_loss_cooldown.json` | 止损冷却记录 |
 | `breakeven_state.json` | 保本位状态 |
 | `partial_profit_state.json` | 分批止盈状态 |
+| `trailing_stop_state.json` | ATR 跟踪止损激活状态和当前止损价 |
 | `position_snapshot.json` | 持仓快照（检测止损触发） |
 
 **状态文件读写**：使用 `file_lock.py` 中的 `atomic_read_json()`、`atomic_write_json()`、`atomic_update_json()` 保证原子性
@@ -220,4 +246,4 @@ ln -sf $(pwd)/.claude/MEMORY.md ~/.claude/projects/$(pwd | sed 's/\//-/g')/memor
 
 ---
 
-*最后更新：2026-04-05（新增 3.5 结构平仓说明）*
+*最后更新：2026-04-05（新增优化1-5：动量加速检测、ATR跟踪止损、量价同向验证、动量衰减出场、时间框架调整为1h/15m/5m）*

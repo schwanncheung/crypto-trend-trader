@@ -208,3 +208,33 @@ def calculate_take_profit(
 
     logger.info(f"止盈计算：{reason}")
     return actual_tp, reason
+
+
+def calculate_trailing_stop(
+    current_price: float,
+    atr: float,
+    signal: str,
+) -> float:
+    """
+    ATR 跟踪止损计算（优化2）：基于当前价格动态计算跟踪止损位。
+
+    参数：
+        current_price: 当前市场价格
+        atr: 当前 ATR 值
+        signal: "long" 或 "short"
+
+    返回：
+        trailing_stop_price: 跟踪止损价格
+    """
+    multiplier = TRADING_CFG.get("trailing_stop_atr_multiplier", 1.5)
+
+    if signal == "long":
+        trailing_stop = current_price - multiplier * atr
+    else:  # short
+        trailing_stop = current_price + multiplier * atr
+
+    logger.info(
+        f"跟踪止损计算：当前价={current_price:.6g}, ATR={atr:.6g}, "
+        f"倍数={multiplier}, 跟踪止损={trailing_stop:.6g}"
+    )
+    return trailing_stop

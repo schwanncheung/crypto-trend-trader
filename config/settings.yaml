@@ -9,7 +9,7 @@ exchange:
 # ── 全局时间框架 ─────────────────────────────────────────────────────
 # 从高到低排列：最高周期作为方向锚，最低周期用于入场确认
 # 修改此处后，规则引擎、K线获取、Prompt 均自动适配
-timeframes: ["1h", "30m", "15m"]
+timeframes: ["1h", "15m", "5m"]
 
 # ── 分析配置 ─────────────────────────────────────────────────────────
 analysis:
@@ -41,6 +41,19 @@ analysis:
     volume_ma_period: 5         # 量比分母：成交量 MA 周期（量比 = 当前量 / MA5）
     swing_lookback: 5           # 波段高低点回看 K 线数（用于 HH/HL/LH/LL 结构判断）
     swing_count: 3              # 最少需要识别的波段高低点数量
+
+    # 动量加速检测（优化1：区分趋势刚加速 vs 趋势已走完大半）
+    momentum_accel_recent_bars: 3    # 近期窗口（根），比较最近N根实体均值
+    momentum_accel_baseline_bars: 10 # 基准窗口（根），比较前M根实体均值
+    momentum_accel_ratio: 1.5        # 近期/基准 > 此值视为加速
+
+    # 量价同向验证（优化3：过滤量价背离的假趋势）
+    vol_price_align_lookback: 3      # 取最近N根阳线/阴线计算平均量
+    vol_price_align_threshold: 1.0   # 方向量/反向量 > 此值视为量价同向
+
+    # 动量衰减检测（优化4：持仓期间检测出场信号）
+    momentum_decay_lookback: 3       # 检测最近N根K线是否实体逐渐缩小
+    momentum_decay_shadow_ratio: 1.0 # 影线/实体 > 此值视为反向压力显著
 
   # 规则引擎预过滤（进入 LLM 前的门卫，不通过直接返回 wait）
   rule_filter:
@@ -91,7 +104,7 @@ analysis:
 
     # 2.7 RSI 转折预警（可被极强趋势豁免）
     # 小周期 RSI 连续回升 + 放量，可能转折，暂停做空
-    rsi_reversal_warning_timeframes: ["15m", "30m"]
+    rsi_reversal_warning_timeframes: ["5m", "15m"]
     rsi_reversal_consecutive_rounds: 2  # 连续 N 轮 RSI 同向运动触发预警
     rsi_reversal_vol_confirm: true      # 是否要求量能放大才触发预警
 
@@ -147,6 +160,9 @@ trading:
     extreme_trend_threshold: 60  # ADX >= 此值视为极强趋势
     extreme_trend_multiplier: 1.5  # 极强趋势止损倍数（ADX >= 60）
 
+  # ATR 跟踪止损（优化2：第一批止盈后剩余仓位用跟踪止损）
+  trailing_stop_atr_multiplier: 1.5  # 跟踪止损 ATR 倍数（比开仓止损更紧）
+
   # 止损止盈硬性上限（风控红线）
   max_stop_loss_pct: 2.0         # 止损距离上限（%）
   max_take_profit_pct: 5.0       # 止盈距离上限（%）
@@ -180,12 +196,16 @@ trade_manager:
   structure_check_timeframe: "1h"     # 结构判断使用的时间框架
   support_buffer_pct: 0.3             # 支撑/阻力突破判定缓冲区（%）
 
+  # 动量衰减出场（优化4：持仓期间检测动量衰减，主动出场）
+  momentum_decay_exit_enabled: true   # 是否启用动量衰减出场
+  momentum_decay_min_profit_pct: 5.0  # 触发动量衰减出场的最低浮盈要求（%）
+
 # ── K 线拉取数量 ─────────────────────────────────────────────────────
 # EMA(200) 计算需要至少 200 根数据，不建议低于 200
 kline:
   limits:
+    "5m":  300   # 300 根 ≈ 25 小时，覆盖近 1 天短线结构（满足 EMA200 计算需求）
     "15m": 300   # 300 根 ≈ 75 小时，覆盖近 3 天短线结构
-    "30m": 300   # 300 根 ≈ 150 小时，覆盖近 6 天结构
     "1h":  200   # 200 根 ≈ 8 天，覆盖近 1 周中线结构
 
 # ── 扫描器配置 ───────────────────────────────────────────────────────

@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # 配置日志：同时输出到控制台和文件
-from config_loader import check_env, TRADE_MGR_CFG, setup_logging, now_cst_str
+from config_loader import check_env, TRADE_MGR_CFG, setup_logging, now_cst_str, TIMEFRAMES
 check_env()
 setup_logging("trade_manager")
 logger = logging.getLogger(__name__)
@@ -29,6 +29,8 @@ PARTIAL_PROFIT_RATIO_2 = TRADE_MGR_CFG.get("partial_profit_ratio_2",        0.5)
 FORCE_CLOSE_PCT        = TRADE_MGR_CFG.get("force_close_loss_pct",         -10.0)
 STRUCTURE_TF           = TRADE_MGR_CFG.get("structure_check_timeframe",     "1h")
 SUPPORT_BUFFER_PCT     = TRADE_MGR_CFG.get("support_buffer_pct",             0.3)
+MOMENTUM_DECAY_ENABLED = TRADE_MGR_CFG.get("momentum_decay_exit_enabled",   True)
+MOMENTUM_DECAY_MIN_PCT = TRADE_MGR_CFG.get("momentum_decay_min_profit_pct",  5.0)
 
 from execute_trade import (
     create_exchange,
@@ -44,6 +46,8 @@ from notifier import send_notification
 from trade_report import generate_close_report
 from stop_loss_tracker import record_stop_loss_manual
 from file_lock import atomic_read_json, atomic_write_json, atomic_update_json
+from dynamic_stop_take_profit import calculate_trailing_stop
+from indicator_engine import detect_momentum_decay
 
 
 def _cancel_all_symbol_orders(exchange, symbol: str):
@@ -61,6 +65,7 @@ def _cancel_all_symbol_orders(exchange, symbol: str):
 
 BREAKEVEN_STATE_FILE = Path("logs/breakeven_state.json")
 PARTIAL_PROFIT_STATE_FILE = Path("logs/partial_profit_state.json")
+TRAILING_STOP_STATE_FILE = Path("logs/trailing_stop_state.json")
 
 
 def _load_breakeven_state() -> dict:
@@ -109,6 +114,91 @@ def _clear_partial_profit_state(symbol: str, side: str):
         state.pop(f"{symbol}_{side}", None)
         return state
     atomic_update_json(PARTIAL_PROFIT_STATE_FILE, update_fn, default={})
+
+
+# ── 跟踪止损状态管理（优化2）────────────────────────────────────────────
+
+def _mark_trailing_stop_active(symbol: str, side: str, stop_price: float):
+    """激活跟踪止损，记录当前止损价"""
+    def update_fn(state: dict) -> dict:
+        state[f"{symbol}_{side}"] = {"active": True, "stop_price": stop_price}
+        return state
+    atomic_update_json(TRAILING_STOP_STATE_FILE, update_fn, default={})
+
+
+def _is_trailing_stop_active(symbol: str, side: str) -> bool:
+    state = atomic_read_json(TRAILING_STOP_STATE_FILE, default={})
+    return state.get(f"{symbol}_{side}", {}).get("active", False)
+
+
+def _get_trailing_stop_price(symbol: str, side: str) -> float:
+    state = atomic_read_json(TRAILING_STOP_STATE_FILE, default={})
+    return state.get(f"{symbol}_{side}", {}).get("stop_price", 0.0)
+
+
+def _clear_trailing_stop_state(symbol: str, side: str):
+    def update_fn(state: dict) -> dict:
+        state.pop(f"{symbol}_{side}", None)
+        return state
+    atomic_update_json(TRAILING_STOP_STATE_FILE, update_fn, default={})
+
+
+def _update_trailing_stop(
+    exchange,
+    symbol: str,
+    side: str,
+    contracts: float,
+    current_price: float,
+    atr: float,
+    entry_price: float,
+) -> bool:
+    """
+    更新跟踪止损单（优化2）：
+    - 计算新止损价
+    - 仅当新止损价比旧止损价更有利时才更新
+    - 撤旧止损单，挂新止损单
+    返回：True=实际更新了止损，False=无需更新
+    """
+    try:
+        new_stop = calculate_trailing_stop(current_price, atr, side)
+        old_stop = _get_trailing_stop_price(symbol, side)
+
+        # 确保跟踪止损不低于保本位（多头）或不高于保本位（空头）
+        if side == "long":
+            new_stop = max(new_stop, entry_price)
+            if old_stop > 0 and new_stop <= old_stop:
+                logger.info(f"  跟踪止损无需更新：新止损{new_stop:.6g} <= 旧止损{old_stop:.6g}")
+                return False
+        else:
+            new_stop = min(new_stop, entry_price)
+            if old_stop > 0 and new_stop >= old_stop:
+                logger.info(f"  跟踪止损无需更新：新止损{new_stop:.6g} >= 旧止损{old_stop:.6g}")
+                return False
+
+        # 撤旧止损单，挂新止损单
+        _cancel_all_symbol_orders(exchange, symbol)
+        sl_order = exchange.create_order(
+            symbol=symbol,
+            type="conditional",
+            side="sell" if side == "long" else "buy",
+            amount=contracts,
+            price=None,
+            params={
+                "ordType": "conditional",
+                "slTriggerPx": str(float(new_stop)),
+                "slOrdPx": "-1",
+                "reduceOnly": True,
+                "tdMode": "cross",
+            },
+        )
+        _mark_trailing_stop_active(symbol, side, new_stop)
+        logger.info(
+            f"  跟踪止损已更新：{old_stop:.6g} → {new_stop:.6g} | 订单ID：{sl_order.get('id')}"
+        )
+        return True
+    except Exception as e:
+        logger.error(f"  ⚠️ 更新跟踪止损失败：{e}")
+        return False
 
 
 def _move_stop_to_breakeven(exchange, symbol: str, side: str, contracts: float, entry_price: float) -> bool:
@@ -263,10 +353,14 @@ def main():
                             )
                             _mark_partial_profit_done(symbol, side, 1)
                             send_notification(
-                                f"{symbol} 浮盈{pnl_pct:.1f}%，第一批止盈{int(PARTIAL_PROFIT_RATIO_1*100)}%（{partial_contracts} 张），剩余持仓继续运行"
+                                f"{symbol} 浮盈{pnl_pct:.1f}%，第一批止盈{int(PARTIAL_PROFIT_RATIO_1*100)}%（{partial_contracts} 张），剩余仓位启用ATR跟踪止损"
                             )
                             closed_count += 1
-                            _move_stop_to_breakeven(exchange, symbol, side, live_contracts - partial_contracts, entry_price)
+                            remaining_contracts = live_contracts - partial_contracts
+                            _move_stop_to_breakeven(exchange, symbol, side, remaining_contracts, entry_price)
+                            # 激活跟踪止损（优化2）
+                            _mark_trailing_stop_active(symbol, side, entry_price)
+                            logger.info(f"  第一批止盈完成，剩余{remaining_contracts}张启用ATR跟踪止损")
                         except Exception as e:
                             logger.error(f"  ⚠️ 第一批止盈失败：{e}")
 
@@ -282,6 +376,7 @@ def main():
                     generate_close_report(symbol, reason, unrealized_pnl, pnl_pct)
                     _clear_breakeven_state(symbol, side)
                     _clear_partial_profit_state(symbol, side)
+                    _clear_trailing_stop_state(symbol, side)
                 except Exception as e:
                     logger.error(f"  强制平仓失败：{e}")
 
@@ -295,6 +390,49 @@ def main():
                 structure_tf = detect_trend_structure(data[STRUCTURE_TF])
 
                 current_price = float(data[STRUCTURE_TF].iloc[-1]["close"])
+
+                # ── 跟踪止损更新（优化2）──────────────────────────────────
+                if _is_trailing_stop_active(symbol, side):
+                    base_tf = TIMEFRAMES[-1] if TIMEFRAMES else "15m"
+                    base_data = data.get(base_tf) or data.get(STRUCTURE_TF)
+                    if base_data is not None and not base_data.empty:
+                        from indicator_engine import compute_adx
+                        adx_info = compute_adx(base_data)
+                        atr = adx_info.get("atr", current_price * 0.01)
+                        live_positions = get_open_positions(exchange)
+                        live_pos = next(
+                            (p for p in live_positions if p["symbol"] == symbol and p["side"] == side), None
+                        )
+                        live_contracts = live_pos["contracts"] if live_pos else contracts
+                        updated = _update_trailing_stop(
+                            exchange, symbol, side, live_contracts,
+                            current_price, atr, entry_price
+                        )
+                        if updated:
+                            send_notification(
+                                f"{symbol} 跟踪止损已更新 → {_get_trailing_stop_price(symbol, side):.6g}"
+                            )
+
+                # ── 动量衰减出场（优化4）──────────────────────────────────
+                if MOMENTUM_DECAY_ENABLED and pnl_pct >= MOMENTUM_DECAY_MIN_PCT:
+                    base_tf = TIMEFRAMES[-1] if TIMEFRAMES else "15m"
+                    base_data = data.get(base_tf) or data.get(STRUCTURE_TF)
+                    if base_data is not None and not base_data.empty:
+                        decay_result = detect_momentum_decay(base_data, side)
+                        if decay_result.get("decaying"):
+                            decay_reason = decay_result.get("reason", "动量衰减")
+                            logger.warning(f"  {symbol} 动量衰减出场：{decay_reason}")
+                            close_position(exchange, symbol, reason=decay_reason)
+                            record_stop_loss_manual(symbol, decay_reason)
+                            send_notification(
+                                f"{symbol} 浮盈{pnl_pct:.1f}%，动量衰减主动出场\n原因：{decay_reason}"
+                            )
+                            closed_count += 1
+                            generate_close_report(symbol, decay_reason, unrealized_pnl, pnl_pct)
+                            _clear_breakeven_state(symbol, side)
+                            _clear_partial_profit_state(symbol, side)
+                            _clear_trailing_stop_state(symbol, side)
+                            continue
 
                 from fetch_kline import calculate_support_resistance
                 rt_supports, rt_resistances = calculate_support_resistance(data[STRUCTURE_TF])
@@ -344,6 +482,7 @@ def main():
                     generate_close_report(symbol, close_reason, unrealized_pnl, pnl_pct)
                     _clear_breakeven_state(symbol, side)
                     _clear_partial_profit_state(symbol, side)
+                    _clear_trailing_stop_state(symbol, side)
                 else:
                     logger.info(f"  {symbol} 结构完好，持仓继续 | 当前价：{current_price}")
 

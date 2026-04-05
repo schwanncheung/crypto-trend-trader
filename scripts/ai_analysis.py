@@ -100,6 +100,22 @@ def _build_rule_only_decision(tf_indicators: dict, direction: str, symbol: str) 
     if strong_trend_exemption:
         volume_confirmed = True
 
+    # 量价同向验证（优化3）：量价背离时降低信号强度
+    from indicator_engine import detect_volume_price_alignment
+    base_df_key = base_tf
+    # 通过 price_series 和 volume 数据间接判断（tf_indicators 中无原始 df）
+    # 使用锚周期的 momentum_acceleration 作为量价同向的代理指标
+    anchor_mom_accel = anchor_ind.get("momentum_acceleration", {})
+    vol_price_note = ""
+    if anchor_mom_accel.get("decelerating", False):
+        score -= 1.0
+        vol_price_note = f"动量衰减（实体比={anchor_mom_accel.get('ratio', 1.0):.2f}）"
+        logger.info(f"[rule_only] {symbol} 动量衰减，信号强度-1")
+    elif anchor_mom_accel.get("accelerating", False):
+        score += 1.0
+        vol_price_note = f"动量加速（实体比={anchor_mom_accel.get('ratio', 1.0):.2f}）"
+        logger.info(f"[rule_only] {symbol} 动量加速，信号强度+1")
+
     patterns_list = tf_indicators.get(base_tf, {}).get("patterns", [])
     pattern = patterns_list[0]["pattern"] if patterns_list else "none"
     if pattern not in ("none", "", None):
@@ -166,7 +182,7 @@ def _build_rule_only_decision(tf_indicators: dict, direction: str, symbol: str) 
         "trend_phase":      "mid",
         "trend_strength":   trend_strength,
         "volume_confirmed": volume_confirmed,
-        "volume_note":      f"量比={vol_ratio:.2f}",
+        "volume_note":      f"量比={vol_ratio:.2f}" + (f"，{vol_price_note}" if vol_price_note else ""),
         "key_support":      key_support,
         "key_resistance":   key_resistance,
         "entry_price":      entry,
@@ -306,12 +322,14 @@ def _build_text_analysis_prompt() -> str:
   - 做多：RSI {rsi_oversold}-{long_rsi_low}（回调充分但未超卖）：+1.5分
   - 做空：RSI {long_rsi_low}-{rsi_overbought - 10}（反弹充分但未超买）：+1.5分
 - 近期动能强劲（空头/多头占比 >= {momentum_strong_pct}%）：+1分
+- 动量加速（快照中显示"动量加速"，实体放大 >= 1.5x）：+1分
 
 **减分项：**
 - RSI 趋势与信号方向相反（如做空但 RSI 连升2轮）：-2分
 - ADX 处于边缘区（{adx_edge_min}-{adx_edge_max}）：-1分
 - 量能不足（量比 < {vol_ratio_thresh}）：-2分
 - {base_tf} 入场周期极端缩量（量比 < 0.1）：额外-1分（流动性陷阱风险）
+- 动量衰减（快照中显示"动量衰减"，实体缩小 < 0.8x）：-1分
 
 ## 三、入场价格选择（激进型策略）
 

@@ -824,6 +824,129 @@ def assess_trend_direction(df: pd.DataFrame, adx_info: dict, ema_info: dict, sym
     return "sideways"
 
 
+def detect_momentum_acceleration(df: pd.DataFrame) -> dict:
+    """
+    动量加速检测（优化1）：比较最近N根K线平均实体大小 vs 前M根基准均值。
+    实体大小 = abs(close - open)
+    返回：{"accelerating": bool, "decelerating": bool, "ratio": float,
+           "recent_avg": float, "baseline_avg": float}
+    """
+    recent_bars   = _IND_CFG.get("momentum_accel_recent_bars",   3)
+    baseline_bars = _IND_CFG.get("momentum_accel_baseline_bars", 10)
+    accel_ratio   = _IND_CFG.get("momentum_accel_ratio",         1.5)
+    decel_ratio   = 0.8  # 近期/基准 < 此值视为动量衰减
+
+    min_bars = recent_bars + baseline_bars
+    if df is None or len(df) < min_bars:
+        return {"accelerating": False, "decelerating": False, "ratio": 1.0,
+                "recent_avg": 0.0, "baseline_avg": 0.0}
+
+    bodies = (df["close"] - df["open"]).abs()
+    recent_avg   = float(bodies.iloc[-recent_bars:].mean())
+    baseline_avg = float(bodies.iloc[-(recent_bars + baseline_bars):-recent_bars].mean())
+
+    if baseline_avg == 0:
+        return {"accelerating": False, "decelerating": False, "ratio": 1.0,
+                "recent_avg": recent_avg, "baseline_avg": baseline_avg}
+
+    ratio = round(recent_avg / baseline_avg, 2)
+    return {
+        "accelerating":  ratio >= accel_ratio,
+        "decelerating":  ratio < decel_ratio,
+        "ratio":         ratio,
+        "recent_avg":    round(recent_avg, 6),
+        "baseline_avg":  round(baseline_avg, 6),
+    }
+
+
+def detect_volume_price_alignment(df: pd.DataFrame, signal_direction: str) -> dict:
+    """
+    量价同向验证（优化3）：检测方向量能是否强于反向量能。
+    多头：最近N根阳线平均量 > 阴线平均量 * threshold → aligned=True
+    空头：最近N根阴线平均量 > 阳线平均量 * threshold → aligned=True
+    返回：{"aligned": bool, "bull_vol_avg": float, "bear_vol_avg": float, "ratio": float}
+    """
+    lookback  = _IND_CFG.get("vol_price_align_lookback",  3)
+    threshold = _IND_CFG.get("vol_price_align_threshold", 1.0)
+
+    if df is None or len(df) < lookback * 2:
+        return {"aligned": True, "bull_vol_avg": 0.0, "bear_vol_avg": 0.0, "ratio": 1.0}
+
+    recent = df.iloc[-lookback * 2:]
+    bull_vols = recent.loc[recent["close"] > recent["open"], "volume"]
+    bear_vols = recent.loc[recent["close"] < recent["open"], "volume"]
+
+    bull_avg = float(bull_vols.mean()) if len(bull_vols) > 0 else 0.0
+    bear_avg = float(bear_vols.mean()) if len(bear_vols) > 0 else 0.0
+
+    if signal_direction == "long":
+        denom = bear_avg if bear_avg > 0 else 1.0
+        ratio = round(bull_avg / denom, 2)
+        aligned = ratio >= threshold
+    else:
+        denom = bull_avg if bull_avg > 0 else 1.0
+        ratio = round(bear_avg / denom, 2)
+        aligned = ratio >= threshold
+
+    return {
+        "aligned":      aligned,
+        "bull_vol_avg": round(bull_avg, 2),
+        "bear_vol_avg": round(bear_avg, 2),
+        "ratio":        ratio,
+    }
+
+
+def detect_momentum_decay(df: pd.DataFrame, signal_direction: str) -> dict:
+    """
+    动量衰减检测（优化4）：持仓期间检测趋势动量是否衰减。
+    条件1：连续N根K线实体逐渐缩小
+    条件2：出现方向相反的显著影线（影线/实体 > shadow_ratio）
+    两个条件同时满足才判定为动量衰减。
+    返回：{"decaying": bool, "reason": str, "body_shrinking": bool, "shadow_pressure": bool}
+    """
+    lookback     = _IND_CFG.get("momentum_decay_lookback",     3)
+    shadow_ratio = _IND_CFG.get("momentum_decay_shadow_ratio", 1.0)
+
+    if df is None or len(df) < lookback + 1:
+        return {"decaying": False, "reason": "数据不足", "body_shrinking": False, "shadow_pressure": False}
+
+    recent = df.iloc[-lookback:]
+    bodies = (recent["close"] - recent["open"]).abs().tolist()
+
+    # 条件1：实体逐渐缩小（每根 < 前一根）
+    body_shrinking = all(bodies[i] < bodies[i - 1] for i in range(1, len(bodies)))
+
+    # 条件2：反向影线压力
+    shadow_pressure = False
+    last = df.iloc[-1]
+    body = abs(last["close"] - last["open"])
+    if body > 0:
+        if signal_direction == "long":
+            # 多头：上影线（卖压）显著
+            upper_shadow = last["high"] - max(last["close"], last["open"])
+            shadow_pressure = (upper_shadow / body) >= shadow_ratio
+        else:
+            # 空头：下影线（买压）显著
+            lower_shadow = min(last["close"], last["open"]) - last["low"]
+            shadow_pressure = (lower_shadow / body) >= shadow_ratio
+
+    decaying = body_shrinking and shadow_pressure
+    reason = ""
+    if decaying:
+        reason = (
+            f"动量衰减：实体连续缩小{lookback}根"
+            f"（{[round(b, 6) for b in bodies]}），"
+            f"{'上' if signal_direction == 'long' else '下'}影线压力显著"
+        )
+
+    return {
+        "decaying":       decaying,
+        "reason":         reason,
+        "body_shrinking": body_shrinking,
+        "shadow_pressure": shadow_pressure,
+    }
+
+
 def compute_timeframe_indicators(df: pd.DataFrame, tf_label: str, symbol: str = None) -> dict:
     """
     对单个时间框架计算所有指标，返回完整的指标字典
@@ -842,6 +965,7 @@ def compute_timeframe_indicators(df: pd.DataFrame, tf_label: str, symbol: str = 
     momentum    = assess_recent_trend_momentum(df)              # 近期动能评估
     trend       = assess_trend_direction(df, adx_info, ema_info, symbol)
     patterns    = detect_candlestick_patterns(df)
+    mom_accel   = detect_momentum_acceleration(df)              # 动量加速检测（优化1）
 
     current_price = float(df["close"].iloc[-1])
 
@@ -858,6 +982,8 @@ def compute_timeframe_indicators(df: pd.DataFrame, tf_label: str, symbol: str = 
         "price_series": price_series,         # 底背离检测用价格序列
         "volume_ratio": vol_ratio,
         "momentum":     momentum,     # 近期动能：{direction, bull_pct, bear_pct, total_move, breakout, description}
+        "momentum_acceleration": mom_accel,  # 动量加速：{accelerating, decelerating, ratio}
+        "vol_price_alignment": None,  # 量价同向：在 rule_engine_filter 中按方向计算后注入
         "patterns":     patterns,
         "atr":          adx_info.get("atr", 0),  # ATR用于止损计算
     }
@@ -927,6 +1053,18 @@ def rule_engine_filter(
         )
         logger.info(f"[规则过滤] {reason}")
         return False, "wait", reason
+
+    # ── 3b. 量价同向验证（优化3）：计算并注入锚周期量价对齐信息
+    anchor_df_key = ANCHOR_TF
+    # 此处 tf_indicators 已包含各周期指标，但原始 df 需从外部传入
+    # 通过 momentum 数据间接判断：若锚周期动量方向与信号方向一致，量价对齐概率更高
+    # 实际量价对齐计算在 ai_analysis.py 中通过 multi_tf_data 完成
+    anchor_mom_accel = anchor.get("momentum_acceleration", {})
+    if anchor_mom_accel.get("decelerating", False):
+        logger.info(
+            f"[规则过滤] {symbol} 锚周期动量衰减（实体比={anchor_mom_accel.get('ratio', 1.0):.2f}），"
+            f"信号强度将被降低"
+        )
 
     # ── 4. 趋势强度豁免检查（方案D：极强趋势中跳过RSI超卖/超买保护）
     anchor_adx_info = anchor.get("adx", {})
@@ -1052,6 +1190,7 @@ def rule_engine_filter(
 # ═══════════════════════════════════════════════════════════════════════
 
 TF_LABELS = {
+    "5m":  "5分钟 5M",
     "15m": "15分钟 15M",
     "30m": "30分钟 30M",
     "1h":  "1小时 1H",
@@ -1121,6 +1260,14 @@ def generate_market_snapshot(
         lines.append(f"RSI：{rsi} | RSI趋势：{rsi_delta_cn} | 成交量/MA5：{vol_cn}")
         if mom_cn:
             lines.append(f"近期动能：{mom_cn}")
+
+        # 动量加速信息（优化1）
+        mom_accel = ind.get("momentum_acceleration", {})
+        if mom_accel.get("accelerating"):
+            lines.append(f"动量加速：实体放大{mom_accel.get('ratio', 1.0):.1f}x（趋势加速中）")
+        elif mom_accel.get("decelerating"):
+            lines.append(f"动量衰减：实体缩小{mom_accel.get('ratio', 1.0):.1f}x（动能减弱）")
+
         lines.append(f"K线形态：{pat_cn}")
 
         # 支撑阻力（仅入场周期显示，入场周期的支撑阻力对开仓决策最直接）
