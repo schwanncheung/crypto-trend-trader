@@ -293,7 +293,6 @@ def main():
             data = fetch_multi_timeframe(symbol, exchange=exchange)
             if STRUCTURE_TF in data and not data[STRUCTURE_TF].empty:
                 structure_tf = detect_trend_structure(data[STRUCTURE_TF])
-                structure_broken = structure_tf.get("structure_broken", False)
 
                 current_price = float(data[STRUCTURE_TF].iloc[-1]["close"])
 
@@ -315,9 +314,12 @@ def main():
                 should_close = False
                 close_reason = ""
 
-                if structure_broken:
+                if structure_broken_tf := (
+                    (side == "long" and structure_tf.get("structure_broken_long", False)) or
+                    (side == "short" and structure_tf.get("structure_broken_short", False))
+                ):
                     should_close = True
-                    close_reason = f"{STRUCTURE_TF.upper()}结构破坏（structure_broken=True），当前价：{current_price}"
+                    close_reason = f"{STRUCTURE_TF.upper()}结构破坏（方向:{side}），当前价：{current_price}"
 
                 elif side == "long" and support_levels:
                     nearest_support = support_levels[0]

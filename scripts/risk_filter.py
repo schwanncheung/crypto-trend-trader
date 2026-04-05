@@ -48,6 +48,8 @@ def check_signal_quality(decision: dict) -> tuple[bool, str]:
     min_trend_strength = TRADING_CFG.get("min_trend_strength", 7)
     if trend_strength > 0 and trend_strength < min_trend_strength:
         return False, f"趋势强度不足：{trend_strength}/10（要求≥{min_trend_strength}）"
+    if trend_strength == 0:
+        logger.debug("trend_strength=0（ADX极低或未提供），跳过趋势强度检查")
 
     if not volume_confirmed:
         return False, "成交量未确认，可能为假突破"
@@ -187,6 +189,24 @@ def _check_warning_reduction(warning: str) -> float:
     return 1.0
 
 
+def _get_free_usdt(balance: dict) -> float:
+    """兼容多种 fetch_balance 返回格式，统一取 free（可用）余额"""
+    if "free" in balance and isinstance(balance["free"], dict):
+        val = balance["free"].get("USDT")
+        if val is not None:
+            return float(val)
+    if "USDT" in balance and isinstance(balance["USDT"], dict):
+        val = balance["USDT"].get("free")
+        if val is not None:
+            return float(val)
+    if "total" in balance and isinstance(balance["total"], dict):
+        val = balance["total"].get("USDT")
+        if val is not None:
+            return float(val)
+    logger.warning(f"未找到USDT余额，balance keys: {list(balance.keys())}")
+    return 0.0
+
+
 def calculate_position_size(
     balance_usdt: float,
     entry_price: float,
@@ -301,7 +321,7 @@ def run_full_risk_check(
 
     # 5. 计算仓位（传入 warning 自动折减高波动仓位）
     balance = exchange.fetch_balance()
-    balance_usdt = float(balance["free"].get("USDT", 0))
+    balance_usdt = _get_free_usdt(balance)
 
     # 获取合约面值和市价单张数上限（避免低价小币超限）
     contract_size = 1.0

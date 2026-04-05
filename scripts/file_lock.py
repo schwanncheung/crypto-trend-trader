@@ -7,9 +7,12 @@ file_lock.py
 
 import fcntl
 import json
+import logging
 import time
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 
 class FileLock:
@@ -25,8 +28,9 @@ class FileLock:
         self.file_path.parent.mkdir(parents=True, exist_ok=True)
         # 打开文件
         self.fd = open(self.file_path, self.mode)
-        # 获取排他锁（阻塞等待）
-        fcntl.flock(self.fd.fileno(), fcntl.LOCK_EX)
+        # 读模式用共享锁，写/追加模式用排他锁
+        lock_type = fcntl.LOCK_SH if self.mode == 'r' else fcntl.LOCK_EX
+        fcntl.flock(self.fd.fileno(), lock_type)
         return self.fd
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -50,8 +54,7 @@ def atomic_read_json(file_path: Path, default: Any = None) -> Any:
             if not content:
                 return default
             return json.loads(content)
-    except (json.JSONDecodeError, Exception) as e:
-        # 读取失败返回 default
+    except Exception:
         return default
 
 
@@ -67,8 +70,7 @@ def atomic_write_json(file_path: Path, data: Any, indent: int = 2) -> bool:
             f.flush()
         return True
     except Exception as e:
-        import logging
-        logging.getLogger(__name__).error(f"原子写入失败 {file_path}: {e}")
+        logger.error(f"原子写入失败 {file_path}: {e}")
         return False
 
 
@@ -112,13 +114,12 @@ def atomic_update_json(file_path: Path, update_fn: callable, default: Dict = Non
 
         return True
     except Exception as e:
-        import logging
-        logging.getLogger(__name__).error(f"原子更新失败 {file_path}: {e}")
+        logger.error(f"原子更新失败 {file_path}: {e}")
         return False
 
 
 # 带超时的非阻塞锁版本
-def try_acquire_lock(file_path: Path, timeout_sec: float = 5.0) -> bool:
+def try_acquire_lock(file_path: Path, timeout_sec: float = 5.0) -> Tuple[bool, Optional[Any]]:
     """
     尝试获取文件锁，超时则放弃
     用于不希望阻塞的场景

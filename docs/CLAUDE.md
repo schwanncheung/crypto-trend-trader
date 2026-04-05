@@ -84,9 +84,18 @@ contracts = risk_usdt / (止损点数 × 合约面值)
 # risk_usdt = 余额 × max_position_pct(15%) × warning_reduction
 ```
 
----
+### 3.5 结构平仓 (`fetch_kline.py:detect_trend_structure`)
 
-## 四、配置速查 (`config/settings.yaml`)
+```
+返回字段：
+- structure_broken_long:  价格跌破前低 → 多头结构破坏，触发多头平仓
+- structure_broken_short: 价格突破前高 → 空头结构破坏，触发空头平仓
+- structure_broken:       两者任一为 True（向后兼容字段）
+
+trade_manager 按持仓方向选择对应字段，避免多头创新高时被误平仓
+```
+
+--- (`config/settings.yaml`)
 
 ```yaml
 timeframes: ["1h", "30m", "15m"]
@@ -211,4 +220,4 @@ ln -sf $(pwd)/.claude/MEMORY.md ~/.claude/projects/$(pwd | sed 's/\//-/g')/memor
 
 ---
 
-*最后更新：2026-04-05*
+*最后更新：2026-04-05（新增 3.5 结构平仓说明）*

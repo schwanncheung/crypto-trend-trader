@@ -14,7 +14,6 @@ import numpy as np
 from pathlib import Path
 from dotenv import load_dotenv
 from typing import Optional
-from pathlib import Path
 import sys
 
 # 加载环境变量
@@ -160,7 +159,9 @@ def detect_trend_structure(df: pd.DataFrame) -> dict:
             "trend": "sideways", "hh": False, "hl": False,
             "lh": False, "ll": False,
             "swing_highs": [], "swing_lows": [],
-            "structure_broken": False
+            "structure_broken": False,
+            "structure_broken_long": False,
+            "structure_broken_short": False,
         }
     
     swing_highs = []
@@ -179,28 +180,36 @@ def detect_trend_structure(df: pd.DataFrame) -> dict:
     
     hh = hl = lh = ll = False
     trend = "sideways"
-    structure_broken = False
-    
+    structure_broken_long = False   # 多头结构破坏：价格跌破前低
+    structure_broken_short = False  # 空头结构破坏：价格突破前高
+
     if len(swing_highs) >= 2 and len(swing_lows) >= 2:
         hh = swing_highs[-1][1] > swing_highs[-2][1]
         hl = swing_lows[-1][1] > swing_lows[-2][1]
         lh = swing_highs[-1][1] < swing_highs[-2][1]
         ll = swing_lows[-1][1] < swing_lows[-2][1]
-        
+
         if hh and hl:
             trend = "up"
         elif lh and ll:
             trend = "down"
-        
+
+        last_close = df["close"].iloc[-1]
+        if len(swing_lows) >= 2:
+            structure_broken_long = last_close < swing_lows[-2][1]   # 跌破前低 → 多头结构破坏
         if len(swing_highs) >= 2:
-            last_close = df["close"].iloc[-1]
-            if last_close > swing_highs[-2][1]:
-                structure_broken = True
-    
+            structure_broken_short = last_close > swing_highs[-2][1] # 突破前高 → 空头结构破坏
+
+    # structure_broken 保持向后兼容：多头或空头任一结构破坏均为 True
+    # 调用方应优先使用 structure_broken_long / structure_broken_short
+    structure_broken = structure_broken_long or structure_broken_short
+
     return {
         "trend": trend, "hh": hh, "hl": hl, "lh": lh, "ll": ll,
         "swing_highs": prices_high, "swing_lows": prices_low,
-        "structure_broken": structure_broken
+        "structure_broken": structure_broken,
+        "structure_broken_long": structure_broken_long,
+        "structure_broken_short": structure_broken_short,
     }
 
 
@@ -336,8 +345,6 @@ def _load_config_symbols() -> list[str]:
 def _load_fallback_symbols() -> list[str]:
     """兜底列表，格式严格使用 OKX 永续合约格式"""
     try:
-        import yaml
-        from pathlib import Path
         cfg_path = Path(__file__).parent.parent / "config" / "symbols.yaml"
         with open(cfg_path, "r", encoding="utf-8") as f:
             cfg = yaml.safe_load(f)

@@ -49,123 +49,6 @@ def create_exchange() -> ccxt.Exchange:
     return exchange
 
 
-# ── 开仓操作 ───────────────────────────────────
-
-def open_position(
-    exchange: ccxt.Exchange,
-    symbol: str,
-    signal: str,
-    contracts: float,
-    entry_price: float,
-    stop_loss: float,
-    take_profit: float,
-    leverage: int = None
-) -> dict:
-    """
-    开仓并同步设置止盈止损
-    signal: "long" 或 "short"
-    返回开仓结果字典
-    """
-    if leverage is None:
-        leverage = TRADING_CFG.get("default_leverage", 10)
-
-    side = "buy" if signal == "long" else "sell"
-    sl_side = "sell" if signal == "long" else "buy"
-
-    try:
-        # 1. 设置杠杆
-        exchange.set_leverage(leverage, symbol)
-        logger.info(f"已设置杠杆：{leverage}x")
-
-        # 2. 市价开仓
-        order = exchange.create_order(
-            symbol=symbol,
-            type="market",
-            side=side,
-            amount=contracts,
-            params={"reduceOnly": False}
-        )
-        logger.info(
-            f"开仓成功：{signal.upper()} {symbol} "
-            f"{contracts}张 @ 市价"
-        )
-
-        # 等待成交确认
-        time.sleep(1)
-
-        # 3. 计算保证金（用于返回结果）
-        contract_size = float(exchange.market(symbol).get("contractSize") or 1.0)
-        margin_usdt = round((contracts * contract_size * entry_price) / leverage, 2)
-
-        # 4. 设置止损单（OKX algo 条件单）
-        sl_order_id = None
-        try:
-            sl_order = exchange.create_order(
-                symbol=symbol,
-                type="conditional",
-                side=sl_side,
-                amount=contracts,
-                price=None,
-                params={
-                    "ordType": "conditional",
-                    "slTriggerPx": str(stop_loss),
-                    "slOrdPx": "-1",   # -1 表示市价触发
-                    "reduceOnly": True,
-                    "tdMode": "cross",
-                }
-            )
-            sl_order_id = sl_order.get("id", "unknown")
-            logger.info(f"止损已设置：{stop_loss} | 订单ID：{sl_order_id}")
-        except Exception as e:
-            logger.error(f"止损单挂单失败（请手动处理）：{e}")
-
-        # 4. 设置止盈单（OKX algo 条件单）
-        tp_order_id = None
-        try:
-            tp_order = exchange.create_order(
-                symbol=symbol,
-                type="conditional",
-                side=sl_side,
-                amount=contracts,
-                price=None,
-                params={
-                    "ordType": "conditional",
-                    "tpTriggerPx": str(take_profit),
-                    "tpOrdPx": "-1",   # -1 表示市价触发
-                    "reduceOnly": True,
-                    "tdMode": "cross",
-                }
-            )
-            tp_order_id = tp_order.get("id", "unknown")
-            logger.info(f"止盈已设置：{take_profit} | 订单ID：{tp_order_id}")
-        except Exception as e:
-            logger.error(f"止盈单挂单失败（请手动处理）：{e}")
-
-        result = {
-            "type": "open",
-            "status": "success",
-            "symbol": symbol,
-            "signal": signal,
-            "contracts": contracts,
-            "leverage": leverage,
-            "entry_price": entry_price,
-            "margin_usdt": margin_usdt,
-            "entry_order_id": order["id"],
-            "sl_order_id": sl_order_id,
-            "tp_order_id": tp_order_id,
-            "stop_loss": stop_loss,
-            "take_profit": take_profit,
-            "timestamp": now_cst().isoformat()
-        }
-
-        _save_trade_log(result)
-        return result
-
-    except Exception as e:
-        logger.error(f"开仓失败：{e}")
-        return {"status": "failed", "error": str(e)}
-
-
 # ── 平仓操作 ───────────────────────────────────
 
 def close_position(
@@ -205,13 +88,21 @@ def close_position(
             )
             results.append(order)
 
-        # 撤销该品种所有挂单（止盈止损）（逐个取消，OKX 不支持 cancelAllOrders）
-        open_orders = exchange.fetch_orders(symbol, params={"instType": "SWAP", "state": "live"})
-        for order in open_orders:
+        # 撤销该品种所有挂单（含 algo 止损止盈单）
+        # OKX 普通挂单和 algo 条件单需分别查询
+        for order_type_params in [
+            {"instType": "SWAP"},                          # 普通限价单
+            {"instType": "SWAP", "algoOrdType": "conditional"},  # algo 条件单（止损止盈）
+        ]:
             try:
-                exchange.cancel_order(order["id"], symbol)
-            except Exception as cancel_err:
-                logger.warning(f"撤单失败 {order['id']}: {cancel_err}")
+                open_orders = exchange.fetch_open_orders(symbol, params=order_type_params)
+                for order in open_orders:
+                    try:
+                        exchange.cancel_order(order["id"], symbol)
+                    except Exception as cancel_err:
+                        logger.warning(f"撤单失败 {order['id']}: {cancel_err}")
+            except Exception as fetch_err:
+                logger.warning(f"查询挂单失败（{order_type_params}）: {fetch_err}")
         logger.info(f"已撤销 {symbol} 所有挂单")
 
         close_result = {
@@ -421,19 +312,12 @@ def execute_from_decision(
 
                 # 如果滑点超过阈值，基于实际成交价重新计算止损止盈
                 if abs(slippage_pct) > _MAX_SLIPPAGE_PCT:
-                    logger.warning(f"滑点超过 5%，基于实际成交价重新计算止损止盈")
+                    logger.warning(f"滑点超过 {_MAX_SLIPPAGE_PCT}%，基于实际成交价重新计算止损止盈")
 
-                    # 重新计算止损止盈
-                    from dynamic_stop_take_profit import calculate_dynamic_stop_loss, calculate_take_profit
-                    from config_loader import TIMEFRAMES
-
-                    # 获取 ATR 和 ADX（从之前的计算中获取）
-                    base_tf = TIMEFRAMES[-1] if TIMEFRAMES else "15m"
-                    # 这里简化处理：使用原始止损距离的比例
+                    # 基于实际成交价平移原始止损止盈距离
                     stop_loss_distance = abs(stop_loss - entry_price)
                     take_profit_distance = abs(take_profit - entry_price)
 
-                    # 基于实际成交价调整
                     if signal == "long":
                         stop_loss = actual_entry - stop_loss_distance
                         take_profit = actual_entry + take_profit_distance
@@ -577,31 +461,17 @@ def _calculate_position(
         risk_pct      = RISK_CFG.get("risk_per_trade_pct", 1.0) / 100
         leverage      = RISK_CFG.get("leverage", 10)
 
-        # 获取账户余额（使用 free 可用余额，非 total）
+        # 获取账户可用余额（free = 已扣除保证金后的可用资金，OKX 直接返回）
         balance = exchange.fetch_balance()
         free_usdt = _get_usdt_balance(balance)
-
-        # 扣除已开仓占用的保证金
-        try:
-            open_positions = exchange.fetch_positions()
-            used_margin = sum(
-                float(p.get("initialMargin") or p.get("margin") or 0)
-                for p in open_positions
-                if float(p.get("contracts", 0)) > 0
-            )
-        except Exception as e:
-            logger.warning(f"获取已用保证金失败，按0计算：{e}")
-            used_margin = 0.0
-
-        available_usdt = max(free_usdt - used_margin, 0)
-        risk_usdt = available_usdt * risk_pct  # 每笔最大亏损金额
+        available_usdt = free_usdt
 
         logger.info(
-            f"余额状态 | free：{free_usdt:.2f} USDT | "
-            f"已用保证金：{used_margin:.2f} USDT | "
-            f"可用：{available_usdt:.2f} USDT | "
-            f"本次风险金额：{risk_usdt:.2f} USDT"
+            f"余额状态 | free（可用）：{free_usdt:.2f} USDT | "
+            f"本次风险金额：{free_usdt * risk_pct:.2f} USDT"
         )
+
+        risk_usdt = available_usdt * risk_pct  # 每笔最大亏损金额
 
         # 每张合约的风险
         price_diff = abs(entry_price - stop_loss)
@@ -641,7 +511,6 @@ def _calculate_position(
             "margin_usdt":    margin_usdt,
             "total_usdt":     free_usdt,
             "available_usdt": available_usdt,
-            "used_margin":    used_margin,
         }
 
     except Exception as e:
@@ -653,20 +522,26 @@ def _calculate_position(
 
 def _get_usdt_balance(balance: dict) -> float:
     """
-    兼容多种 fetch_balance 返回格式
+    兼容多种 fetch_balance 返回格式，统一优先取 free（可用）余额
     """
-    # 格式1: balance["USDT"]["total"]
-    if "USDT" in balance and isinstance(balance["USDT"], dict):
-        return float(balance["USDT"].get("total", 0))
-    
-    # 格式2: balance["free"]["USDT"]
+    # 格式1: balance["free"]["USDT"]
     if "free" in balance and isinstance(balance["free"], dict):
-        return float(balance["free"].get("USDT", 0))
-    
-    # 格式3: balance["total"]["USDT"]
+        val = balance["free"].get("USDT")
+        if val is not None:
+            return float(val)
+
+    # 格式2: balance["USDT"]["free"]
+    if "USDT" in balance and isinstance(balance["USDT"], dict):
+        val = balance["USDT"].get("free")
+        if val is not None:
+            return float(val)
+
+    # 格式3: balance["total"]["USDT"]（兜底，不含已用保证金）
     if "total" in balance and isinstance(balance["total"], dict):
-        return float(balance["total"].get("USDT", 0))
-    
+        val = balance["total"].get("USDT")
+        if val is not None:
+            return float(val)
+
     logger.warning(f"未找到USDT余额，balance keys: {list(balance.keys())}")
     return 0.0
 

@@ -9,6 +9,8 @@ import logging
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
+from file_lock import atomic_read_json, atomic_write_json, atomic_update_json
+
 logger = logging.getLogger(__name__)
 
 COOLDOWN_FILE = Path("logs/stop_loss_cooldown.json")
@@ -60,19 +62,11 @@ def _save_close_trade_log(symbol: str, side: str, position_data: dict, pnl: floa
         logger.error(f"保存平仓日志失败：{e}")
 
 
-def _ensure_file(file_path: Path):
-    """确保文件存在"""
-    file_path.parent.mkdir(parents=True, exist_ok=True)
-    if not file_path.exists():
-        file_path.write_text("{}")
-
-
 def save_position_snapshot(positions: list):
     """
     保存当前持仓快照（用于下次对比检测止损）
     positions: get_open_positions() 返回的持仓列表
     """
-    _ensure_file(POSITION_SNAPSHOT_FILE)
     snapshot = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "positions": {
@@ -84,7 +78,7 @@ def save_position_snapshot(positions: list):
             for p in positions
         }
     }
-    POSITION_SNAPSHOT_FILE.write_text(json.dumps(snapshot, indent=2))
+    atomic_write_json(POSITION_SNAPSHOT_FILE, snapshot)
 
 
 def detect_and_record_stop_loss(current_positions: list):
@@ -98,12 +92,9 @@ def detect_and_record_stop_loss(current_positions: list):
        - 如果是亏损状态消失 → 推断为止损触发，记录冷却
        - 如果是盈利状态消失 → 可能是止盈/手动平仓，不记录冷却
     """
-    _ensure_file(POSITION_SNAPSHOT_FILE)
-    _ensure_file(COOLDOWN_FILE)
-
     try:
-        # 读取上次快照
-        snapshot_data = json.loads(POSITION_SNAPSHOT_FILE.read_text())
+        # 读取上次快照（atomic_read_json 内部已处理文件不存在的情况）
+        snapshot_data = atomic_read_json(POSITION_SNAPSHOT_FILE, default={"positions": {}})
         last_positions = snapshot_data.get("positions", {})
 
         # 当前持仓
@@ -116,7 +107,7 @@ def detect_and_record_stop_loss(current_positions: list):
             return
 
         # 读取冷却记录
-        cooldown_data = json.loads(COOLDOWN_FILE.read_text())
+        cooldown_data = atomic_read_json(COOLDOWN_FILE, default={})
 
         for key in disappeared:
             last_pos = last_positions[key]
@@ -147,7 +138,7 @@ def detect_and_record_stop_loss(current_positions: list):
                 _save_close_trade_log(symbol, side, last_pos, pnl, "take_profit_or_manual")
 
         # 保存冷却记录
-        COOLDOWN_FILE.write_text(json.dumps(cooldown_data, indent=2))
+        atomic_write_json(COOLDOWN_FILE, cooldown_data)
 
     except Exception as e:
         logger.error(f"检测止损触发异常：{e}")
@@ -162,12 +153,11 @@ def record_stop_loss_manual(symbol: str, reason: str):
     - trade_manager 结构���仓（支撑/阻力突破）
     - market_scanner 紧急风控
     """
-    _ensure_file(COOLDOWN_FILE)
-
     try:
-        cooldown_data = json.loads(COOLDOWN_FILE.read_text())
-        cooldown_data[symbol] = datetime.now(timezone.utc).isoformat()
-        COOLDOWN_FILE.write_text(json.dumps(cooldown_data, indent=2))
+        def _add_cooldown(data: dict) -> dict:
+            data[symbol] = datetime.now(timezone.utc).isoformat()
+            return data
+        atomic_update_json(COOLDOWN_FILE, _add_cooldown, default={})
         logger.warning(f"记录止损冷却：{symbol} | 原因：{reason}")
     except Exception as e:
         logger.error(f"记录止损冷却异常：{e}")
@@ -181,10 +171,8 @@ def check_cooldown(symbol: str, cooldown_hours: int = 4) -> tuple[bool, str]:
     - (True, "无冷却记录") - 可以开仓
     - (False, "冷却中，剩余X小时") - 禁止开仓
     """
-    _ensure_file(COOLDOWN_FILE)
-
     try:
-        cooldown_data = json.loads(COOLDOWN_FILE.read_text())
+        cooldown_data = atomic_read_json(COOLDOWN_FILE, default={})
         last_stop_loss = cooldown_data.get(symbol)
 
         if not last_stop_loss:
@@ -199,8 +187,10 @@ def check_cooldown(symbol: str, cooldown_hours: int = 4) -> tuple[bool, str]:
             return False, f"止损冷却中，剩余 {remaining:.1f} 小时"
 
         # 冷却期已过，清理记录
-        del cooldown_data[symbol]
-        COOLDOWN_FILE.write_text(json.dumps(cooldown_data, indent=2))
+        def _remove_cooldown(data: dict) -> dict:
+            data.pop(symbol, None)
+            return data
+        atomic_update_json(COOLDOWN_FILE, _remove_cooldown, default={})
         return True, "冷却期已过"
 
     except Exception as e:
@@ -213,40 +203,36 @@ def _clear_position_states(symbol: str, side: str):
     清理持仓相关的状态文件
     在持仓消失时调用（无论止盈还是止损）
     """
+    key = f"{symbol}_{side}"
+
+    def _remove_key(data: dict) -> dict:
+        data.pop(key, None)
+        return data
+
     try:
-        # 清理保本状态
         breakeven_file = Path("logs/breakeven_state.json")
         if breakeven_file.exists():
-            state = json.loads(breakeven_file.read_text())
-            key = f"{symbol}_{side}"
-            if key in state:
-                del state[key]
-                breakeven_file.write_text(json.dumps(state, indent=2))
-                logger.info(f"已清理 {symbol} 的保本状态")
+            atomic_update_json(breakeven_file, _remove_key, default={})
+            logger.info(f"已清理 {symbol} 的保本状态")
+    except Exception as e:
+        logger.error(f"清理保本状态异常：{e}")
 
-        # 清理部分止盈状态
+    try:
         partial_profit_file = Path("logs/partial_profit_state.json")
         if partial_profit_file.exists():
-            state = json.loads(partial_profit_file.read_text())
-            key = f"{symbol}_{side}"
-            if key in state:
-                del state[key]
-                partial_profit_file.write_text(json.dumps(state, indent=2))
-                logger.info(f"已清理 {symbol} 的部分止盈状态")
-
+            atomic_update_json(partial_profit_file, _remove_key, default={})
+            logger.info(f"已清理 {symbol} 的部分止盈状态")
     except Exception as e:
-        logger.error(f"清理持仓状态异常：{e}")
+        logger.error(f"清理部分止盈状态异常：{e}")
 
 
 def clear_cooldown(symbol: str):
     """清除冷却记录（用于手动干预）"""
-    _ensure_file(COOLDOWN_FILE)
-
     try:
-        cooldown_data = json.loads(COOLDOWN_FILE.read_text())
-        if symbol in cooldown_data:
-            del cooldown_data[symbol]
-            COOLDOWN_FILE.write_text(json.dumps(cooldown_data, indent=2))
-            logger.info(f"已清除 {symbol} 的冷却记录")
+        def _remove(data: dict) -> dict:
+            data.pop(symbol, None)
+            return data
+        atomic_update_json(COOLDOWN_FILE, _remove, default={})
+        logger.info(f"已清除 {symbol} 的冷却记录")
     except Exception as e:
         logger.error(f"清除冷却记录异常：{e}")

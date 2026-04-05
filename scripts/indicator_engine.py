@@ -231,7 +231,7 @@ def detect_rsi_divergence(
 
         # ── 检测2：RSI底背离 ─────────────────────────────────────────
         prev_low_price = min(hist_prices)
-        prev_low_idx   = hist_prices.index(prev_low_price)
+        prev_low_idx   = min(range(len(hist_prices)), key=lambda i: hist_prices[i])
         prev_low_rsi   = hist_rsi[prev_low_idx]
         price_drop_pct = (prev_low_price - current_price) / prev_low_price
         rsi_diff       = current_rsi - prev_low_rsi  # 正值=底背离
@@ -266,7 +266,7 @@ def detect_rsi_divergence(
 
         # ── 检测2：RSI顶背离 ─────────────────────────────────────────
         prev_high_price = max(hist_prices)
-        prev_high_idx   = hist_prices.index(prev_high_price)
+        prev_high_idx   = max(range(len(hist_prices)), key=lambda i: hist_prices[i])
         prev_high_rsi   = hist_rsi[prev_high_idx]
         price_rise_pct  = (current_price - prev_high_price) / prev_high_price
         rsi_diff        = prev_high_rsi - current_rsi  # 正值=顶背离
@@ -610,7 +610,6 @@ def detect_candlestick_patterns(df: pd.DataFrame) -> list:
         if total == 0:
             continue
         if lower >= body * 2 and upper <= body * 0.5 and body > 0:
-            direction = "long" if _is_bullish(bar) else "long"  # 锤子做多
             patterns.append({"pattern": "hammer", "direction": "long",
                              "bar_index": idx, "description": f"锤子线（前{idx}根）"})
         if upper >= body * 2 and lower <= body * 0.5 and body > 0:
@@ -1124,8 +1123,8 @@ def generate_market_snapshot(
             lines.append(f"近期动能：{mom_cn}")
         lines.append(f"K线形态：{pat_cn}")
 
-        # 支撑阻力（仅最高周期显示传入值）
-        if tf == TIMEFRAMES[0] and support_levels and resistance_levels:
+        # 支撑阻力（仅入场周期显示，入场周期的支撑阻力对开仓决策最直接）
+        if tf == TIMEFRAMES[-1] and support_levels and resistance_levels:
             sup_str = " / ".join(f"{v:,.6g}" for v in support_levels[:2])
             res_str = " / ".join(f"{v:,.6g}" for v in resistance_levels[:2])
             lines.append(f"支撑：{sup_str} | 阻力：{res_str}")

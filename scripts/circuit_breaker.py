@@ -11,6 +11,7 @@ circuit_breaker.py
 
 import time
 import logging
+import threading
 from enum import Enum
 from typing import Callable, Any, Optional
 from functools import wraps
@@ -59,17 +60,19 @@ class CircuitBreaker:
         self._failure_count = 0
         self._success_count = 0
         self._last_failure_time: Optional[float] = None
-        self._lock = __import__('threading').Lock()
+        self._lock = threading.Lock()
 
     @property
     def state(self) -> CircuitState:
         with self._lock:
-            # 检查是否应该从 OPEN 转为 HALF_OPEN
-            if self._state == CircuitState.OPEN and self._should_attempt_reset():
-                self._state = CircuitState.HALF_OPEN
-                self._success_count = 0
-                logger.info(f"[熔断器 {self.name}] 进入半开状态，尝试恢复")
             return self._state
+
+    def _maybe_transition_to_half_open(self):
+        """检查是否应从 OPEN 转为 HALF_OPEN（调用前需持锁）"""
+        if self._state == CircuitState.OPEN and self._should_attempt_reset():
+            self._state = CircuitState.HALF_OPEN
+            self._success_count = 0
+            logger.info(f"[熔断器 {self.name}] 进入半开状态，尝试恢复")
 
     def _should_attempt_reset(self) -> bool:
         if self._last_failure_time is None:
@@ -86,7 +89,9 @@ class CircuitBreaker:
         异常：
             CircuitBreakerError: 熔断器打开时
         """
-        current_state = self.state
+        with self._lock:
+            self._maybe_transition_to_half_open()
+            current_state = self._state
 
         if current_state == CircuitState.OPEN:
             logger.warning(f"[熔断器 {self.name}] 熔断中，使用降级模式：{self.fallback_mode}")
@@ -96,7 +101,7 @@ class CircuitBreaker:
             result = fn(*args, **kwargs)
             self._on_success()
             return result
-        except Exception as e:
+        except Exception:
             self._on_failure()
             raise
 
@@ -166,21 +171,24 @@ class CircuitBreaker:
 
 # 全局熔断器实例（单例模式）
 _llm_circuit_breaker: Optional[CircuitBreaker] = None
+_init_lock = threading.Lock()
 
 
 def get_llm_circuit_breaker() -> CircuitBreaker:
     """获取 LLM 熔断器实例"""
     global _llm_circuit_breaker
     if _llm_circuit_breaker is None:
-        from config_loader import ANALYSIS_CFG
-        cb_cfg = ANALYSIS_CFG.get("circuit_breaker", {})
-        _llm_circuit_breaker = CircuitBreaker(
-            name="llm",
-            failure_threshold=cb_cfg.get("failure_threshold", 3),
-            success_threshold=cb_cfg.get("success_threshold", 1),
-            recovery_window=cb_cfg.get("recovery_window_sec", 300),
-            fallback_mode=cb_cfg.get("fallback_mode", "rule_only")
-        )
+        with _init_lock:
+            if _llm_circuit_breaker is None:
+                from config_loader import ANALYSIS_CFG
+                cb_cfg = ANALYSIS_CFG.get("circuit_breaker", {})
+                _llm_circuit_breaker = CircuitBreaker(
+                    name="llm",
+                    failure_threshold=cb_cfg.get("failure_threshold", 3),
+                    success_threshold=cb_cfg.get("success_threshold", 1),
+                    recovery_window=cb_cfg.get("recovery_window_sec", 300),
+                    fallback_mode=cb_cfg.get("fallback_mode", "rule_only")
+                )
     return _llm_circuit_breaker
 
 
@@ -196,9 +204,5 @@ def with_circuit_breaker(fn: Callable) -> Callable:
     @wraps(fn)
     def wrapper(*args, **kwargs):
         cb = get_llm_circuit_breaker()
-        try:
-            return cb.call(fn, *args, **kwargs)
-        except CircuitBreakerError:
-            # 熔断器打开时返回降级结果
-            return cb._get_fallback_result()
+        return cb.call(fn, *args, **kwargs)
     return wrapper

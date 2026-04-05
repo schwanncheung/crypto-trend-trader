@@ -125,7 +125,7 @@ def main():
     if unhealthy:
         logger.warning(f"发现 {len(unhealthy)} 个超亏持仓，强制平仓")
         for pos in unhealthy:
-            close_position(exchange, pos)
+            close_position(exchange, pos["symbol"], reason=f"持仓健康检查：亏损超过{FORCE_CLOSE_PCT}%")
         send_notification(f"已强制平仓 {len(unhealthy)} 个超亏持仓")
     
     # ── 第五步：逐个扫描合约 ──

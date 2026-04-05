@@ -132,9 +132,15 @@ def _build_rule_only_decision(tf_indicators: dict, direction: str, symbol: str) 
         adx=adx
     )
 
-    # 计算关键支撑/阻力位（用于止盈限制）
-    key_support = entry * 0.97 if direction == "short" else None
-    key_resistance = entry * 1.03 if direction == "long" else None
+    # 计算关键支撑/阻力位（从指标数据中取，无则置 None）
+    # rule_only 模式下没有 LLM 标注，用 price_series 的近期高低点近似
+    base_price_series = tf_indicators.get(base_tf, {}).get("price_series", [])
+    if base_price_series and len(base_price_series) >= 2:
+        key_support    = min(base_price_series) if direction == "short" else None
+        key_resistance = max(base_price_series) if direction == "long" else None
+    else:
+        key_support    = None
+        key_resistance = None
 
     take_profit, tp_reason = calculate_take_profit(
         entry, stop_loss, direction,
@@ -161,8 +167,8 @@ def _build_rule_only_decision(tf_indicators: dict, direction: str, symbol: str) 
         "trend_strength":   trend_strength,
         "volume_confirmed": volume_confirmed,
         "volume_note":      f"量比={vol_ratio:.2f}",
-        "key_support":      entry * 0.97,
-        "key_resistance":   entry * 1.03,
+        "key_support":      key_support,
+        "key_resistance":   key_resistance,
         "entry_price":      entry,
         "stop_loss":        stop_loss,
         "take_profit":      take_profit,
@@ -377,14 +383,6 @@ def analyze_with_text_llm(market_snapshot: str) -> dict:
     import os
     from circuit_breaker import get_llm_circuit_breaker
 
-    # 获取熔断器实例
-    cb = get_llm_circuit_breaker()
-
-    # 检查熔断器状态
-    if cb.state.value == "open":
-        logger.warning(f"[熔断器] LLM 熔断中，返回降级结果")
-        return cb._get_fallback_result()
-
     text_cfg = _get_text_llm_cfg()
     primary_model  = text_cfg.get("primary_model",  "qwen3.5-plus")
     fallback_model = text_cfg.get("fallback_model", "qwen-max")
@@ -395,38 +393,39 @@ def analyze_with_text_llm(market_snapshot: str) -> dict:
 
     api_key = os.getenv("DASHSCOPE_API_KEY", "")
     client  = OpenAI(api_key=api_key, base_url=base_url)
-
-    prompt = TEXT_ANALYSIS_PROMPT.format(market_snapshot=market_snapshot)
+    prompt  = TEXT_ANALYSIS_PROMPT.format(market_snapshot=market_snapshot)
     messages = [{"role": "user", "content": prompt}]
 
-    last_error = None
-    for model_name in [primary_model, fallback_model]:
-        try:
-            logger.info(f"[文本 LLM] 调用 {model_name} 分析市场快照...")
-            resp = client.chat.completions.create(
-                model=model_name,
-                messages=messages,
-                max_tokens=max_tokens,
-                timeout=timeout,
-            )
-            text = resp.choices[0].message.content or ""
-            result = parse_ai_response(text)
-            result["_model_used"] = model_name
-            result["_analysis_mode"] = "text_llm"
-            logger.info(f"[文本 LLM] {model_name} 返回：signal={result.get('signal')}, "
-                        f"confidence={result.get('confidence')}, "
-                        f"strength={result.get('signal_strength')}")
-            # 成功返回，重置熔断器计数
-            cb._on_success()
-            return result
-        except Exception as e:
-            last_error = e
-            logger.warning(f"[文本 LLM] {model_name} 调用失败：{e}")
+    def _call_llm_with_fallback():
+        last_error = None
+        for model_name in [primary_model, fallback_model]:
+            try:
+                logger.info(f"[文本 LLM] 调用 {model_name} 分析市场快照...")
+                resp = client.chat.completions.create(
+                    model=model_name,
+                    messages=messages,
+                    max_tokens=max_tokens,
+                    timeout=timeout,
+                )
+                text = resp.choices[0].message.content or ""
+                result = parse_ai_response(text)
+                result["_model_used"] = model_name
+                result["_analysis_mode"] = "text_llm"
+                logger.info(f"[文本 LLM] {model_name} 返回：signal={result.get('signal')}, "
+                            f"confidence={result.get('confidence')}, "
+                            f"strength={result.get('signal_strength')}")
+                return result
+            except Exception as e:
+                last_error = e
+                logger.warning(f"[文本 LLM] {model_name} 调用失败：{e}")
+        raise RuntimeError(f"所有文本模型均失败：{last_error}")
 
-    logger.error("[文本 LLM] 所有文本模型均失败")
-    # 记录失败到熔断器
-    cb._on_failure()
-    return _default_wait_response(f"文本 LLM 所有模型均失败：{last_error}")
+    cb = get_llm_circuit_breaker()
+    try:
+        return cb.call(_call_llm_with_fallback)
+    except Exception as e:
+        logger.error(f"[文本 LLM] 熔断器调用失败：{e}")
+        return _default_wait_response(str(e))
 
 
 

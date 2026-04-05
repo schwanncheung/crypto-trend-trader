@@ -128,8 +128,8 @@ def calculate_take_profit(
     # 检查关键位限制
     key_level = None
     if signal == "long" and key_resistance:
-        # 做多：止盈不能超过阻力位
-        if 0 < key_resistance < entry_price * 1.5:  # 阻力位合理性检查
+        # 做多：止盈不能超过阻力位，且阻力位必须在入场价上方
+        if entry_price < key_resistance < entry_price * 1.5:  # 阻力位合理性检查
             buffer = key_resistance * 0.003  # 0.3% 缓冲
             key_level = key_resistance - buffer
     elif signal == "short" and key_support:
@@ -142,7 +142,11 @@ def calculate_take_profit(
     adx_scaling_cfg = TRADING_CFG.get("stop_loss_adx_scaling", {})
     if adx_scaling_cfg.get("enabled", False) and adx is not None and adx >= 50:
         # ADX >= 50 的强趋势，允许止盈距离 × 1.3
-        extended_tp = entry_price + (base_tp - entry_price) * 1.3 if signal == "long" else entry_price - (entry_price - base_tp) * 1.3
+        tp_distance = abs(base_tp - entry_price)
+        if signal == "long":
+            extended_tp = entry_price + tp_distance * 1.3
+        else:
+            extended_tp = entry_price - tp_distance * 1.3
         logger.info(f"ADX={adx:.1f} 强趋势，止盈距离可放宽 30%")
     else:
         extended_tp = base_tp
