@@ -2,6 +2,8 @@
 risk_filter.py
 多重风控过滤模块
 在 AI 决策基础上，叠加账户级别风控检查
+
+⚠️ 修改风控逻辑后，请同步更新 CLAUDE.md「核心算法」章节
 """
 
 import logging
