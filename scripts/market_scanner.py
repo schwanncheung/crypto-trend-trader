@@ -56,6 +56,7 @@ from notifier import send_notification
 from stop_loss_tracker import (
     save_position_snapshot,
     detect_and_record_stop_loss,
+    check_cooldown,
 )
 
 
@@ -65,9 +66,9 @@ def main():
     logger.info("🚀 Market Scanner 启动")
     
     # ── 第一步：初始化 & 动态获取合约列表 ──
-    logger.info("=" * 50)
+    logger.info("=" * 30)
     logger.info("第一步：初始化 & 获取合约列表")
-    logger.info("=" * 50)
+    logger.info("=" * 30)
     
     exchange = create_exchange()
     balance_cache = {}
@@ -88,9 +89,9 @@ def main():
     # 注：日线趋势过滤已由 indicator_engine.rule_engine_filter 在逐品种分析时处理
     
     # ── 第二步：日亏损预检 ──
-    logger.info("=" * 50)
+    logger.info("=" * 30)
     logger.info("第二步：日亏损预检")
-    logger.info("=" * 50)
+    logger.info("=" * 30)
     
     if not check_daily_loss(exchange, balance_cache):
         send_notification("今日亏损超限，已停止自动交易")
@@ -98,9 +99,9 @@ def main():
         return
     
     # ── 第三步：持仓数量预检 & 止损检测 ──
-    logger.info("=" * 50)
+    logger.info("=" * 30)
     logger.info("第三步：持仓数量预检 & 止损检测")
-    logger.info("=" * 50)
+    logger.info("=" * 30)
 
     positions = get_open_positions(exchange)
     current_position_count = len(positions)
@@ -117,9 +118,9 @@ def main():
         logger.info(f"当前持仓：{current_position_count}/{MAX_POSITIONS}")
     
     # ── 第四步：持仓健康检查 ──
-    logger.info("=" * 50)
+    logger.info("=" * 30)
     logger.info("第四步：持仓健康检查")
-    logger.info("=" * 50)
+    logger.info("=" * 30)
     
     unhealthy = check_position_health(exchange, max_loss_pct=FORCE_CLOSE_PCT)
     if unhealthy:
@@ -129,9 +130,9 @@ def main():
         send_notification(f"已强制平仓 {len(unhealthy)} 个超亏持仓")
     
     # ── 第五步：逐个扫描合约 ──
-    logger.info("=" * 50)
+    logger.info("=" * 30)
     logger.info("第五步：扫描合约")
-    logger.info("=" * 50)
+    logger.info("=" * 30)
     
     scanned = 0
     rule_filtered = 0   # 规则引擎拒绝的数量（横盘/趋势不对齐）
@@ -165,6 +166,13 @@ def main():
                 already_held = True
                 break
         if already_held:
+            continue
+
+        # 冷却期检查（止盈/止损后禁止立即重新开仓）
+        cooldown_hours = RISK_CFG.get("stop_loss_cooldown_hours", 4)
+        cd_passed, cd_reason = check_cooldown(symbol, cooldown_hours)
+        if not cd_passed:
+            logger.info(f"⏭️  {symbol} {cd_reason}，跳过扫描")
             continue
 
         logger.info(f"\n--- 扫描 [{idx+1}/{len(symbols)}] {symbol} ---")
@@ -296,7 +304,7 @@ def main():
             continue
     
     # ── 第六步：扫描完成 ──
-    logger.info("=" * 50)
+    logger.info("=" * 30)
     
     positions = get_open_positions(exchange)
     final_position_count = len(positions)

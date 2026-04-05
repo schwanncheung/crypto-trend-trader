@@ -90,52 +90,6 @@ def check_signal_quality(decision: dict) -> tuple[bool, str]:
     return True, "信号质量检查通过"
 
 
-def check_account_risk(
-    exchange,
-    symbol: str,
-    decision: dict
-) -> tuple[bool, str]:
-    """
-    检查账户级别风控
-    - 止损冷却期检查
-    - 当日亏损是否超限
-    - 当前持仓数量是否超限
-    - 是否已有同方向持仓
-    """
-    try:
-        # 1. 止损冷却期检查
-        from stop_loss_tracker import check_cooldown
-        cooldown_hours = RISK_CFG.get("stop_loss_cooldown_hours", 4)
-        passed, reason = check_cooldown(symbol, cooldown_hours)
-        if not passed:
-            return False, reason
-
-        # 2. 检查当前持仓数量
-        positions = exchange.fetch_positions([symbol])
-        open_positions = [
-            p for p in positions
-            if float(p.get("contracts", 0)) > 0
-        ]
-
-        max_positions = RISK_CFG.get("max_open_positions", 3)
-        if len(open_positions) >= max_positions:
-            return False, f"持仓数量已达上限：{len(open_positions)}/{max_positions}"
-
-        # 3. 检查是否已有同品种持仓
-        symbol_positions = [
-            p for p in open_positions
-            if p.get("symbol") == symbol
-        ]
-        if symbol_positions:
-            return False, f"{symbol} 已有持仓，跳过重复开仓"
-
-        return True, "账户风控检查通过"
-
-    except Exception as e:
-        logger.error(f"账户风控检查异常：{e}")
-        return False, f"账户风控检查异常：{e}"
-
-
 def check_daily_loss(
     exchange,
     balance_cache: dict
@@ -213,24 +167,6 @@ def _check_warning_reduction(warning: str) -> float:
     return 1.0
 
 
-def _get_free_usdt(balance: dict) -> float:
-    """兼容多种 fetch_balance 返回格式，统一取 free（可用）余额"""
-    if "free" in balance and isinstance(balance["free"], dict):
-        val = balance["free"].get("USDT")
-        if val is not None:
-            return float(val)
-    if "USDT" in balance and isinstance(balance["USDT"], dict):
-        val = balance["USDT"].get("free")
-        if val is not None:
-            return float(val)
-    if "total" in balance and isinstance(balance["total"], dict):
-        val = balance["total"].get("USDT")
-        if val is not None:
-            return float(val)
-    logger.warning(f"未找到USDT余额，balance keys: {list(balance.keys())}")
-    return 0.0
-
-
 def calculate_position_size(
     balance_usdt: float,
     entry_price: float,
@@ -300,89 +236,6 @@ def calculate_position_size(
         "leverage": leverage,
         "warning_reduced": reduction < 1.0
     }
-
-
-def run_full_risk_check(
-    exchange,
-    symbol: str,
-    decision: dict,
-    balance_cache: dict
-) -> tuple[bool, str, dict]:
-    """
-    执行完整风控检查流程
-    返回 (是否通过, 原因, 仓位信息)
-    """
-    # 1. 信号质量检查（含 trend_strength）
-    passed, reason = check_signal_quality(decision)
-    if not passed:
-        return False, reason, {}
-
-    # 2. ADX 边缘区间加严：ADX 处于 20-25 时要求信号强度提高到 8
-    adx_edge_min = TRADING_CFG.get("adx_edge_min", 20)
-    adx_edge_max = TRADING_CFG.get("adx_edge_max", 25)
-    adx_edge_min_ss = TRADING_CFG.get("adx_edge_min_signal_strength", 8)
-    anchor_adx = decision.get("_anchor_adx", None)
-    if anchor_adx is not None:
-        try:
-            adx_val = float(anchor_adx)
-            if adx_edge_min <= adx_val < adx_edge_max:
-                ss = decision.get("signal_strength", 0)
-                if ss < adx_edge_min_ss:
-                    return False, f"ADX边缘区间({adx_val:.1f})，信号强度需≥{adx_edge_min_ss}，当前{ss}", {}
-                logger.info(f"ADX边缘区间({adx_val:.1f})，信号强度{ss}≥{adx_edge_min_ss}，通过加严检查")
-        except (TypeError, ValueError):
-            pass
-
-    # 3. 日亏损检查
-    passed, reason = check_daily_loss(exchange, balance_cache)
-    if not passed:
-        return False, reason, {}
-
-    # 4. 账户持仓检查
-    passed, reason = check_account_risk(exchange, symbol, decision)
-    if not passed:
-        return False, reason, {}
-
-    # 5. 计算仓位（传入 warning 自动折减高波动仓位）
-    balance = exchange.fetch_balance()
-    balance_usdt = _get_free_usdt(balance)
-
-    # 获取合约面值和市价单张数上限（避免低价小币超限）
-    contract_size = 1.0
-    max_mkt_sz = None
-    try:
-        market = exchange.market(symbol)
-        contract_size = float(market.get("contractSize") or 1.0)
-        # OKX market info 中的 maxMktSz（市价单最大张数）
-        info = market.get("info", {})
-        if info.get("maxMktSz"):
-            max_mkt_sz = float(info["maxMktSz"])
-        logger.info(
-            f"合约参数 | contractSize={contract_size} | maxMktSz={max_mkt_sz}"
-        )
-    except Exception as e:
-        logger.warning(f"获取合约参数失败，使用默认值：{e}")
-
-    warning = decision.get("warning") or ""
-    position = calculate_position_size(
-        balance_usdt=balance_usdt,
-        entry_price=decision.get("entry_price", 0),
-        stop_loss=decision.get("stop_loss", 0),
-        warning=warning,
-        contract_size=contract_size,
-        max_mkt_sz=max_mkt_sz,
-    )
-
-    if not position:
-        return False, "仓位计算失败", {}
-
-    reduced_note = "（warning折减50%）" if position.get("warning_reduced") else ""
-    logger.info(
-        f"风控全部通过{reduced_note} | 仓位：{position['contracts']} 张 | "
-        f"保证金：{position['margin_usdt']} USDT | "
-        f"最大风险：{position['risk_usdt']} USDT"
-    )
-    return True, f"风控全部通过{reduced_note}", position
 
 
 def _parse_rr(rr_str: str) -> float:
