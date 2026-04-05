@@ -51,7 +51,7 @@ def cmd_download(args: argparse.Namespace, config: dict) -> None:
 
     symbols = args.symbols or config.get("symbols", [])
     # --timeframes 未指定时从 backtest.yaml 的 download_timeframes 读取，再兜底默认值
-    timeframes = args.timeframes or config["backtest"].get("download_timeframes", ["15m", "30m", "1h", "4h"])
+    timeframes = args.timeframes or config["backtest"].get("download_timeframes", ["5m", "15m", "1h"])
     start = args.start or config["backtest"].get("start_date", "2024-01-01")
     # --end 未指定时默认今天，不从 backtest.yaml 取，避免固定值截断下载范围
     end = args.end or date.today().isoformat()
@@ -89,7 +89,7 @@ def cmd_backtest(args: argparse.Namespace, config: dict) -> None:
     feed = DataFeed(
         cache_dir=data_dir,
         symbols=config.get("symbols") or _discover_symbols(data_dir),
-        timeframes=config.get("timeframes", ["1h", "30m", "15m"]),
+        timeframes=config.get("timeframes", ["1h", "15m", "5m"]),
         start_date=config["backtest"]["start_date"],
         end_date=config["backtest"]["end_date"],
     )

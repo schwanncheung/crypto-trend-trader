@@ -26,7 +26,7 @@ class RuleOnlyMock:
     _use_raw_indicators = True  # 告知 pipeline 传入原始 tf_indicators
 
     def __init__(self, config: dict):
-        self.timeframes = config.get("timeframes", ["1h", "30m", "15m"])
+        self.timeframes = config.get("timeframes", ["1h", "15m", "5m"])
 
     def analyze(
         self,

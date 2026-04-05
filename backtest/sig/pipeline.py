@@ -46,7 +46,7 @@ class SignalPipeline:
         """
         self.config   = config
         self.ai_mock  = ai_mock
-        self.timeframes = config.get("timeframes", ["1h", "30m", "15m"])
+        self.timeframes = config.get("timeframes", ["1h", "15m", "5m"])
 
         # 从配置读取 K 线数量限制（与生产保持一致）
         kline_limits_cfg = config.get("kline", {}).get("limits", {})

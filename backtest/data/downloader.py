@@ -283,8 +283,8 @@ def main():
     )
     parser.add_argument(
         "--timeframes", nargs="+",
-        default=["15m", "30m", "1h"],
-        help="时间框架列表，如 15m 30m 1h"
+        default=["5m", "15m", "1h"],
+        help="时间框架列表，如 5m 15m 1h"
     )
     parser.add_argument(
         "--start", default="2024-01-01",

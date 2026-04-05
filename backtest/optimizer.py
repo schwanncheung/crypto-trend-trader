@@ -93,7 +93,7 @@ def _run_single(args: tuple) -> dict | None:
         feed = DataFeed(
             cache_dir=data_dir,
             symbols=symbols,
-            timeframes=cfg.get("timeframes", ["1h", "30m", "15m"]),
+            timeframes=cfg.get("timeframes", ["1h", "15m", "5m"]),
             start_date=cfg["backtest"]["start_date"],
             end_date=cfg["backtest"]["end_date"],
         )
