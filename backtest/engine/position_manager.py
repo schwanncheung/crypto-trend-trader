@@ -547,8 +547,10 @@ class PositionManager:
         """
         检测支撑/阻力突破（复用生产 calculate_support_resistance）。
 
-        多头：价格跌破支撑位
-        空头：价格突破阻力位
+        多头：价格跌破支撑位（用 bar 的 low 判断）
+        空头：价格突破阻力位（用 bar 的 high 判断）
+
+        注意：使用 high/low 而非 close，与止损检测保持一致。
         """
         structure_df = multi_tf_data.get(self.structure_check_timeframe)
         if structure_df is None or structure_df.empty or len(structure_df) < 10:
@@ -565,22 +567,25 @@ class PositionManager:
             logger.debug(f"支撑阻力计算异常 {position.symbol}: {e}")
             return None
 
-        current_price = float(structure_df.iloc[-1]["close"])
+        # 使用 bar 的 high/low，与止损检测保持一致
+        last_bar = structure_df.iloc[-1]
+        bar_high = float(last_bar["high"])
+        bar_low = float(last_bar["low"])
 
         # 优先使用开仓时AI标注的关键位
         ai_support = position.key_support
         ai_resistance = position.key_resistance
 
-        # 多头：检测跌破支撑
+        # 多头：检测跌破支撑（用 low 判断）
         if position.side == 'long':
             nearest_support = ai_support if ai_support else (supports[0] if supports else None)
             if nearest_support:
                 buffer = 1 - self.support_buffer_pct / 100
-                if current_price < nearest_support * buffer:
-                    price = self._apply_cost(current_price, position.side, 'close')
+                if bar_low < nearest_support * buffer:
+                    price = self._apply_cost(bar_low, position.side, 'close')
                     logger.info(
                         f"  支撑跌破 {position.symbol} [多头] "
-                        f"支撑={nearest_support:.6g} 当前价={current_price:.4f}"
+                        f"支撑={nearest_support:.6g} bar_low={bar_low:.4f}"
                     )
                     return {
                         "event": "close",
@@ -589,16 +594,16 @@ class PositionManager:
                         "ratio": 1.0,
                     }
 
-        # 空头：检测突破阻力
+        # 空头：检测突破阻力（用 high 判断）
         elif position.side == 'short':
             nearest_resistance = ai_resistance if ai_resistance else (resistances[0] if resistances else None)
             if nearest_resistance:
                 buffer = 1 + self.support_buffer_pct / 100
-                if current_price > nearest_resistance * buffer:
-                    price = self._apply_cost(current_price, position.side, 'close')
+                if bar_high > nearest_resistance * buffer:
+                    price = self._apply_cost(bar_high, position.side, 'close')
                     logger.info(
                         f"  阻力突破 {position.symbol} [空头] "
-                        f"阻力={nearest_resistance:.6g} 当前价={current_price:.4f}"
+                        f"阻力={nearest_resistance:.6g} bar_high={bar_high:.4f}"
                     )
                     return {
                         "event": "close",
