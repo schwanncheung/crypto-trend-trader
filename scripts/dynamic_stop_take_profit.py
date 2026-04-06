@@ -36,7 +36,14 @@ def calculate_dynamic_stop_loss(
     adx: float = None
 ) -> tuple[float, float]:
     """
-    根据 ADX 动态计算止损距离
+    根据 ADX 动态计算止损距离（重新设计版）。
+
+    核心原则：
+    - ATR 止损是主逻辑（根据市场波动自适应）
+    - 百分比上限是风控红线（防止极端情况）
+    - 当两者冲突时，根据波动合理性决定：
+      1. 止损距离合理但超过上限 → 允许使用 ATR 止损
+      2. 止损距离异常 → 拒绝信号
 
     参数：
         entry_price: 入场价格
@@ -46,8 +53,9 @@ def calculate_dynamic_stop_loss(
 
     返回：
         (stop_loss, multiplier_used)
+        如果止损距离异常，返回 (None, 0)
     """
-    base_multiplier = _TRADING_CFG.get("stop_loss_atr_multiplier", 2.5)
+    base_multiplier = _TRADING_CFG.get("stop_loss_atr_multiplier", 2.0)
     adx_scaling_cfg = _TRADING_CFG.get("stop_loss_adx_scaling", {})
 
     # 默认使用基础倍数
@@ -61,14 +69,12 @@ def calculate_dynamic_stop_loss(
         strong_multiplier = adx_scaling_cfg.get("strong_trend_multiplier", 1.5)
 
         if adx >= extreme_threshold:
-            # 极强趋势：止损距离 × 2.0
             multiplier = base_multiplier * extreme_multiplier
             logger.info(
                 f"ADX={adx:.1f} 极强趋势，止损倍数调整为 "
                 f"{base_multiplier} × {extreme_multiplier} = {multiplier:.2f}"
             )
         elif adx >= strong_threshold:
-            # 强趋势：止损距离 × 1.5
             multiplier = base_multiplier * strong_multiplier
             logger.info(
                 f"ADX={adx:.1f} 强趋势，止损倍数调整为 "
@@ -79,30 +85,41 @@ def calculate_dynamic_stop_loss(
     else:
         logger.info(f"使用基础止损倍数 {base_multiplier}")
 
-    # 计算止损价格
-    if signal == "long":
-        stop_loss = entry_price - multiplier * atr
-    else:  # short
-        stop_loss = entry_price + multiplier * atr
+    # 计算 ATR 止损距离
+    atr_stop_distance = multiplier * atr
+    atr_stop_pct = atr_stop_distance / entry_price
 
-    # ── 硬性上限检查（风控红线）──────────────────────
+    # ── 止损合理性检查（放宽版）──────────────────────
     max_stop_loss_pct = _TRADING_CFG.get("max_stop_loss_pct", 3.0) / 100
-    stop_loss_distance = abs(stop_loss - entry_price)
-    stop_loss_distance_pct = stop_loss_distance / entry_price
+    # 允许的上限倍数（可配置，默认 2.5 倍，即 2.5% × 2.5 = 6.25%）
+    max_stop_loss_multiplier = _TRADING_CFG.get("max_stop_loss_multiplier", 2.5)
+    max_allowed_pct = max_stop_loss_pct * max_stop_loss_multiplier
 
-    if stop_loss_distance_pct > max_stop_loss_pct:
-        # 超过上限，强制收缩到上限
+    if atr_stop_pct > max_allowed_pct:
+        # 止损距离异常（可能是极端波动或数据错误），拒绝信号
         logger.warning(
-            f"止损距离 {stop_loss_distance_pct*100:.2f}% 超过上限 {max_stop_loss_pct*100:.1f}%，"
-            f"强制收缩到上限"
+            f"止损距离 {atr_stop_pct*100:.2f}% 远超上限 {max_allowed_pct*100:.1f}%，"
+            f"品种波动异常，拒绝信号"
         )
-        if signal == "long":
-            stop_loss = entry_price * (1 - max_stop_loss_pct)
-        else:  # short
-            stop_loss = entry_price * (1 + max_stop_loss_pct)
+        return None, 0
 
-        logger.info(f"止损价格已调整为：{stop_loss:.6g}（距离：{max_stop_loss_pct*100:.1f}%）")
+    # 计算止损价格（使用 ATR 止损，不再强制收缩）
+    if signal == "long":
+        stop_loss = entry_price - atr_stop_distance
+    else:  # short
+        stop_loss = entry_price + atr_stop_distance
 
+    # 记录警告但允许交易
+    if atr_stop_pct > max_stop_loss_pct:
+        logger.warning(
+            f"止损距离 {atr_stop_pct*100:.2f}% 超过基准上限 {max_stop_loss_pct*100:.1f}%，"
+            f"但波动合理，允许交易（ATR倍数={multiplier:.1f}）"
+        )
+
+    logger.info(
+        f"止损计算：ATR={atr:.6g}, 倍数={multiplier:.1f}, "
+        f"止损距离={atr_stop_pct*100:.2f}%, 止损价={stop_loss:.6g}"
+    )
     return stop_loss, multiplier
 
 

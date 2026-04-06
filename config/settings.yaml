@@ -73,8 +73,9 @@ analysis:
 
     # 2.1 基础 RSI 极值过滤（可被 ADX 豁免）
     # 只检查锚周期 RSI，小周期波动大不检查
-    rsi_overbought: 80                  # RSI 超买线（做多保护）
-    rsi_oversold: 20                    # RSI 超卖线（做空保护）
+    rsi_overbought: 70                  # RSI 超买线（做多保护）← 从 80 收紧
+    rsi_oversold: 25                    # RSI 超卖线（做空保护）← 从 20 收紧
+
 
     # 2.2 ADX 豁免基础 RSI 过滤（防止强趋势 RSI 钝化漏单）
     rsi_adx_exemption_enabled: true
@@ -135,7 +136,7 @@ trading:
   min_signal_strength: 6        # 最低信号强度（1-10）
   min_trend_strength: 6         # 最低趋势强度（1-10）
   min_rr_ratio: 1.5             # 最低盈亏比，低于此值不开仓
-  target_rr_ratio: 1.2          # 止盈设置：止盈距离 = 止损距离 × 此倍数
+  target_rr_ratio: 1.8          # 止盈设置：止盈距离 = 止损距离 × 此倍数
 
   # ADX 边缘区间加严（ADX 处于 20-25 时提高信号强度门槛）
   adx_edge_min: 20
@@ -154,7 +155,7 @@ trading:
   # 动态止损（止损距离 = ATR × 倍数，倍数随 ADX 动态调整）
   stop_loss_atr_multiplier: 2.0  # ATR 基础倍数
   stop_loss_adx_scaling:
-    enabled: true
+    enabled: false
     strong_trend_threshold: 40   # ADX >= 此值视为强趋势
     strong_trend_multiplier: 1.2 # 强趋势止损倍数（40 <= ADX < 60）
     extreme_trend_threshold: 60  # ADX >= 此值视为极强趋势
@@ -164,7 +165,8 @@ trading:
   trailing_stop_atr_multiplier: 1.5  # 跟踪止损 ATR 倍数（比开仓止损更紧）
 
   # 止损止盈硬性上限（风控红线）
-  max_stop_loss_pct: 2.0         # 止损距离上限（%）
+  max_stop_loss_pct: 2.5         # 止损距离基准上限（%）
+  max_stop_loss_multiplier: 2.5  # 止损距离允许放大倍数（实际上限 = max_stop_loss_pct × 此值）
   max_take_profit_pct: 5.0       # 止盈距离上限（%）
 
 # ── 账户风控 ─────────────────────────────────────────────────────────
@@ -172,7 +174,7 @@ risk:
   leverage: 10                   # 杠杆倍数（与 trading.default_leverage 保持一致）
   risk_per_trade_pct: 1.0        # 单笔最大风险占可用余额比例（%）
   max_open_positions: 5          # 最大同时持仓数
-  max_loss_pct: -5.0             # 日亏损上限（%），超过后当日停止自动交易
+  max_loss_pct: -10.0             # 日亏损上限（%），超过后当日停止自动交易
   stop_loss_cooldown_hours: 4    # 止损后冷却时间（小时），防止短期内重复开仓同一合约
   take_profit_cooldown_minutes: 30  # 止盈后冷却时间（分钟），防止刚止盈又立即重新开仓
 

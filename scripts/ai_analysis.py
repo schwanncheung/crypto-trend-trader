@@ -253,6 +253,14 @@ def _build_rule_only_decision(tf_indicators: dict, direction: str, symbol: str) 
         adx=adx
     )
 
+    # 止损距离异常时拒绝信号
+    if stop_loss is None:
+        return {
+            "signal": "wait",
+            "confidence": "low",
+            "reason": f"止损距离异常（波动过大），跳过信号",
+        }
+
     # 计算关键支撑/阻力位（从指标数据中取，无则置 None）
     # rule_only 模式下没有 LLM 标注，用 price_series 的近期高低点近似
     signal_price_series = signal_ind.get("price_series", [])
@@ -302,6 +310,7 @@ def _build_rule_only_decision(tf_indicators: dict, direction: str, symbol: str) 
         "divergence_risk":  False,
         "structure_broken": False,
         "confidence":       confidence,
+        "entry_rsi":        rsi,  # 新增：入场时 RSI 值
         "reason":           (
             f"规则引擎信号：{direction}，信号强度={signal_strength}/10，"
             f"ADX={adx:.1f}，EMA对齐={ema_align_ok}/{total_tfs}，"
@@ -627,6 +636,11 @@ def analyze_symbol(
                 atr = base_ind.get("atr", entry * 0.01)
                 adx = anchor_ind.get("adx", {}).get("adx", 0) if isinstance(anchor_ind.get("adx"), dict) else float(anchor_ind.get("adx", 0) or 0)
 
+                # 添加入场 RSI（用于风控检查）
+                entry_rsi = base_ind.get("rsi", None)
+                if entry_rsi is not None:
+                    result["entry_rsi"] = entry_rsi
+
                 # 动态止损
                 stop_loss, multiplier_used = calculate_dynamic_stop_loss(
                     entry_price=entry,
@@ -634,6 +648,13 @@ def analyze_symbol(
                     signal=signal,
                     adx=adx
                 )
+
+                # 止损距离异常时拒绝信号
+                if stop_loss is None:
+                    result["signal"] = "wait"
+                    result["reason"] = "止损距离异常（波动过大），跳过信号"
+                    logger.info(f"[分析入口] {symbol} 止损异常，信号降级为 wait")
+                    return result
 
                 # 智能止盈（考虑关键位）
                 key_support = result.get("key_support")

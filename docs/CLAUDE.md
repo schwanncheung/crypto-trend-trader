@@ -71,26 +71,48 @@ trade_manager.py (持仓管理，每4分钟)
 
 ```python
 # 止损距离 = ATR × multiplier
-# multiplier 随 ADX 动态调整：
+# multiplier 随 ADX 动态调整（需启用 stop_loss_adx_scaling.enabled）：
 #   ADX < 40:  2.0x（基础）
 #   ADX 40-60: 2.4x（强趋势）
 #   ADX ≥ 60:  3.0x（极强趋势）
-# 硬性上限：max_stop_loss_pct = 2.0%
 
-# ATR 跟踪止损（优化2，第一批止盈后启用）：
+# 止损合理性检查（不强制收缩）：
+# 实际上限 = max_stop_loss_pct × max_stop_loss_multiplier
+# 默认 2.5% × 2.5 = 6.25%
+# 止损距离 < 实际上限 → 使用完整 ATR 止损
+# 止损距离 > 实际上限 → 拒绝信号（品种波动异常）
+
+# ATR 跟踪止损（第一批止盈后启用）：
 # 跟踪止损 = 当前价 ± ATR × 1.5（多头减，空头加）
 # 仅向有利方向移动，不回退
 # 状态持久化：logs/trailing_stop_state.json
 ```
 
-### 3.4 仓位计算
+### 3.4 信号质量检查 (`risk_filter.py:check_signal_quality`)
+
+```python
+# 检查项（全部通过才允许交易）：
+# 1. 信号方向有效（long/short）
+# 2. 置信度 = high
+# 3. 信号强度 >= min_signal_strength
+# 4. 趋势强度 >= min_trend_strength
+# 5. 成交量确认
+# 6. 盈亏比 >= min_rr_ratio
+# 7. 无背离风险
+# 8. 结构未打破
+# 9. RSI 极值保护：
+#    做多：entry_rsi < rsi_overbought（默认 70）
+#    做空：entry_rsi > rsi_oversold（默认 25）
+```
+
+### 3.5 仓位计算
 
 ```python
 contracts = risk_usdt / (止损点数 × 合约面值)
 # risk_usdt = 余额 × max_position_pct(15%) × warning_reduction
 ```
 
-### 3.5 结构平仓 (`fetch_kline.py:detect_trend_structure`)
+### 3.6 结构平仓 (`fetch_kline.py:detect_trend_structure`)
 
 ```
 返回字段：
@@ -101,7 +123,7 @@ contracts = risk_usdt / (止损点数 × 合约面值)
 trade_manager 按持仓方向选择对应字段，避免多头创新高时被误平仓
 ```
 
-### 3.6 持仓管理出场逻辑 (`trade_manager.py`)
+### 3.7 持仓管理出场逻辑 (`trade_manager.py`)
 
 ```
 出场优先级（从高到低）：

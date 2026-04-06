@@ -14,7 +14,7 @@ import sys
 import yaml
 
 # 配置日志：同时输出到控制台和文件
-from config_loader import check_env, RISK_CFG, TRADING_CFG, setup_logging, now_cst_str
+from config_loader import check_env, RISK_CFG, TRADING_CFG, setup_logging, now_cst_str, CFG
 check_env()
 setup_logging("risk_filter")
 logger = logging.getLogger(__name__)
@@ -22,33 +22,42 @@ logger = logging.getLogger(__name__)
 # 模块级配置副本（可被 reload_config_from_dict 更新）
 _TRADING_CFG = TRADING_CFG.copy() if TRADING_CFG else {}
 _RISK_CFG = RISK_CFG.copy() if RISK_CFG else {}
+_RULE_CFG = CFG.get("analysis", {}).get("rule_filter", {}).copy() if CFG else {}
 
 # 全局变量，可被 reload 更新
 _MIN_TREND_STRENGTH = _TRADING_CFG.get("min_trend_strength", 7)
 _MIN_SIGNAL_STRENGTH = _TRADING_CFG.get("min_signal_strength", 7)
 _MIN_RR_RATIO = _TRADING_CFG.get("min_rr_ratio", 2.0)
+_RSI_OVERBOUGHT = _RULE_CFG.get("rsi_overbought", 70)
+_RSI_OVERSOLD = _RULE_CFG.get("rsi_oversold", 30)
 
 
 def reload_config_from_dict(config: dict) -> None:
     """
     从外部配置字典重新加载参数（回测系统 override 机制）。
     """
-    global _MIN_TREND_STRENGTH, _MIN_SIGNAL_STRENGTH, _MIN_RR_RATIO, _TRADING_CFG, _RISK_CFG
+    global _MIN_TREND_STRENGTH, _MIN_SIGNAL_STRENGTH, _MIN_RR_RATIO, _TRADING_CFG, _RISK_CFG, _RULE_CFG
+    global _RSI_OVERBOUGHT, _RSI_OVERSOLD
 
     trading_cfg = config.get("trading", {})
     risk_cfg = config.get("risk", {})
+    rule_cfg = config.get("analysis", {}).get("rule_filter", {})
 
     _TRADING_CFG.update(trading_cfg)
     _RISK_CFG.update(risk_cfg)
+    _RULE_CFG.update(rule_cfg)
 
     _MIN_TREND_STRENGTH = _TRADING_CFG.get("min_trend_strength", _MIN_TREND_STRENGTH)
     _MIN_SIGNAL_STRENGTH = _TRADING_CFG.get("min_signal_strength", _MIN_SIGNAL_STRENGTH)
     _MIN_RR_RATIO = _TRADING_CFG.get("min_rr_ratio", _MIN_RR_RATIO)
+    _RSI_OVERBOUGHT = _RULE_CFG.get("rsi_overbought", _RSI_OVERBOUGHT)
+    _RSI_OVERSOLD = _RULE_CFG.get("rsi_oversold", _RSI_OVERSOLD)
 
     logger.info(
         f"[risk_filter] 配置已重载："
         f"min_signal_strength={_MIN_SIGNAL_STRENGTH}, "
-        f"min_rr_ratio={_MIN_RR_RATIO}"
+        f"min_rr_ratio={_MIN_RR_RATIO}, "
+        f"rsi_overbought={_RSI_OVERBOUGHT}, rsi_oversold={_RSI_OVERSOLD}"
     )
 
 
@@ -67,6 +76,7 @@ def check_signal_quality(decision: dict) -> tuple[bool, str]:
     rr = _parse_rr(decision.get("risk_reward", "1:0"))
     divergence = decision.get("divergence_risk", True)
     structure_broken = decision.get("structure_broken", True)
+    entry_rsi = decision.get("entry_rsi")  # 新增：入场 RSI
 
     if signal not in ["long", "short"]:
         return False, f"信号方向无效：{signal}"
@@ -93,6 +103,13 @@ def check_signal_quality(decision: dict) -> tuple[bool, str]:
 
     if structure_broken:
         return False, "价格结构已被打破"
+
+    # ── 新增：RSI 极值保护（防止在超买/超卖区追单）────────────
+    if entry_rsi is not None:
+        if signal == "long" and entry_rsi >= _RSI_OVERBOUGHT:
+            return False, f"RSI={entry_rsi:.1f} 超买（>={_RSI_OVERBOUGHT}），禁止做多"
+        if signal == "short" and entry_rsi <= _RSI_OVERSOLD:
+            return False, f"RSI={entry_rsi:.1f} 超卖（<={_RSI_OVERSOLD}），禁止做空"
 
     return True, "信号质量检查通过"
 
