@@ -241,7 +241,7 @@ python backtest/run_backtest.py optimize --workers 4
 ```bash
 cd /path/to/crypto-trend-trader
 mkdir -p ~/.claude/projects/$(pwd | sed 's/\//-/g')/memory
-ln -sf $(pwd)/.claude/MEMORY.md ~/.claude/projects/$(pwd | sed 's/\//-/g')/memory/MEMORY.md
+ln -sf $(pwd)/docs/MEMORY.md ~/.claude/projects/$(pwd | sed 's/\//-/g')/memory/MEMORY.md
 ```
 
 ---
