@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from ..data.feed import DataFeed
+from .cooldown_manager import CooldownManager
 from .position import Position
 from .position_manager import PositionManager
 
@@ -51,6 +52,9 @@ class BacktestEngine:
             fee_rate=self.fee_rate,
             slippage_pct=self.slippage_pct,
         )
+
+        # 冷却管理器（止损/止盈后禁止重复开仓）
+        self.cooldown_manager = CooldownManager(config)
 
         # ── 运行时状态 ──────────────────────────────────
         self.balance:   float = self.initial_balance
@@ -176,11 +180,24 @@ class BacktestEngine:
         if signal is None:
             return
 
+        # 冷却检查：止损/止盈后禁止重复开仓
+        can_open, cooldown_reason = self.cooldown_manager.is_in_cooldown(symbol, ts)
+        if not can_open:
+            logger.debug(f"  {symbol} 冷却检查失败：{cooldown_reason}")
+            return
+
         self._open_position(symbol, ts, signal, close)
 
     def _process_position(self, position: Position, bar: dict, ts: int) -> None:
         """对单个持仓处理 bar 上的所有管理事件"""
-        events = self.pos_manager.process_bar(position, bar)
+        # 构建多周期数据（用于结构破坏、动量衰减等检测）
+        multi_tf_data = {}
+        for tf in self.feed.timeframes:
+            hist = self.feed.get_history(position.symbol, tf, end_ts_ms=ts, limit=200)
+            if not hist.empty:
+                multi_tf_data[tf] = hist
+
+        events = self.pos_manager.process_bar(position, bar, multi_tf_data)
         for evt in events:
             event_type = evt["event"]
             if event_type == "close":
@@ -261,6 +278,9 @@ class BacktestEngine:
         self.trades.append(trade_record)
         self.positions.remove(position)
 
+        # 记录冷却状态（止损/止盈后禁止重复开仓）
+        self.cooldown_manager.record_close(position.symbol, reason, ts)
+
         icon = "盈" if pnl_usdt >= 0 else "亏"
         open_cst  = datetime.utcfromtimestamp(position.open_time / 1000 + 8 * 3600).strftime("%Y-%m-%d %H:%M")
         close_cst = datetime.utcfromtimestamp(ts / 1000 + 8 * 3600).strftime("%Y-%m-%d %H:%M")
@@ -320,6 +340,9 @@ class BacktestEngine:
             "signal_reason":   position.signal_reason,
         }
         self.trades.append(partial_trade)
+
+        # 分批止盈触发短冷却（与生产逻辑一致）
+        self.cooldown_manager.record_close(position.symbol, reason, ts)
 
         logger.info(
             f"‼️ 分批止盈[{reason}] {position.symbol} "

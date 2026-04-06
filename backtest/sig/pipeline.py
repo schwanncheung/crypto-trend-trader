@@ -63,9 +63,12 @@ class SignalPipeline:
         # 引擎实时余额注入（由 BacktestEngine 在每次开仓前更新）
         self.available_balance: float = self.config.get("backtest", {}).get("initial_balance", 10000.0)
 
+        # 加载黑名单（复用生产逻辑）
+        self.blacklist = self._load_blacklist()
+
         logger.info(
             f"SignalPipeline 初始化：timeframes={self.timeframes}，"
-            f"ai_mode={self.ai_mode}"
+            f"ai_mode={self.ai_mode}，blacklist={len(self.blacklist)}个"
         )
 
     # ─────────────────────────────────────────────────────────────────
@@ -90,6 +93,11 @@ class SignalPipeline:
             可执行信号 dict（含 side/entry_price/stop_loss/take_profit/contracts 等），
             或 None（不产生交易）
         """
+        # 黑名单过滤（复用生产逻辑）
+        if symbol in self.blacklist:
+            logger.debug(f"  {symbol} 在黑名单中，跳过信号生成")
+            return None
+
         ie = self._get_indicator_engine()
         rf = self._get_risk_filter()
         fk = self._get_fetch_kline()
@@ -337,3 +345,19 @@ class SignalPipeline:
             self._fetch_kline = fk
             logger.debug("fetch_kline 模块已加载")
         return self._fetch_kline
+
+    def _load_blacklist(self) -> list[str]:
+        """
+        从 config/symbols.yaml 加载黑名单（复用生产逻辑）。
+        """
+        import yaml
+        try:
+            symbols_yaml = _PROJECT_ROOT / "config" / "symbols.yaml"
+            if symbols_yaml.exists():
+                data = yaml.safe_load(symbols_yaml.read_text(encoding="utf-8"))
+                blacklist = data.get("blacklist", [])
+                logger.debug(f"黑名单已加载：{len(blacklist)} 个品种")
+                return blacklist
+        except Exception as e:
+            logger.warning(f"加载黑名单失败：{e}")
+        return []
