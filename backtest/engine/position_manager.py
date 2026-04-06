@@ -25,7 +25,6 @@ if str(_SCRIPTS_DIR) not in sys.path:
 
 # 懒加载生产函数（避免导入时的副作用）
 _detect_trend_structure = None
-_calculate_support_resistance = None
 _detect_momentum_decay = None
 _compute_atr = None
 _calculate_trailing_stop = None
@@ -141,28 +140,21 @@ class PositionManager:
         # 以下检测需要多周期数据，且使用频率控制
         check_advanced = (bar_count % self._structure_check_interval == 0) and bool(multi_tf_data)
 
-        # 5. 结构破坏平仓（新增）
+        # 5. 结构破坏平仓
         if check_advanced:
             structure_event = self._check_structure_break(position, multi_tf_data)
             if structure_event:
                 events.append(structure_event)
                 return events
 
-        # 6. 动量衰减出场（新增）
+        # 6. 动量衰减出场
         if check_advanced:
             decay_event = self._check_momentum_decay(position, close, multi_tf_data)
             if decay_event:
                 events.append(decay_event)
                 return events
 
-        # 7. 支撑/阻力突破平仓（新增）
-        if check_advanced:
-            sr_event = self._check_support_resistance_break(position, multi_tf_data)
-            if sr_event:
-                events.append(sr_event)
-                return events
-
-        # 8. 强制平仓（兜底）
+        # 7. 强制平仓（兜底）
         force_event = self._check_force_close(position, close)
         if force_event:
             events.append(force_event)
@@ -222,9 +214,12 @@ class PositionManager:
         multi_tf_data: dict = None,
     ) -> Optional[dict]:
         """
-        检查是否触发移动止损激活，或更新移动止损价格。
+        检查移动止损激活和更新（与生产逻辑一致）。
 
-        改进：第一批止盈后使用 ATR 动态止损替代固定百分比。
+        逻辑对齐：
+        1. 浮盈在 15%-25% 区间内，移止损至保本位（不激活跟踪）
+        2. 第一批止盈后（>=25%），激活 ATR 跟踪止损
+
         返回 update_sl 事件（不平仓），或 close 事件（触发移动止损平仓）。
         """
         if multi_tf_data is None:
@@ -232,36 +227,46 @@ class PositionManager:
 
         pnl_pct = position.unrealized_pnl_pct(close)
 
-        # 激活条件：第一批止盈完成后（与生产逻辑对齐）
-        # 生产代码：第一批止盈后立即激活 ATR 跟踪止损
+        # ── 情况 A：浮盈在 15%-25% 区间，移止损至保本位（与生产一致）──────────
+        # 生产代码：if TRAILING_STOP_PCT < pnl_pct < PARTIAL_PROFIT_PCT
+        if not position.trailing_active and not position.partial_tp1_done:
+            if self.trailing_trigger_pct < pnl_pct < self.partial_tp1_pct:
+                breakeven = self._breakeven_price(position)
+                if position.side == 'long':
+                    new_sl = max(breakeven, position.stop_loss)
+                else:
+                    new_sl = min(breakeven, position.stop_loss)
+
+                # 只有止损位真的需要移动时才返回事件
+                if new_sl != position.stop_loss:
+                    logger.debug(
+                        f"  保本止损 {position.symbol} {position.side} "
+                        f"浮盈{pnl_pct:.1f}%（{self.trailing_trigger_pct}%-{self.partial_tp1_pct}%区间）"
+                        f"止损移至保本位 {new_sl:.4f}"
+                    )
+                    return {"event": "update_sl", "reason": "breakeven", "price": new_sl, "ratio": 0.0}
+                return None
+
+        # ── 情况 B：第一批止盈后激活 ATR 跟踪止损 ──────────────────────────────
         if not position.trailing_active and position.partial_tp1_done:
             position.trailing_active = True
             position.peak_price = high if position.side == 'long' else low
-            # 将止损上移至保本位
+            # 将止损上移至保本位（如果还未移至）
             breakeven = self._breakeven_price(position)
-            new_sl = max(breakeven, position.stop_loss) if position.side == 'long' else min(breakeven, position.stop_loss)
+            if position.side == 'long':
+                new_sl = max(breakeven, position.stop_loss)
+            else:
+                new_sl = min(breakeven, position.stop_loss)
             logger.debug(
-                f"  移动止损激活（止盈后） {position.symbol} {position.side} "
+                f"  移动止损激活（第一批止盈后） {position.symbol} {position.side} "
                 f"止损上移至保本位 {new_sl:.4f}"
-            )
-            return {"event": "update_sl", "reason": "trailing_activated", "price": new_sl, "ratio": 0.0}
-
-        # 兼容旧逻辑：未分批止盈时，使用百分比触发
-        if not position.trailing_active and pnl_pct >= self.trailing_trigger_pct:
-            position.trailing_active = True
-            position.peak_price = high if position.side == 'long' else low
-            breakeven = self._breakeven_price(position)
-            new_sl = max(breakeven, position.stop_loss) if position.side == 'long' else min(breakeven, position.stop_loss)
-            logger.debug(
-                f"  移动止损激活 {position.symbol} {position.side} "
-                f"pnl={pnl_pct:.1f}% 止损上移至 {new_sl:.4f}"
             )
             return {"event": "update_sl", "reason": "trailing_activated", "price": new_sl, "ratio": 0.0}
 
         if not position.trailing_active:
             return None
 
-        # 更新 peak_price
+        # ── 更新 peak_price ───────────────────────────────────────────────────
         if position.side == 'long':
             if high > (position.peak_price or 0):
                 position.peak_price = high
@@ -269,10 +274,11 @@ class PositionManager:
             if low < (position.peak_price or float('inf')):
                 position.peak_price = low
 
-        # 计算新止损价：优先使用 ATR 动态止损
-        use_atr = position.partial_tp1_done and bool(multi_tf_data)
+        # ── 计算新止损价：使用 ATR 动态止损 ─────────────────────────────────────
+        use_atr = bool(multi_tf_data)
         if use_atr:
-            atr = self._get_atr(position.symbol, multi_tf_data)
+            # 与生产一致：使用 15m ATR，避免 5m ATR 过小导致止损过紧
+            atr = self._get_atr_15m(position.symbol, multi_tf_data)
             if atr > 0:
                 new_trail_sl = self._calculate_trailing_stop_atr(
                     (position.peak_price or close), atr, position.side
@@ -296,12 +302,12 @@ class PositionManager:
             else:
                 new_trail_sl = (position.peak_price or close) * (1 + self.trailing_trigger_pct / 100)
 
-        # 更新止损（只往有利方向移动）
+        # ── 更新止损（只往有利方向移动）───────────────────────────────────────
         if position.side == 'long':
             if new_trail_sl > position.stop_loss:
                 old_sl = position.stop_loss
                 position.stop_loss = new_trail_sl
-                method = "ATR" if use_atr else "固定%"
+                method = "ATR(15m)" if use_atr else "固定%"
                 logger.debug(
                     f"  移动止损上移 [{method}] {position.symbol} long "
                     f"peak={position.peak_price:.4f} {old_sl:.4f}→{new_trail_sl:.4f}"
@@ -310,13 +316,13 @@ class PositionManager:
             if new_trail_sl < position.stop_loss:
                 old_sl = position.stop_loss
                 position.stop_loss = new_trail_sl
-                method = "ATR" if use_atr else "固定%"
+                method = "ATR(15m)" if use_atr else "固定%"
                 logger.debug(
                     f"  移动止损下移 [{method}] {position.symbol} short "
                     f"peak={position.peak_price:.4f} {old_sl:.4f}→{new_trail_sl:.4f}"
                 )
 
-        # 检查是否触发移动止损
+        # ── 检查是否触发移动止损 ──────────────────────────────────────────────
         if position.side == 'long' and low <= position.stop_loss:
             price = self._apply_cost(position.stop_loss, position.side, 'close')
             logger.debug(f"  移动止损触发 {position.symbol} long price={price:.4f}")
@@ -539,96 +545,27 @@ class PositionManager:
 
         return None
 
-    def _check_support_resistance_break(
-        self,
-        position: Position,
-        multi_tf_data: dict,
-    ) -> Optional[dict]:
-        """
-        检测支撑/阻力突破（复用生产 calculate_support_resistance）。
-
-        多头：价格跌破支撑位（用 bar 的 low 判断）
-        空头：价格突破阻力位（用 bar 的 high 判断）
-
-        注意：使用 high/low 而非 close，与止损检测保持一致。
-        """
-        structure_df = multi_tf_data.get(self.structure_check_timeframe)
-        if structure_df is None or structure_df.empty or len(structure_df) < 10:
-            return None
-
-        # 懒加载生产函数
-        global _calculate_support_resistance
-        if _calculate_support_resistance is None:
-            from fetch_kline import calculate_support_resistance as _calculate_support_resistance
-
-        try:
-            supports, resistances = _calculate_support_resistance(structure_df)
-        except Exception as e:
-            logger.debug(f"支撑阻力计算异常 {position.symbol}: {e}")
-            return None
-
-        # 使用 bar 的 high/low，与止损检测保持一致
-        last_bar = structure_df.iloc[-1]
-        bar_high = float(last_bar["high"])
-        bar_low = float(last_bar["low"])
-
-        # 优先使用开仓时AI标注的关键位
-        ai_support = position.key_support
-        ai_resistance = position.key_resistance
-
-        # 多头：检测跌破支撑（用 low 判断）
-        if position.side == 'long':
-            nearest_support = ai_support if ai_support else (supports[0] if supports else None)
-            if nearest_support:
-                buffer = 1 - self.support_buffer_pct / 100
-                if bar_low < nearest_support * buffer:
-                    price = self._apply_cost(bar_low, position.side, 'close')
-                    logger.info(
-                        f"  支撑跌破 {position.symbol} [多头] "
-                        f"支撑={nearest_support:.6g} bar_low={bar_low:.4f}"
-                    )
-                    return {
-                        "event": "close",
-                        "reason": f"support_break_{nearest_support:.6g}",
-                        "price": price,
-                        "ratio": 1.0,
-                    }
-
-        # 空头：检测突破阻力（用 high 判断）
-        elif position.side == 'short':
-            nearest_resistance = ai_resistance if ai_resistance else (resistances[0] if resistances else None)
-            if nearest_resistance:
-                buffer = 1 + self.support_buffer_pct / 100
-                if bar_high > nearest_resistance * buffer:
-                    price = self._apply_cost(bar_high, position.side, 'close')
-                    logger.info(
-                        f"  阻力突破 {position.symbol} [空头] "
-                        f"阻力={nearest_resistance:.6g} bar_high={bar_high:.4f}"
-                    )
-                    return {
-                        "event": "close",
-                        "reason": f"resistance_break_{nearest_resistance:.6g}",
-                        "price": price,
-                        "ratio": 1.0,
-                    }
-
-        return None
-
     # ─────────────────────────────────────────────────────────────────
     # 辅助函数：ATR 计算与缓存
     # ─────────────────────────────────────────────────────────────────
 
-    def _get_atr(self, symbol: str, multi_tf_data: dict) -> float:
+    def _get_atr_15m(self, symbol: str, multi_tf_data: dict) -> float:
         """
-        获取 ATR 值（带缓存）。
+        获取 15m 周期的 ATR 值（与生产一致）。
 
-        使用基础周期（如 15m）的 ATR。
+        与生产代码对齐：跟踪止损用 15m ATR，避免 5m ATR 过小导致止损过紧。
         """
         # 检查缓存
-        if symbol in self._atr_cache:
-            return self._atr_cache[symbol]
+        cache_key = f"{symbol}_15m"
+        if cache_key in self._atr_cache:
+            return self._atr_cache[cache_key]
 
-        atr_df = multi_tf_data.get(self.base_timeframe)
+        # 优先使用 15m，如果没有则使用 base_timeframe
+        atr_df = multi_tf_data.get("15m")
+        if atr_df is None or atr_df.empty or len(atr_df) < 14:
+            # fallback: 使用 base_timeframe
+            atr_df = multi_tf_data.get(self.base_timeframe)
+
         if atr_df is None or atr_df.empty or len(atr_df) < 14:
             return 0.0
 
@@ -650,7 +587,7 @@ class PositionManager:
             atr = 0.0
 
         # 缓存
-        self._atr_cache[symbol] = atr
+        self._atr_cache[cache_key] = atr
         return atr
 
     def _calculate_trailing_stop_atr(
