@@ -333,6 +333,11 @@ class SignalPipeline:
             import ai_analysis as aa
             aa.reload_config_from_dict(self.config)
             logger.debug("ai_analysis 模块配置已重新加载")
+
+            # 重新加载 dynamic_stop_take_profit 配置（关键：止损止盈参数）
+            import dynamic_stop_take_profit as dstp
+            dstp.reload_config_from_dict(self.config)
+            logger.debug("dynamic_stop_take_profit 模块配置已重新加载")
         return self._indicator_engine
 
     def _get_risk_filter(self):

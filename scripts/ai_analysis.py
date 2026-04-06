@@ -23,20 +23,27 @@ check_env()
 setup_logging("ai_analysis")
 logger = logging.getLogger(__name__)
 
-_MIN_SIGNAL_STRENGTH = TRADING_CFG.get("min_signal_strength", 7)
-_MIN_RR_RATIO        = TRADING_CFG.get("min_rr_ratio", 2.0)
+# 模块级配置副本（可被 reload_config_from_dict 更新）
+_TRADING_CFG = TRADING_CFG.copy() if TRADING_CFG else {}
+
+_MIN_SIGNAL_STRENGTH = _TRADING_CFG.get("min_signal_strength", 7)
+_MIN_RR_RATIO        = _TRADING_CFG.get("min_rr_ratio", 2.0)
 
 
 def reload_config_from_dict(config: dict) -> None:
     """
     从外部配置字典重新加载参数（回测系统 override 机制）。
     """
-    global _MIN_SIGNAL_STRENGTH, _MIN_RR_RATIO
+    global _MIN_SIGNAL_STRENGTH, _MIN_RR_RATIO, _TRADING_CFG
 
     trading_cfg = config.get("trading", {})
 
-    _MIN_SIGNAL_STRENGTH = trading_cfg.get("min_signal_strength", _MIN_SIGNAL_STRENGTH)
-    _MIN_RR_RATIO = trading_cfg.get("min_rr_ratio", _MIN_RR_RATIO)
+    # 更新模块级配置字典
+    _TRADING_CFG.update(trading_cfg)
+
+    # 更新全局变量
+    _MIN_SIGNAL_STRENGTH = _TRADING_CFG.get("min_signal_strength", _MIN_SIGNAL_STRENGTH)
+    _MIN_RR_RATIO = _TRADING_CFG.get("min_rr_ratio", _MIN_RR_RATIO)
 
     logger.info(
         f"[ai_analysis] 配置已重新加载："
@@ -173,8 +180,8 @@ def _build_rule_only_decision(tf_indicators: dict, direction: str, symbol: str) 
         score += 1.5
 
     # ADX 边缘区减分（对齐 AI prompt）
-    adx_edge_min = TRADING_CFG.get("adx_edge_min", 20)
-    adx_edge_max = TRADING_CFG.get("adx_edge_max", 25)
+    adx_edge_min = _TRADING_CFG.get("adx_edge_min", 20)
+    adx_edge_max = _TRADING_CFG.get("adx_edge_max", 25)
     if adx_edge_min <= adx < adx_edge_max:
         score -= 1.0
 
@@ -380,13 +387,13 @@ def _build_text_analysis_prompt() -> str:
         f'    "{tf}": "up或down或sideways",' for tf in TIMEFRAMES
     )
     min_alignment = total - 1
-    atr_mult = TRADING_CFG.get("stop_loss_atr_multiplier", 2.5)
+    atr_mult = _TRADING_CFG.get("stop_loss_atr_multiplier", 2.5)
     rr_ratio = _MIN_RR_RATIO
 
     rule_cfg = _ANALYSIS_CFG.get("rule_filter", {})
     vol_ratio_thresh = rule_cfg.get("volume_ratio_threshold", 0.8)
-    adx_edge_min = TRADING_CFG.get("adx_edge_min", 20)
-    adx_edge_max = TRADING_CFG.get("adx_edge_max", 25)
+    adx_edge_min = _TRADING_CFG.get("adx_edge_min", 20)
+    adx_edge_max = _TRADING_CFG.get("adx_edge_max", 25)
     long_rsi_low = rule_cfg.get("long_signal_rsi_low", 40)
     rsi_oversold = rule_cfg.get("rsi_oversold", 20)
     rsi_overbought = rule_cfg.get("rsi_overbought", 80)

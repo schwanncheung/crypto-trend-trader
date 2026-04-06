@@ -42,6 +42,7 @@ backtest:
 # ── 参数覆盖（覆盖 settings.yaml 对应值，用于单次回测调参）──────────────
 # 不填则使用 settings.yaml 中的值
 override:
+  # timeframes: ["1h", "30m", "15m"]
   # min_signal_strength: 6
   # min_rr_ratio: 1.2
   # trailing_stop_trigger_pct: 15.0

@@ -11,6 +11,23 @@ from config_loader import TRADING_CFG
 
 logger = logging.getLogger(__name__)
 
+# 模块级配置副本（可被 reload_config_from_dict 更新）
+_TRADING_CFG = TRADING_CFG.copy() if TRADING_CFG else {}
+
+
+def reload_config_from_dict(config: dict) -> None:
+    """
+    从外部配置字典重新加载参数（回测系统 override 机制）。
+    """
+    global _TRADING_CFG
+    trading_cfg = config.get("trading", {})
+    _TRADING_CFG.update(trading_cfg)
+    logger.info(
+        f"[dynamic_stop_take_profit] 配置已重新加载："
+        f"stop_loss_atr_multiplier={_TRADING_CFG.get('stop_loss_atr_multiplier')}, "
+        f"stop_loss_adx_scaling.enabled={_TRADING_CFG.get('stop_loss_adx_scaling', {}).get('enabled')}"
+    )
+
 
 def calculate_dynamic_stop_loss(
     entry_price: float,
@@ -30,8 +47,8 @@ def calculate_dynamic_stop_loss(
     返回：
         (stop_loss, multiplier_used)
     """
-    base_multiplier = TRADING_CFG.get("stop_loss_atr_multiplier", 2.5)
-    adx_scaling_cfg = TRADING_CFG.get("stop_loss_adx_scaling", {})
+    base_multiplier = _TRADING_CFG.get("stop_loss_atr_multiplier", 2.5)
+    adx_scaling_cfg = _TRADING_CFG.get("stop_loss_adx_scaling", {})
 
     # 默认使用基础倍数
     multiplier = base_multiplier
@@ -69,7 +86,7 @@ def calculate_dynamic_stop_loss(
         stop_loss = entry_price + multiplier * atr
 
     # ── 硬性上限检查（风控红线）──────────────────────
-    max_stop_loss_pct = TRADING_CFG.get("max_stop_loss_pct", 3.0) / 100
+    max_stop_loss_pct = _TRADING_CFG.get("max_stop_loss_pct", 3.0) / 100
     stop_loss_distance = abs(stop_loss - entry_price)
     stop_loss_distance_pct = stop_loss_distance / entry_price
 
@@ -116,7 +133,7 @@ def calculate_take_profit(
     返回：
         (take_profit, reason): 止盈价格和设置原因
     """
-    target_rr_ratio = TRADING_CFG.get("target_rr_ratio", 1.2)
+    target_rr_ratio = _TRADING_CFG.get("target_rr_ratio", 1.2)
     risk = abs(entry_price - stop_loss)
 
     # 基础止盈：按 R:R 计算
@@ -139,7 +156,7 @@ def calculate_take_profit(
             key_level = key_support + buffer
 
     # ADX 动态调整（强趋势可以适当放宽）
-    adx_scaling_cfg = TRADING_CFG.get("stop_loss_adx_scaling", {})
+    adx_scaling_cfg = _TRADING_CFG.get("stop_loss_adx_scaling", {})
     if adx_scaling_cfg.get("enabled", False) and adx is not None and adx >= 50:
         # ADX >= 50 的强趋势，允许止盈距离 × 1.3
         tp_distance = abs(base_tp - entry_price)
@@ -188,7 +205,7 @@ def calculate_take_profit(
         reason = f"基础 R:R={target_rr_ratio}"
 
     # ── 硬性上限检查（风控红线）──────────────────────
-    max_take_profit_pct = TRADING_CFG.get("max_take_profit_pct", 5.0) / 100
+    max_take_profit_pct = _TRADING_CFG.get("max_take_profit_pct", 5.0) / 100
     take_profit_distance = abs(actual_tp - entry_price)
     take_profit_distance_pct = take_profit_distance / entry_price
 
@@ -226,7 +243,7 @@ def calculate_trailing_stop(
     返回：
         trailing_stop_price: 跟踪止损价格
     """
-    multiplier = TRADING_CFG.get("trailing_stop_atr_multiplier", 1.5)
+    multiplier = _TRADING_CFG.get("trailing_stop_atr_multiplier", 1.5)
 
     if signal == "long":
         trailing_stop = current_price - multiplier * atr

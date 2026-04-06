@@ -19,28 +19,35 @@ check_env()
 setup_logging("risk_filter")
 logger = logging.getLogger(__name__)
 
+# 模块级配置副本（可被 reload_config_from_dict 更新）
+_TRADING_CFG = TRADING_CFG.copy() if TRADING_CFG else {}
+_RISK_CFG = RISK_CFG.copy() if RISK_CFG else {}
+
 # 全局变量，可被 reload 更新
-_MIN_TREND_STRENGTH = TRADING_CFG.get("min_trend_strength", 7)
-_MIN_SIGNAL_STRENGTH = TRADING_CFG.get("min_signal_strength", 7)
-_MIN_RR_RATIO = TRADING_CFG.get("min_rr_ratio", 2.0)
+_MIN_TREND_STRENGTH = _TRADING_CFG.get("min_trend_strength", 7)
+_MIN_SIGNAL_STRENGTH = _TRADING_CFG.get("min_signal_strength", 7)
+_MIN_RR_RATIO = _TRADING_CFG.get("min_rr_ratio", 2.0)
 
 
 def reload_config_from_dict(config: dict) -> None:
     """
     从外部配置字典重新加载参数（回测系统 override 机制）。
     """
-    global _MIN_TREND_STRENGTH, _MIN_SIGNAL_STRENGTH, _MIN_RR_RATIO
+    global _MIN_TREND_STRENGTH, _MIN_SIGNAL_STRENGTH, _MIN_RR_RATIO, _TRADING_CFG, _RISK_CFG
 
     trading_cfg = config.get("trading", {})
+    risk_cfg = config.get("risk", {})
 
-    _MIN_TREND_STRENGTH = trading_cfg.get("min_trend_strength", _MIN_TREND_STRENGTH)
-    _MIN_SIGNAL_STRENGTH = trading_cfg.get("min_signal_strength", _MIN_SIGNAL_STRENGTH)
-    _MIN_RR_RATIO = trading_cfg.get("min_rr_ratio", _MIN_RR_RATIO)
+    _TRADING_CFG.update(trading_cfg)
+    _RISK_CFG.update(risk_cfg)
+
+    _MIN_TREND_STRENGTH = _TRADING_CFG.get("min_trend_strength", _MIN_TREND_STRENGTH)
+    _MIN_SIGNAL_STRENGTH = _TRADING_CFG.get("min_signal_strength", _MIN_SIGNAL_STRENGTH)
+    _MIN_RR_RATIO = _TRADING_CFG.get("min_rr_ratio", _MIN_RR_RATIO)
 
     logger.info(
-        f"[risk_filter] 配置已重新加载："
+        f"[risk_filter] 配置已重载："
         f"min_signal_strength={_MIN_SIGNAL_STRENGTH}, "
-        f"min_trend_strength={_MIN_TREND_STRENGTH}, "
         f"min_rr_ratio={_MIN_RR_RATIO}"
     )
 
@@ -64,7 +71,7 @@ def check_signal_quality(decision: dict) -> tuple[bool, str]:
     if signal not in ["long", "short"]:
         return False, f"信号方向无效：{signal}"
 
-    if confidence not in TRADING_CFG.get("allowed_confidence", ["high"]):
+    if confidence not in _TRADING_CFG.get("allowed_confidence", ["high"]):
         return False, f"置信度不足：{confidence}"
 
     if signal_strength < _MIN_SIGNAL_STRENGTH:
@@ -128,7 +135,7 @@ def check_daily_loss(
 
         loss_pct = (start - current_equity) / start
         # 优先读 max_loss_pct（settings.yaml 实际字段），兼容 max_daily_loss_pct
-        max_loss = RISK_CFG.get("max_loss_pct", RISK_CFG.get("max_daily_loss_pct", 5.0))
+        max_loss = _RISK_CFG.get("max_loss_pct", _RISK_CFG.get("max_daily_loss_pct", 5.0))
         # 支持正数百分比（5.0）和小数（0.05）两种写法
         if max_loss > 1:
             max_loss = max_loss / 100
@@ -159,9 +166,9 @@ def _check_warning_reduction(warning: str) -> float:
     """
     if not warning or warning in ("null", "None", ""):
         return 1.0
-    keywords = TRADING_CFG.get("warning_keywords", ["低市值", "高波动", "插针", "流动性", "小市值", "波动大"])
+    keywords = _TRADING_CFG.get("warning_keywords", ["低市值", "高波动", "插针", "流动性", "小市值", "波动大"])
     if any(kw in warning for kw in keywords):
-        ratio = TRADING_CFG.get("warning_position_ratio", 0.5)
+        ratio = _TRADING_CFG.get("warning_position_ratio", 0.5)
         logger.warning(f"AI warning 触发仓位折减（×{ratio}）：{warning}")
         return ratio
     return 1.0
@@ -195,9 +202,9 @@ def calculate_position_size(
     }
     """
     if leverage is None:
-        leverage = TRADING_CFG.get("default_leverage", 10)
+        leverage = _TRADING_CFG.get("default_leverage", 10)
 
-    max_risk_pct = TRADING_CFG.get("max_position_pct", 0.06)
+    max_risk_pct = _TRADING_CFG.get("max_position_pct", 0.06)
     reduction = _check_warning_reduction(warning)
     max_risk_usdt = balance_usdt * max_risk_pct * reduction
 

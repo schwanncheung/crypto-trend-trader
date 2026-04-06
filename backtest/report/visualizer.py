@@ -321,7 +321,7 @@ class BacktestVisualizer:
             fig.add_trace(
                 go.Bar(x=labels, y=win_rates, marker_color=colors,
                        name="胜率%", text=[f"{wr:.1f}% ({c}笔)" for wr, c in zip(win_rates, counts)],
-                       textposition="outside"),
+                       textposition="auto", textfont=dict(size=11, color="#f2f5fa")),
                 row=1, col=1
             )
 
@@ -335,7 +335,7 @@ class BacktestVisualizer:
             fig.add_trace(
                 go.Bar(x=labels, y=win_rates, marker_color=colors,
                        name="胜率%", text=[f"{wr:.1f}% ({c}笔)" for wr, c in zip(win_rates, counts)],
-                       textposition="outside"),
+                       textposition="auto", textfont=dict(size=11, color="#f2f5fa")),
                 row=1, col=2
             )
 
@@ -349,7 +349,7 @@ class BacktestVisualizer:
             fig.add_trace(
                 go.Bar(x=labels, y=win_rates, marker_color=colors,
                        name="胜率%", text=[f"{wr:.1f}% ({c}笔)" for wr, c in zip(win_rates, counts)],
-                       textposition="outside"),
+                       textposition="auto", textfont=dict(size=11, color="#f2f5fa")),
                 row=2, col=1
             )
 
@@ -363,7 +363,7 @@ class BacktestVisualizer:
             fig.add_trace(
                 go.Bar(x=labels, y=win_rates, marker_color=colors,
                        name="胜率%", text=[f"{wr:.1f}% ({c}笔)" for wr, c in zip(win_rates, counts)],
-                       textposition="outside"),
+                       textposition="auto", textfont=dict(size=11, color="#f2f5fa")),
                 row=2, col=2
             )
 
@@ -377,7 +377,7 @@ class BacktestVisualizer:
             fig.add_trace(
                 go.Bar(x=labels, y=win_rates, marker_color=colors,
                        name="胜率%", text=[f"{wr:.1f}% ({c}笔)" for wr, c in zip(win_rates, counts)],
-                       textposition="outside"),
+                       textposition="auto", textfont=dict(size=11, color="#f2f5fa")),
                 row=3, col=1
             )
 
@@ -391,27 +391,24 @@ class BacktestVisualizer:
             fig.add_trace(
                 go.Bar(x=labels, y=win_rates, marker_color=colors,
                        name="胜率%", text=[f"{wr:.1f}% ({c}笔)" for wr, c in zip(win_rates, counts)],
-                       textposition="outside"),
+                       textposition="auto", textfont=dict(size=11, color="#f2f5fa")),
                 row=3, col=2
             )
 
-        # 更新布局
+        # 更新布局 + 显式设置所有 Y 轴范围（避免 Plotly subplot 轴更新不一致）
+        # 注意：range=[0, 110] 留出空间显示 outside 文本（避免高胜率时文字被裁剪）
         fig.update_layout(
             title_text="分析维度统计（胜率按分组）",
             template="plotly_dark",
             height=900,
             showlegend=False,
+            yaxis=dict(range=[0, 110]),
+            yaxis2=dict(range=[0, 110]),
+            yaxis3=dict(range=[0, 110]),
+            yaxis4=dict(range=[0, 110]),
+            yaxis5=dict(range=[0, 110]),
+            yaxis6=dict(range=[0, 110]),
         )
-
-        # 设置所有 Y 轴范围（正确计算 row/col）
-        # 6个子图位置：row1=(1,1),(1,2), row2=(2,1),(2,2), row3=(3,1),(3,2)
-        yaxes_config = [
-            (1, 1), (1, 2),  # R:R, ADX
-            (2, 1), (2, 2),  # RSI, EMA
-            (3, 1), (3, 2),  # Pattern, Hour
-        ]
-        for row, col in yaxes_config:
-            fig.update_yaxes(range=[0, 100], row=row, col=col)
 
         out = self.output_dir / filename
         fig.write_html(str(out), include_plotlyjs="cdn")
