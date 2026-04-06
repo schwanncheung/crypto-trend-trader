@@ -129,16 +129,9 @@ class SignalPipeline:
             logger.warning(f"  {symbol} 规则引擎异常：{e}")
             return None
 
-        # rule_only 模式：预过滤是硬性门槛
-        # llm_real 模式：预过滤只是建议，AI 可以覆盖（但需要记录）
         if not passed:
-            if self.ai_mode == "rule_only":
-                logger.debug(f"  {_bar_tag} 规则引擎拒绝：{filter_reason}")
-                return None
-            else:
-                # llm_real 模式：预过滤未通过，但让 AI 继续分析
-                logger.info(f"  {_bar_tag} 规则引擎建议拒绝：{filter_reason}")
-                direction = "wait"  # 让 AI 自己判断方向
+            logger.info(f"  {_bar_tag} 规则引擎拒绝：{filter_reason}")
+            return None
 
         if passed:
             logger.info(f"  {_bar_tag} 规则引擎通过 → {direction}")

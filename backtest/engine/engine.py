@@ -187,7 +187,7 @@ class BacktestEngine:
                 self._close_position(position, evt["price"], evt["reason"], ts)
                 return
             elif event_type == "partial_close":
-                self._partial_close(position, evt["price"], evt["reason"], evt["ratio"])
+                self._partial_close(position, evt["price"], evt["reason"], evt["ratio"], ts)
             elif event_type == "update_sl":
                 position.stop_loss = evt["price"]
                 logger.debug(
@@ -239,8 +239,10 @@ class BacktestEngine:
 
     def _close_position(self, position: Position, price: float, reason: str, ts: int) -> None:
         """全仓平仓，释放保证金，记录交易"""
-        pnl_usdt, pnl_pct = self.pos_manager.calc_pnl(position, price, ratio=1.0)
-        margin = position.margin_usdt
+        # 使用 remaining_ratio 确保分批止盈后不重复计算保证金和 pnl
+        remaining_ratio = position.remaining_ratio
+        pnl_usdt, pnl_pct = self.pos_manager.calc_pnl(position, price, ratio=remaining_ratio)
+        margin = position.margin_usdt * remaining_ratio
 
         position.close_time   = ts    # 记录平仓时间戳
         position.close_price  = price
@@ -270,7 +272,7 @@ class BacktestEngine:
             f"余额={self.balance:.2f}"
         )
 
-    def _partial_close(self, position: Position, price: float, reason: str, ratio: float) -> None:
+    def _partial_close(self, position: Position, price: float, reason: str, ratio: float, ts: int) -> None:
         """分批平仓，按 ratio 比例平掉部分合约"""
         if reason == "partial_tp1" and position.partial_tp1_done:
             return
@@ -292,6 +294,32 @@ class BacktestEngine:
         elif reason == "partial_tp2":
             position.partial_tp2_done = True
             position.remaining_ratio -= actual_ratio
+
+        # 记录分批平仓交易
+        partial_trade = {
+            "position_id":   f"{position.symbol}_{position.side}_{position.open_time}_{reason}",
+            "symbol":        position.symbol,
+            "side":          position.side,
+            "status":        "closed",
+            "entry_price":   position.entry_price,
+            "contracts":     closed_contracts,
+            "stop_loss":     position.stop_loss,
+            "take_profit":   position.take_profit,
+            "open_time":     position.open_time,
+            "close_time":    ts,
+            "close_price":   price,
+            "close_reason":  reason,
+            "pnl_usdt":      round(pnl_usdt, 4),
+            "pnl_pct":       round(pnl_pct, 4),
+            "leverage":      position.leverage,
+            "margin_usdt":   round(released_margin, 4),
+            "trailing_active": position.trailing_active,
+            "partial_tp1":   position.partial_tp1_done,
+            "partial_tp2":   position.partial_tp2_done,
+            "signal_strength": position.signal_strength,
+            "signal_reason":   position.signal_reason,
+        }
+        self.trades.append(partial_trade)
 
         logger.info(
             f"‼️ 分批止盈[{reason}] {position.symbol} "
