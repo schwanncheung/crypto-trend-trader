@@ -223,6 +223,21 @@ class SignalPipeline:
                 f"已按{max_margin_ratio*100:.0f}%上限调整：{contracts}张"
             )
 
+        # ── 提取分析维度指标数据 ──────────────────────────────────────
+        base_ind = tf_indicators.get(base_tf, {})
+        adx_info = base_ind.get("adx", {})
+        ema_info = base_ind.get("ema", {})
+        patterns = base_ind.get("patterns", [])
+
+        # K线形态（方向与趋势一致的优先）
+        entry_pattern = "none"
+        if patterns:
+            entry_pattern = patterns[0].get("pattern", "none")
+
+        # EMA 对齐得分（0-3）
+        ema_alignment = ema_info.get("alignment", "mixed")
+        entry_ema_score = {"bullish": 3, "bearish": 3, "mixed": 1, "none": 0}.get(ema_alignment, 0)
+
         # ── 组装最终信号 ──────────────────────────────────────────────
         signal = {
             "symbol":        symbol,
@@ -239,6 +254,14 @@ class SignalPipeline:
             "key_resistance":decision.get("key_resistance"),
             "reason":        decision.get("reason", ""),
             "ts_ms":         ts_ms,
+            # ── 分析维度数据 ──────────────────────────────────────
+            "entry_atr":     base_ind.get("atr", 0.0),
+            "entry_adx":     adx_info.get("adx", 0.0),
+            "entry_rsi":     base_ind.get("rsi", 50.0),
+            "entry_ema_score": entry_ema_score,
+            "entry_volume_ratio": base_ind.get("volume_ratio", 1.0),
+            "entry_pattern": entry_pattern,
+            "entry_hour":    int((ts_ms // 3600000) % 24),  # UTC hour (0-23)
         }
 
         logger.info(

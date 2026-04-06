@@ -110,11 +110,14 @@
   <h2>逐笔 PnL</h2>
   <iframe src="pnl_histogram.html" height="420"></iframe>
 
-  <h2>月度收益热力图</h2>
-  <iframe src="monthly_heatmap.html" height="370"></iframe>
+  <h2>日收益热力图</h2>
+  <iframe src="daily_heatmap.html" height="420"></iframe>
 
   <h2>平仓原因分布</h2>
   <iframe src="close_reasons.html" height="420"></iframe>
+
+  <h2>分析维度统计</h2>
+  <iframe src="analysis_dimensions.html" height="950"></iframe>
 </section>
 
 <!-- 品种分析 -->
@@ -135,6 +138,34 @@
         <td class="{{ 'pos' if s.win_rate_pct >= 50 else 'neg' }}">{{ s.win_rate_pct | round(1) }}%</td>
         <td class="{{ 'pos' if s.total_pnl_usdt >= 0 else 'neg' }}">{{ s.total_pnl_usdt }}</td>
         <td class="{{ 'pos' if s.avg_pnl_usdt >= 0 else 'neg' }}">{{ s.avg_pnl_usdt }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<!-- 交易明细 -->
+<section>
+  <h2>交易明细</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>品种</th><th>方向</th><th>盈亏(USDT)</th><th>盈亏(%)</th><th>开仓时间</th><th>平仓时间</th><th>持仓(h)</th><th>入场价</th><th>平仓价</th><th>合约张数</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for t in trade_details %}
+      <tr>
+        <td>{{ t.symbol }}</td>
+        <td class="{{ 'pos' if t.side == '做多' else 'neg' }}">{{ t.side }}</td>
+        <td class="{{ 'pos' if t.pnl_usdt >= 0 else 'neg' }}">{{ "%.4f" | format(t.pnl_usdt) }}</td>
+        <td class="{{ 'pos' if t.pnl_pct >= 0 else 'neg' }}">{{ "%.2f" | format(t.pnl_pct) }}%</td>
+        <td>{{ t.open_time }}</td>
+        <td>{{ t.close_time }}</td>
+        <td>{{ "%.2f" | format(t.hold_hours) }}</td>
+        <td>{{ "%.6f" | format(t.entry_price) }}</td>
+        <td>{{ "%.6f" | format(t.close_price) }}</td>
+        <td>{{ "%.2f" | format(t.contracts) }}</td>
       </tr>
       {% endfor %}
     </tbody>

@@ -135,6 +135,9 @@ class BacktestReporter:
         # --- 连续亏损 ---
         stats["max_consecutive_losses"] = self._max_consecutive_losses(closed)
 
+        # --- 分析维度统计（裸K策略优化核心）---
+        stats["analysis_dimensions"] = self._analysis_dimensions_stats(closed)
+
         # --- 回测元信息 ---
         stats["start_date"] = self.start_date
         stats["end_date"] = self.end_date
@@ -194,14 +197,47 @@ class BacktestReporter:
             logger.warning("[reporter] jinja2 未安装，跳过 HTML 报告生成。运行 pip install jinja2")
             return None
 
-        from datetime import datetime, timezone
+        from datetime import datetime, timezone, timedelta
         stats = self.compute_stats()
         template_dir = Path(__file__).parent / "templates"
         env = Environment(loader=FileSystemLoader(str(template_dir)))
         tmpl = env.get_template("report.html")
+
+        # 格式化交易明细（北京时间，按开仓时间排序）
+        cst = timezone(timedelta(hours=8))
+        formatted_trades = []
+        closed = sorted(
+            [t for t in self.trades if t.get("status") == "closed"],
+            key=lambda x: x.get("open_time", 0)
+        )
+        for t in closed:
+            open_ts = t.get("open_time")
+            close_ts = t.get("close_time")
+            open_time_str = datetime.fromtimestamp(open_ts / 1000, tz=cst).strftime("%Y-%m-%d %H:%M") if open_ts else ""
+            close_time_str = datetime.fromtimestamp(close_ts / 1000, tz=cst).strftime("%Y-%m-%d %H:%M") if close_ts else ""
+
+            # 持仓时长（小时）
+            hold_hours = 0.0
+            if open_ts and close_ts:
+                hold_hours = (close_ts - open_ts) / 3600000  # ms -> hours
+
+            formatted_trades.append({
+                "symbol": t.get("symbol", ""),
+                "side": "做多" if t.get("side") == "long" else "做空",
+                "open_time": open_time_str,
+                "entry_price": t.get("entry_price", 0),
+                "contracts": t.get("contracts", 0),
+                "close_time": close_time_str,
+                "close_price": t.get("close_price", 0),
+                "pnl_usdt": t.get("pnl_usdt", 0),
+                "pnl_pct": t.get("pnl_pct", 0),
+                "hold_hours": hold_hours,
+            })
+
         context = {
             **stats,
             "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+            "trade_details": formatted_trades,
         }
         html = tmpl.render(**context)
         out = self.output_dir / filename
@@ -318,6 +354,169 @@ class BacktestReporter:
             else:
                 streak = 0
         return max_streak
+
+    def _analysis_dimensions_stats(self, closed: list[dict]) -> dict[str, Any]:
+        """
+        计算分析维度统计（裸K策略优化核心）。
+
+        包含：
+        - R:R 比率分布（按值域分组胜率）
+        - ADX 值域分布（按强度分组胜率）
+        - RSI 值域分布（按超买超卖分组胜率）
+        - EMA 对齐得分分布
+        - K线形态分布
+        - 入场时段分布
+        """
+        result: dict[str, Any] = {}
+
+        # ── R:R 比率分布 ──────────────────────────────────────────
+        result["risk_reward"] = self._rr_distribution(closed)
+
+        # ── ADX 值域分布 ──────────────────────────────────────────
+        result["adx_distribution"] = self._adx_distribution(closed)
+
+        # ── RSI 值域分布 ──────────────────────────────────────────
+        result["rsi_distribution"] = self._rsi_distribution(closed)
+
+        # ── EMA 对齐得分分布 ──────────────────────────────────────────
+        result["ema_score_distribution"] = self._ema_score_distribution(closed)
+
+        # ── K线形态分布 ──────────────────────────────────────────
+        result["pattern_distribution"] = self._pattern_distribution(closed)
+
+        # ── 入场时段分布 ──────────────────────────────────────────
+        result["hour_distribution"] = self._hour_distribution(closed)
+
+        # ── 多空方向对比 ──────────────────────────────────────────
+        result["side_distribution"] = self._side_distribution(closed)
+
+        return result
+
+    def _rr_distribution(self, closed: list[dict]) -> dict[str, dict]:
+        """按 R:R 比率值域分组统计胜率。"""
+        # 值域划分：<1.5, 1.5-2.0, 2.0-2.5, 2.5-3.0, >3.0
+        bins = [
+            (0, 1.5, "rr_lt_1.5"),
+            (1.5, 2.0, "rr_1.5_2.0"),
+            (2.0, 2.5, "rr_2.0_2.5"),
+            (2.5, 3.0, "rr_2.5_3.0"),
+            (3.0, float("inf"), "rr_ge_3.0"),
+        ]
+        groups: dict[str, list[dict]] = defaultdict(list)
+        for t in closed:
+            rr = t.get("risk_reward", 0) or 0
+            for lo, hi, label in bins:
+                if lo <= rr < hi:
+                    groups[label].append(t)
+                    break
+
+        return self._group_win_stats(groups)
+
+    def _adx_distribution(self, closed: list[dict]) -> dict[str, dict]:
+        """按 ADX 值域分组统计胜率。"""
+        # 值域划分：<20（弱趋势），20-25（趋势形成），25-35（中等趋势），>35（强趋势）
+        bins = [
+            (0, 20, "adx_weak"),
+            (20, 25, "adx_forming"),
+            (25, 35, "adx_medium"),
+            (35, float("inf"), "adx_strong"),
+        ]
+        groups: dict[str, list[dict]] = defaultdict(list)
+        for t in closed:
+            adx = t.get("entry_adx", 0) or 0
+            for lo, hi, label in bins:
+                if lo <= adx < hi:
+                    groups[label].append(t)
+                    break
+
+        return self._group_win_stats(groups)
+
+    def _rsi_distribution(self, closed: list[dict]) -> dict[str, dict]:
+        """按 RSI 值域分组统计胜率。"""
+        # 值域划分：<30（超卖），30-50（中性偏弱），50-70（中性偏强），>70（超买）
+        bins = [
+            (0, 30, "rsi_oversold"),
+            (30, 50, "rsi_neutral_weak"),
+            (50, 70, "rsi_neutral_strong"),
+            (70, float("inf"), "rsi_overbought"),
+        ]
+        groups: dict[str, list[dict]] = defaultdict(list)
+        for t in closed:
+            rsi = t.get("entry_rsi", 50) or 50
+            for lo, hi, label in bins:
+                if lo <= rsi < hi:
+                    groups[label].append(t)
+                    break
+
+        return self._group_win_stats(groups)
+
+    def _ema_score_distribution(self, closed: list[dict]) -> dict[str, dict]:
+        """按 EMA 对齐得分分组统计胜率。"""
+        groups: dict[str, list[dict]] = defaultdict(list)
+        for t in closed:
+            score = t.get("ema_score", 0) or 0
+            groups[f"ema_score_{score}"].append(t)
+
+        return self._group_win_stats(groups)
+
+    def _pattern_distribution(self, closed: list[dict]) -> dict[str, dict]:
+        """按 K线形态分组统计胜率。"""
+        groups: dict[str, list[dict]] = defaultdict(list)
+        for t in closed:
+            pattern = t.get("entry_pattern", "none") or "none"
+            groups[pattern].append(t)
+
+        return self._group_win_stats(groups)
+
+    def _hour_distribution(self, closed: list[dict]) -> dict[str, dict]:
+        """按入场时段分组统计胜率。"""
+        # UTC 时段划分：0-8（亚洲），8-16（欧洲），16-24（美洲）
+        bins = [
+            (0, 8, "asia"),
+            (8, 16, "europe"),
+            (16, 24, "america"),
+        ]
+        groups: dict[str, list[dict]] = defaultdict(list)
+        for t in closed:
+            hour = t.get("entry_hour", 0) or 0
+            for lo, hi, label in bins:
+                if lo <= hour < hi:
+                    groups[label].append(t)
+                    break
+
+        return self._group_win_stats(groups)
+
+    def _side_distribution(self, closed: list[dict]) -> dict[str, dict]:
+        """按多空方向分组统计胜率。"""
+        groups: dict[str, list[dict]] = defaultdict(list)
+        for t in closed:
+            side = t.get("side", "unknown") or "unknown"
+            groups[side].append(t)
+
+        return self._group_win_stats(groups)
+
+    def _group_win_stats(self, groups: dict[str, list[dict]]) -> dict[str, dict]:
+        """通用分组胜率统计辅助函数。"""
+        result = {}
+        for label, trades in groups.items():
+            if not trades:
+                continue
+            wins = [t for t in trades if t.get("pnl_usdt", 0) > 0]
+            total_pnl = sum(t.get("pnl_usdt", 0) for t in trades)
+            avg_rr = sum(t.get("risk_reward", 0) or 0 for t in trades) / len(trades)
+            avg_sl_atr = sum(t.get("sl_atr_mult", 0) or 0 for t in trades) / len(trades)
+            avg_tp_atr = sum(t.get("tp_atr_mult", 0) or 0 for t in trades) / len(trades)
+            result[label] = {
+                "count": len(trades),
+                "win_count": len(wins),
+                "win_rate_pct": round(len(wins) / len(trades) * 100, 1),
+                "total_pnl_usdt": round(total_pnl, 4),
+                "avg_pnl_usdt": round(total_pnl / len(trades), 4),
+                "avg_rr": round(avg_rr, 2),
+                "avg_sl_atr": round(avg_sl_atr, 2),
+                "avg_tp_atr": round(avg_tp_atr, 2),
+            }
+        return result
 
 
 

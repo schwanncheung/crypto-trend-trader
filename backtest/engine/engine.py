@@ -238,6 +238,26 @@ class BacktestEngine:
 
         self.balance -= margin
 
+        # ── 计算分析维度数据 ──────────────────────────────────────
+        entry_atr = signal.get("entry_atr", 0.0)
+        stop_loss = signal["stop_loss"]
+        take_profit = signal["take_profit"]
+
+        # 计算止损/止盈距离（价格差，正数）
+        if signal["side"] == "long":
+            stop_loss_distance = entry_price - stop_loss
+            take_profit_distance = take_profit - entry_price
+        else:
+            stop_loss_distance = stop_loss - entry_price
+            take_profit_distance = entry_price - take_profit
+
+        # 计算 ATR 倍数（止损/止盈距离 / ATR）
+        stop_loss_atr_multiple = stop_loss_distance / entry_atr if entry_atr > 0 else 0.0
+        take_profit_atr_multiple = take_profit_distance / entry_atr if entry_atr > 0 else 0.0
+
+        # 计算 R:R 比率（止盈距离 / 止损距离）
+        risk_reward_ratio = take_profit_distance / stop_loss_distance if stop_loss_distance > 0 else 0.0
+
         pos = Position(
             symbol=symbol,
             side=signal["side"],
@@ -251,6 +271,22 @@ class BacktestEngine:
             key_support=signal.get("key_support"),
             key_resistance=signal.get("key_resistance"),
             signal_reason=signal.get("reason", ""),
+            # ── 分析维度：R:R 比率 ───────────────────────────────
+            entry_atr=entry_atr,
+            stop_loss_distance=stop_loss_distance,
+            take_profit_distance=take_profit_distance,
+            stop_loss_atr_multiple=stop_loss_atr_multiple,
+            take_profit_atr_multiple=take_profit_atr_multiple,
+            risk_reward_ratio=risk_reward_ratio,
+            # ── 分析维度：入场指标状态 ───────────────────────────
+            entry_adx=signal.get("entry_adx", 0.0),
+            entry_rsi=signal.get("entry_rsi", 50.0),
+            entry_ema_score=signal.get("entry_ema_score", 0),
+            entry_volume_ratio=signal.get("entry_volume_ratio", 1.0),
+            # ── 分析维度：K线形态 ───────────────────────────────
+            entry_pattern=signal.get("entry_pattern", "none"),
+            # ── 分析维度：时间 ───────────────────────────────
+            entry_hour=signal.get("entry_hour", 0),
         )
         self.positions.append(pos)
         open_cst = datetime.utcfromtimestamp(ts / 1000 + 8 * 3600).strftime("%Y-%m-%d %H:%M")
@@ -344,6 +380,17 @@ class BacktestEngine:
             "partial_tp2":   position.partial_tp2_done,
             "signal_strength": position.signal_strength,
             "signal_reason":   position.signal_reason,
+            # ── 分析维度数据 ──────────────────────────────────────
+            "entry_atr":       round(position.entry_atr, 6) if position.entry_atr else 0.0,
+            "sl_atr_mult":     round(position.stop_loss_atr_multiple, 2) if position.stop_loss_atr_multiple else 0.0,
+            "tp_atr_mult":     round(position.take_profit_atr_multiple, 2) if position.take_profit_atr_multiple else 0.0,
+            "risk_reward":     round(position.risk_reward_ratio, 2) if position.risk_reward_ratio else 0.0,
+            "entry_adx":       round(position.entry_adx, 1) if position.entry_adx else 0.0,
+            "entry_rsi":       round(position.entry_rsi, 1) if position.entry_rsi else 0.0,
+            "ema_score":       position.entry_ema_score,
+            "volume_ratio":    round(position.entry_volume_ratio, 2) if position.entry_volume_ratio else 1.0,
+            "entry_pattern":   position.entry_pattern,
+            "entry_hour":      position.entry_hour,
         }
         self.trades.append(partial_trade)
 

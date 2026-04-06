@@ -59,6 +59,26 @@ class Position:
     key_resistance: Optional[float] = None
     signal_reason: str = ""
 
+    # ── 分析维度：R:R 比率 ───────────────────────────────
+    entry_atr: float = 0.0              # 入场时的 ATR 值
+    stop_loss_distance: float = 0.0     # 止损距离（价格差）
+    take_profit_distance: float = 0.0   # 止盈距离（价格差）
+    stop_loss_atr_multiple: float = 0.0 # 止损 ATR 倍数
+    take_profit_atr_multiple: float = 0.0 # 止盈 ATR 倍数
+    risk_reward_ratio: float = 0.0      # R:R 比率
+
+    # ── 分析维度：入场指标状态 ───────────────────────────
+    entry_adx: float = 0.0              # 入场时 ADX 值
+    entry_rsi: float = 0.0              # 入场时 RSI 值（基础周期）
+    entry_ema_score: int = 0            # 入场时 EMA 对齐得分 (0-3)
+    entry_volume_ratio: float = 1.0     # 入场时量比
+
+    # ── 分析维度：K线形态 ───────────────────────────────
+    entry_pattern: str = ""             # 入场K线形态 (pin_bar, engulfing, none)
+
+    # ── 分析维度：时间 ───────────────────────────────
+    entry_hour: int = 0                 # 入场小时 (0-23, UTC)
+
     # ── 内部 ID ──────────────────────────────────────
     position_id: str = ""
 
@@ -114,4 +134,18 @@ class Position:
             "partial_tp2":     self.partial_tp2_done,
             "signal_strength": self.signal_strength,
             "signal_reason":   self.signal_reason,
+            # 分析维度：R:R 比率
+            "entry_atr":       round(self.entry_atr, 6) if self.entry_atr else 0.0,
+            "sl_atr_mult":     round(self.stop_loss_atr_multiple, 2) if self.stop_loss_atr_multiple else 0.0,
+            "tp_atr_mult":     round(self.take_profit_atr_multiple, 2) if self.take_profit_atr_multiple else 0.0,
+            "risk_reward":     round(self.risk_reward_ratio, 2) if self.risk_reward_ratio else 0.0,
+            # 分析维度：入场指标
+            "entry_adx":       round(self.entry_adx, 1) if self.entry_adx else 0.0,
+            "entry_rsi":       round(self.entry_rsi, 1) if self.entry_rsi else 0.0,
+            "ema_score":       self.entry_ema_score,
+            "volume_ratio":    round(self.entry_volume_ratio, 2) if self.entry_volume_ratio else 1.0,
+            # 分析维度：K线形态
+            "entry_pattern":   self.entry_pattern,
+            # 分析维度：时间
+            "entry_hour":      self.entry_hour,
         }

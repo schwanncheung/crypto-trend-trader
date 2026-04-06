@@ -15,8 +15,9 @@ pip install -r requirements.txt
 ```bash
 python backtest/run_backtest.py download \
     --symbols BTC/USDT:USDT ETH/USDT:USDT \
-    --timeframes 15m 30m 1h \
-    --start 2024-01-01
+    --timeframes 5m 15m 30m 1h \
+    --start 2026-01-01 \
+    --end 2026-04-06
 ```
 
 ### 3. 运行回测
