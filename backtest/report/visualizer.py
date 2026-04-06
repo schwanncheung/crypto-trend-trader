@@ -403,10 +403,15 @@ class BacktestVisualizer:
             showlegend=False,
         )
 
-        # 设置所有 Y 轴范围
-        for i in range(1, 7):
-            fig.update_yaxes(range=[0, 100], row=(i // 2) + 1 if i % 2 == 0 else (i + 1) // 2,
-                            col=2 if i % 2 == 0 else 1)
+        # 设置所有 Y 轴范围（正确计算 row/col）
+        # 6个子图位置：row1=(1,1),(1,2), row2=(2,1),(2,2), row3=(3,1),(3,2)
+        yaxes_config = [
+            (1, 1), (1, 2),  # R:R, ADX
+            (2, 1), (2, 2),  # RSI, EMA
+            (3, 1), (3, 2),  # Pattern, Hour
+        ]
+        for row, col in yaxes_config:
+            fig.update_yaxes(range=[0, 100], row=row, col=col)
 
         out = self.output_dir / filename
         fig.write_html(str(out), include_plotlyjs="cdn")
