@@ -121,7 +121,7 @@ analysis:
     # EMA200 惯性极强，横盘后刚启动的趋势需 55+ 小时才能形成排列。
     # 解决：单独评估最近 N 根 K 线的方向连续性，作为趋势判断的补充评分项，
     # 并在 ADX 尚低但近期价格突破背景中位价时豁免 ADX 门槛。
-    recent_trend_window: 30             # 近期窗口（根）：1h 周期下 24 根 = 近 24 小时
+    recent_trend_window: 24             # 近期窗口（根）：1h 周期下 24 根 = 近 24 小时
     recent_trend_min_pct: 0.7           # 方向一致 K 线占比下限（65%）
     recent_trend_min_move: 0.015        # 窗口内总振幅下限（1.5%），过滤横盘假信号
     context_trend_window: 90            # 背景窗口（根）：判断近期是否突破了横盘区间
@@ -133,10 +133,16 @@ trading:
 
   # 信号质量门槛
   allowed_confidence: ["high"]  # 只有 confidence=high 的信号才允许交易
-  min_signal_strength: 6        # 最低信号强度（1-10）
-  min_trend_strength: 6         # 最低趋势强度（1-10）
-  min_rr_ratio: 1.5             # 最低盈亏比，低于此值不开仓
-  target_rr_ratio: 1.8          # 止盈设置：止盈距离 = 止损距离 × 此倍数
+  min_signal_strength: 7        # 最低信号强度（1-10）← 从6提高到7，过滤弱信号
+  min_trend_strength: 7         # 最低趋势强度（1-10）← 从6提高到7
+  min_rr_ratio: 2.0             # 最低盈亏比 ← 从1.5提高到2.0，确保足够利润空间
+  target_rr_ratio: 2.5          # 止盈设置：止盈距离 = 止损距离 × 此倍数 ← 从1.8提高到2.5
+
+  # 形态仓位倍数（高胜率形态增加仓位）
+  pattern_position_boost:
+    hammer: 1.1         # 锤子线：仓位增加10%（胜率85.7%）
+    morning_star: 1.1   # 启明星：仓位增加10%（胜率100%）
+    # 其他形态默认为 1.0（无加仓）
 
   # ADX 边缘区间加严（ADX 处于 20-25 时提高信号强度门槛）
   adx_edge_min: 20
@@ -150,10 +156,10 @@ trading:
 
   # AI warning 仓位折减
   warning_position_ratio: 0.6   # 触发 warning 时仓位折减比例（0.6 = 标准仓位的 60%）
-  warning_keywords: ["低市值", "高波动", "插针", "流动性", "小市值", "波动大", "仓位减半", "极端缩量"]
+  warning_keywords: ["低市值", "高波动", "插针", "小市值", "波动大", "仓位减半", "极端缩量"]
 
   # 动态止损（止损距离 = ATR × 倍数，倍数随 ADX 动态调整）
-  stop_loss_atr_multiplier: 2.0  # ATR 基础倍数
+  stop_loss_atr_multiplier: 1.5  # ATR 基础倍数 ← 从2.0收紧到1.5，减少止损距离
   stop_loss_adx_scaling:
     enabled: false
     strong_trend_threshold: 40   # ADX >= 此值视为强趋势
@@ -165,9 +171,9 @@ trading:
   trailing_stop_atr_multiplier: 1.5  # 跟踪止损 ATR 倍数（比开仓止损更紧）
 
   # 止损止盈硬性上限（风控红线）
-  max_stop_loss_pct: 2.5         # 止损距离基准上限（%）
-  max_stop_loss_multiplier: 2.5  # 止损距离允许放大倍数（实际上限 = max_stop_loss_pct × 此值）
-  max_take_profit_pct: 5.0       # 止盈距离上限（%）
+  max_stop_loss_pct: 1.5         # 止损距离基准上限（%）← 从2.5收紧到1.5
+  max_stop_loss_multiplier: 1.5  # 止损距离允许放大倍数 ← 从2.5收紧到1.5（实际上限=1.5%×1.5=2.25%）
+  max_take_profit_pct: 6.0       # 止盈距离上限（%）← 从5.0放宽到6.0，配合更高的R:R
 
 # ── 账户风控 ─────────────────────────────────────────────────────────
 risk:

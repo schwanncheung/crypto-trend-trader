@@ -199,6 +199,7 @@ def calculate_position_size(
     warning: str = None,
     contract_size: float = 1.0,
     max_mkt_sz: float = None,
+    pattern_boost: float = 1.0,  # 新增：形态仓位倍数（hammer=1.1）
 ) -> dict:
     """
     基于凯利准则计算仓位大小
@@ -208,6 +209,7 @@ def calculate_position_size(
     参数：
         contract_size: 每张合约面值（单位：币），如 HMSTR 为 100
         max_mkt_sz:    交易所市价单最大张数限制（来自 market info）
+        pattern_boost: 形态仓位倍数，hammer 形态为 1.1（增加10%仓位）
 
     返回：
     {
@@ -223,7 +225,7 @@ def calculate_position_size(
 
     max_risk_pct = _TRADING_CFG.get("max_position_pct", 0.06)
     reduction = _check_warning_reduction(warning)
-    max_risk_usdt = balance_usdt * max_risk_pct * reduction
+    max_risk_usdt = balance_usdt * max_risk_pct * reduction * pattern_boost  # 应用形态 boost
 
     # 单位价格变动的风险（每张合约）
     price_risk = abs(entry_price - stop_loss)

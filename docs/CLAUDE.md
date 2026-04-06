@@ -72,13 +72,13 @@ trade_manager.py (持仓管理，每4分钟)
 ```python
 # 止损距离 = ATR × multiplier
 # multiplier 随 ADX 动态调整（需启用 stop_loss_adx_scaling.enabled）：
-#   ADX < 40:  2.0x（基础）
-#   ADX 40-60: 2.4x（强趋势）
-#   ADX ≥ 60:  3.0x（极强趋势）
+#   ADX < 40:  1.5x（基础）
+#   ADX 40-60: 1.8x（强趋势）
+#   ADX ≥ 60:  2.25x（极强趋势）
 
 # 止损合理性检查（不强制收缩）：
 # 实际上限 = max_stop_loss_pct × max_stop_loss_multiplier
-# 默认 2.5% × 2.5 = 6.25%
+# 默认 1.5% × 1.5 = 2.25%
 # 止损距离 < 实际上限 → 使用完整 ATR 止损
 # 止损距离 > 实际上限 → 拒绝信号（品种波动异常）
 
@@ -109,10 +109,29 @@ trade_manager.py (持仓管理，每4分钟)
 
 ```python
 contracts = risk_usdt / (止损点数 × 合约面值)
-# risk_usdt = 余额 × max_position_pct(15%) × warning_reduction
+# risk_usdt = 余额 × max_position_pct(15%) × warning_reduction × pattern_boost
 ```
 
-### 3.6 结构平仓 (`fetch_kline.py:detect_trend_structure`)
+### 3.6 形态仓位倍数
+
+```python
+# 高胜率形态增加仓位（从 settings.yaml → trading.pattern_position_boost 读取）
+# 配置示例：
+#   pattern_position_boost:
+#     hammer: 1.1         # 锤子线：仓位+10%（胜率85.7%）
+#     morning_star: 1.1   # 启明星：仓位+10%（胜率100%）
+
+# 规则引擎模式（rule_only）：
+#   - 检测到高胜率形态 → signal_strength +1，pattern_boost = 配置值
+#   - decision["pattern_boost"] 传递给 execute_trade
+
+# LLM 模式（text）：
+#   - LLM 返回 signal_type（形态名称）
+#   - 后处理代码从配置读取 pattern_boost
+#   - 高胜率形态 → signal_strength +1
+```
+
+### 3.7 结构平仓 (`fetch_kline.py:detect_trend_structure`)
 
 ```
 返回字段：
@@ -123,7 +142,7 @@ contracts = risk_usdt / (止损点数 × 合约面值)
 trade_manager 按持仓方向选择对应字段，避免多头创新高时被误平仓
 ```
 
-### 3.7 持仓管理出场逻辑 (`trade_manager.py`)
+### 3.8 持仓管理出场逻辑 (`trade_manager.py`)
 
 ```
 出场优先级（从高到低）：
@@ -142,9 +161,18 @@ timeframes: ["1h", "15m", "5m"]
 
 trading:
   enable_open_position: true    # 开仓总开关
-  min_signal_strength: 6        # 最低信号强度
-  min_rr_ratio: 1.5             # 最低盈亏比
+  min_signal_strength: 7        # 最低信号强度
+  min_rr_ratio: 2.0             # 最低盈亏比
+  target_rr_ratio: 2.5          # 止盈R倍数
+  stop_loss_atr_multiplier: 1.5 # 止损ATR倍数
+  max_stop_loss_pct: 1.5        # 止损上限(%)
+  max_take_profit_pct: 6.0      # 止盈上限(%)
   trailing_stop_atr_multiplier: 1.5  # 跟踪止损 ATR 倍数
+
+  # 形态仓位倍数
+  pattern_position_boost:
+    hammer: 1.1         # 锤子线：仓位+10%
+    morning_star: 1.1   # 启明星：仓位+10%
 
 risk:
   max_open_positions: 5         # 最大持仓
@@ -268,4 +296,4 @@ ln -sf $(pwd)/docs/MEMORY.md ~/.claude/projects/$(pwd | sed 's/\//-/g')/memory/M
 
 ---
 
-*最后更新：2026-04-05（新增优化1-5：动量加速检测、ATR跟踪止损、量价同向验证、动量衰减出场、时间框架调整为1h/15m/5m）*
+*最后更新：2026-04-07（新增形态仓位倍数配置、收紧止损参数、提高信号质量门槛）*

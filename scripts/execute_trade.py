@@ -247,12 +247,14 @@ def execute_from_decision(
             }
 
         # ── 2. 仓位信息（优先用风控传入的，否则自动计算）──
+        pattern_boost = decision.get("pattern_boost", 1.0)  # 形态仓位倍数
         if position_info is None:
             position_info = _calculate_position(
                 exchange=exchange,
                 symbol=symbol,
                 entry_price=float(entry_price),
                 stop_loss=float(stop_loss),
+                pattern_boost=pattern_boost,  # 传递形态仓位倍数
             )
 
         contracts   = position_info.get("contracts")
@@ -451,11 +453,13 @@ def _calculate_position(
     symbol: str,
     entry_price: float,
     stop_loss: float,
+    pattern_boost: float = 1.0,  # 新增：形态仓位倍数（hammer=1.1）
 ) -> dict:
     """
     根据固定风险比例自动计算开仓张数
     默认每笔交易风险不超过总资金的 1%
     已用保证金从可用余额中扣除，避免超额使用资金
+    pattern_boost: 形态仓位倍数，hammer 形态为 1.1（增加10%仓位）
     """
     try:
         risk_pct      = RISK_CFG.get("risk_per_trade_pct", 1.0) / 100
@@ -468,10 +472,10 @@ def _calculate_position(
 
         logger.info(
             f"余额状态 | free（可用）：{free_usdt:.2f} USDT | "
-            f"本次风险金额：{free_usdt * risk_pct:.2f} USDT"
+            f"本次风险金额：{free_usdt * risk_pct * pattern_boost:.2f} USDT"
         )
 
-        risk_usdt = available_usdt * risk_pct  # 每笔最大亏损金额
+        risk_usdt = available_usdt * risk_pct * pattern_boost  # 应用形态 boost
 
         # 每张合约的风险
         price_diff = abs(entry_price - stop_loss)

@@ -190,12 +190,14 @@ class SignalPipeline:
         balance = self._get_available_balance()
         leverage = self.config.get("backtest", {}).get("leverage", 10)
         max_margin_ratio = self.config.get("trading", {}).get("max_margin_usage_ratio", 0.5)
+        pattern_boost = decision.get("pattern_boost", 1.0)  # 形态仓位倍数（hammer=1.1）
         try:
             pos_info = rf.calculate_position_size(
                 balance_usdt=balance,
                 entry_price=decision.get("entry_price", current_price),
                 stop_loss=decision.get("stop_loss", 0),
                 leverage=leverage,
+                pattern_boost=pattern_boost,  # 传递形态仓位倍数
             )
         except Exception as e:
             logger.warning(f"  {symbol} 仓位计算异常：{e}")

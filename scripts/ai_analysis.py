@@ -28,13 +28,14 @@ _TRADING_CFG = TRADING_CFG.copy() if TRADING_CFG else {}
 
 _MIN_SIGNAL_STRENGTH = _TRADING_CFG.get("min_signal_strength", 7)
 _MIN_RR_RATIO        = _TRADING_CFG.get("min_rr_ratio", 2.0)
+_PATTERN_POSITION_BOOST = _TRADING_CFG.get("pattern_position_boost", {})  # 形态仓位倍数配置
 
 
 def reload_config_from_dict(config: dict) -> None:
     """
     从外部配置字典重新加载参数（回测系统 override 机制）。
     """
-    global _MIN_SIGNAL_STRENGTH, _MIN_RR_RATIO, _TRADING_CFG
+    global _MIN_SIGNAL_STRENGTH, _MIN_RR_RATIO, _TRADING_CFG, _PATTERN_POSITION_BOOST
 
     trading_cfg = config.get("trading", {})
 
@@ -44,10 +45,12 @@ def reload_config_from_dict(config: dict) -> None:
     # 更新全局变量
     _MIN_SIGNAL_STRENGTH = _TRADING_CFG.get("min_signal_strength", _MIN_SIGNAL_STRENGTH)
     _MIN_RR_RATIO = _TRADING_CFG.get("min_rr_ratio", _MIN_RR_RATIO)
+    _PATTERN_POSITION_BOOST = _TRADING_CFG.get("pattern_position_boost", _PATTERN_POSITION_BOOST)
 
     logger.info(
         f"[ai_analysis] 配置已重新加载："
-        f"min_signal_strength={_MIN_SIGNAL_STRENGTH}, min_rr_ratio={_MIN_RR_RATIO}"
+        f"min_signal_strength={_MIN_SIGNAL_STRENGTH}, min_rr_ratio={_MIN_RR_RATIO}, "
+        f"pattern_position_boost={_PATTERN_POSITION_BOOST}"
     )
 
 
@@ -169,6 +172,7 @@ def _build_rule_only_decision(tf_indicators: dict, direction: str, symbol: str) 
     # K 线形态检测（检查所有周期，优先使用有形态的周期）
     pattern = "none"
     pattern_tf = base_tf
+    pattern_boost = 1.0  # 仓位倍数（高胜率形态时增加）
     for tf in timeframes:
         patterns_list = tf_indicators.get(tf, {}).get("patterns", [])
         if patterns_list and patterns_list[0].get("pattern") not in ("none", "", None):
@@ -178,6 +182,12 @@ def _build_rule_only_decision(tf_indicators: dict, direction: str, symbol: str) 
 
     if pattern not in ("none", "", None):
         score += 1.5
+        # 高胜率形态额外加分 + 仓位 boost（从配置读取）
+        boost_ratio = _PATTERN_POSITION_BOOST.get(pattern, 1.0)
+        if boost_ratio > 1.0:
+            score += 1.0  # 高胜率形态额外加1分
+            pattern_boost = boost_ratio
+            logger.info(f"[rule_only] {symbol} {pattern} 形态：信号强度+1，仓位+{(boost_ratio-1)*100:.0f}%")
 
     # ADX 边缘区减分（对齐 AI prompt）
     adx_edge_min = _TRADING_CFG.get("adx_edge_min", 20)
@@ -311,6 +321,7 @@ def _build_rule_only_decision(tf_indicators: dict, direction: str, symbol: str) 
         "structure_broken": False,
         "confidence":       confidence,
         "entry_rsi":        rsi,  # 新增：入场时 RSI 值
+        "pattern_boost":    pattern_boost,  # 新增：形态仓位倍数（hammer=1.1）
         "reason":           (
             f"规则引擎信号：{direction}，信号强度={signal_strength}/10，"
             f"ADX={adx:.1f}，EMA对齐={ema_align_ok}/{total_tfs}，"
@@ -411,6 +422,13 @@ def _build_text_analysis_prompt() -> str:
     vol_burst_thresh = vol_ratio_thresh * 2
     momentum_strong_pct = int(recent_momentum_pct * 100)
 
+    # 动态生成形态加分说明（从配置读取，仅说明信号强度加分）
+    pattern_boost_lines = []
+    for pattern, boost in _PATTERN_POSITION_BOOST.items():
+        if boost > 1.0:
+            pattern_boost_lines.append(f"  - {pattern}：额外+1分")
+    pattern_boost_note = "\n".join(pattern_boost_lines) if pattern_boost_lines else "  - （未配置高胜率形态）"
+
     return f"""你是一位激进型裸K趋势交易员，专注加密货币合约单边行情，追求高胜率的趋势早期入场。
 
 系统规则引擎已完成硬过滤（EMA排列、ADX门槛、RSI保护、背离检测），以下是通过预过滤的市场快照：
@@ -435,6 +453,8 @@ def _build_text_analysis_prompt() -> str:
 **加分项（最多+4分）：**
 - 量能爆发（量比 >= {vol_burst_thresh:.1f}）：+2分
 - 明确K线形态（吞没/锤子/Pin Bar）：+1.5分
+- **高胜率形态额外加分**：
+{pattern_boost_note}
 - RSI 位置理想：
   - 做多：RSI {rsi_oversold}-{long_rsi_low}（回调充分但未超卖）：+1.5分
   - 做空：RSI {long_rsi_low}-{rsi_overbought - 10}（反弹充分但未超买）：+1.5分
@@ -677,6 +697,18 @@ def analyze_symbol(
                 result["_dynamic_stop_loss_applied"] = True
                 result["_tp_reason"] = tp_reason
                 logger.info(f"已应用动态止损止盈：SL={stop_loss:.6g}, TP={take_profit:.6g}, RR={rr:.2f}, {tp_reason}")
+
+            # 根据形态设置仓位倍数（与 rule_only 模式保持一致）
+            signal_type = result.get("signal_type", "none")
+            pattern_boost = _PATTERN_POSITION_BOOST.get(signal_type, 1.0)
+            result["pattern_boost"] = pattern_boost
+            if pattern_boost > 1.0:
+                # 高胜率形态额外加分
+                current_strength = result.get("signal_strength", 0)
+                result["signal_strength"] = min(10, current_strength + 1)
+                logger.info(f"[分析入口] {symbol} {signal_type} 形态：信号强度+1（{current_strength}→{result['signal_strength']}），仓位+{(pattern_boost-1)*100:.0f}%")
+            else:
+                result["pattern_boost"] = 1.0
 
         return result
 
