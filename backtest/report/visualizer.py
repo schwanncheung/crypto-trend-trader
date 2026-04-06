@@ -187,9 +187,33 @@ class BacktestVisualizer:
         if not breakdown:
             return None
 
+        # 平仓原因中英文映射
+        reason_cn = {
+            "sl": "止损触发",
+            "tp": "止盈触发",
+            "partial_tp1": "第一批分批止盈",
+            "partial_tp2": "第二批分批止盈",
+            "trailing_sl": "移动止损触发",
+            "eod": "回测结束平仓",
+            "structure_break_long_1h": "多头结构破坏",
+            "structure_break_short_1h": "空头结构破坏",
+            "momentum_decay": "动量衰减出场",
+        }
+
+        # 转换标签为中文
+        labels = []
+        for k in breakdown.keys():
+            # 处理 support_break_* 和 resistance_break_*
+            if k.startswith("support_break_"):
+                labels.append("多头跌破支撑")
+            elif k.startswith("resistance_break_"):
+                labels.append("空头突破阻力")
+            else:
+                labels.append(reason_cn.get(k, k))
+
         fig = go.Figure(
             go.Pie(
-                labels=list(breakdown.keys()),
+                labels=labels,
                 values=list(breakdown.values()),
                 hole=0.4,
             )

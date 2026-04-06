@@ -27,3 +27,6 @@ priority:
 blacklist:
   - "SKY/USDT:USDT"
   - "LINEA/USDT:USDT"
+  - "BABY/USDT:USDT"   # 回测胜率16.7%，大幅亏损
+  - "PENGU/USDT:USDT"  # 回测胜率47.6%，持续亏损
+  - "MEME/USDT:USDT"   # 回测胜率40%，表现不佳
