@@ -186,6 +186,12 @@ class BacktestEngine:
         if signal is None:
             return
 
+        # 冷却检查：止损/止盈后禁止重复开仓
+        can_open, cooldown_reason = self.cooldown_manager.is_in_cooldown(symbol, ts)
+        if not can_open:
+            logger.debug(f"  {symbol} 冷却检查失败：{cooldown_reason}")
+            return
+
         self._open_position(symbol, ts, signal, close)
 
     def _process_position(self, position: Position, bar: dict, ts: int) -> None:
