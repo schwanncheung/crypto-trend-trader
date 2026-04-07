@@ -73,8 +73,8 @@ analysis:
 
     # 2.1 基础 RSI 极值过滤（可被 ADX 豁免）
     # 只检查锚周期 RSI，小周期波动大不检查
-    rsi_overbought: 70                  # RSI 超买线（做多保护）← 从 80 收紧
-    rsi_oversold: 25                    # RSI 超卖线（做空保护）← 从 20 收紧
+    rsi_overbought: 65                  # RSI 超买线（做多保护）← 从 80 收紧到 65，减少超买区交易
+    rsi_oversold: 30                    # RSI 超卖线（做空保护）← 从 20 放宽到 30，减少超卖区交易
 
 
     # 2.2 ADX 豁免基础 RSI 过滤（防止强趋势 RSI 钝化漏单）
@@ -136,7 +136,7 @@ trading:
   min_signal_strength: 7        # 最低信号强度（1-10）← 从6提高到7，过滤弱信号
   min_trend_strength: 7         # 最低趋势强度（1-10）← 从6提高到7
   min_rr_ratio: 2.0             # 最低盈亏比 ← 从1.5提高到2.0，确保足够利润空间
-  target_rr_ratio: 2.5          # 止盈设置：止盈距离 = 止损距离 × 此倍数 ← 从1.8提高到2.5
+  target_rr_ratio: 2.0          # 止盈设置：止盈距离 = 止损距离 × 此倍数 ← 从1.8提高到2.5
 
   # 形态仓位倍数（高胜率形态增加仓位）
   pattern_position_boost:
@@ -145,7 +145,7 @@ trading:
     # 其他形态默认为 1.0（无加仓）
 
   # ADX 边缘区间加严（ADX 处于 20-25 时提高信号强度门槛）
-  adx_edge_min: 20
+  adx_edge_min: 25               # ← 从 20 提高到 25，边缘区间加严
   adx_edge_max: 25
   adx_edge_min_signal_strength: 8  # 边缘区间内要求的最低信号强度
 
@@ -159,7 +159,7 @@ trading:
   warning_keywords: ["低市值", "高波动", "插针", "小市值", "波动大", "仓位减半", "极端缩量"]
 
   # 动态止损（止损距离 = ATR × 倍数，倍数随 ADX 动态调整）
-  stop_loss_atr_multiplier: 1.5  # ATR 基础倍数 ← 从2.0收紧到1.5，减少止损距离
+  stop_loss_atr_multiplier: 2.5  # ATR 基础倍数 ← 从2.0收紧到1.5，减少止损距离
   stop_loss_adx_scaling:
     enabled: false
     strong_trend_threshold: 40   # ADX >= 此值视为强趋势
@@ -172,7 +172,7 @@ trading:
 
   # 止损止盈硬性上限（风控红线）
   max_stop_loss_pct: 2.5           # 止损距离基准上限（%
-  max_stop_loss_multiplier: 1.5  # 止损距离允许放大倍数 ← 从2.5收紧到1.5（实际上限=1.5%×1.5=2.25%）
+  max_stop_loss_multiplier: 2.0  # 止损距离允许放大倍数 ← 从2.5收紧到1.5（实际上限=1.5%×1.5=2.25%）
   max_take_profit_pct: 6.0       # 止盈距离上限（%）← 从5.0放宽到6.0，配合更高的R:R
 
 # ── 账户风控 ─────────────────────────────────────────────────────────

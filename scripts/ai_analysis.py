@@ -651,7 +651,7 @@ def analyze_symbol(
             entry = result.get("entry_price", 0)
             if entry > 0:
                 from dynamic_stop_take_profit import calculate_dynamic_stop_loss, calculate_take_profit
-                base_tf = TIMEFRAMES[-1] if TIMEFRAMES else "15m"
+                base_tf = "15m"  # 固定使用 15m ATR 计算止损，避免 5m 周期噪音导致止损过近
                 base_ind = tf_indicators.get(base_tf, {})
                 atr = base_ind.get("atr", entry * 0.01)
                 adx = anchor_ind.get("adx", {}).get("adx", 0) if isinstance(anchor_ind.get("adx"), dict) else float(anchor_ind.get("adx", 0) or 0)

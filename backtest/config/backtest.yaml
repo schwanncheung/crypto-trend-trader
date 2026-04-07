@@ -24,7 +24,7 @@ backtest:
   # rule_only : 纯规则引擎构造伪AI决策（推荐，可重复执行，无API成本）
   # llm_mock  : 读取预缓存的LLM响应JSON（用于验证AI效果）
   # llm_real  : 调用生产环境真实文本LLM API（用于验证生产LLM逻辑，需API Key）
-  ai_mode: "llm_real"
+  ai_mode: "rule_only"
 
   # ── 下载时间框架 ───────────────────────────────
   # download 子命令默认下载的周期列表（可被 --timeframes 命令行参数覆盖）
