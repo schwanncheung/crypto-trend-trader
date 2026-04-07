@@ -73,12 +73,12 @@ analysis:
 
     # 2.1 基础 RSI 极值过滤（可被 ADX 豁免）
     # 只检查锚周期 RSI，小周期波动大不检查
-    rsi_overbought: 65                  # RSI 超买线（做多保护）← 从 80 收紧到 60，减少超买区交易
-    rsi_oversold: 25                    # RSI 超卖线（做空保护）← 从 20 放宽到 30，减少超卖区交易
+    rsi_overbought: 65                  # RSI 超买线（做多保护）
+    rsi_oversold: 30                    # RSI 超卖线（做空保护）← 从 25 收紧到 30，防止暴跌后追空
 
 
     # 2.2 ADX 豁免基础 RSI 过滤（防止强趋势 RSI 钝化漏单）
-    rsi_adx_exemption_enabled: true
+    rsi_adx_exemption_enabled: false    # 禁用：防止强趋势时 RSI 超卖仍开仓导致超跌反弹
     rsi_adx_exemption_threshold: 40     # ADX >= 此值豁免基础 RSI 过滤
 
     # 2.3 极强趋势豁免（同时满足 ADX + DI 差值条件时，额外豁免量能/反弹/转折保护）
