@@ -42,7 +42,7 @@ MIN_TRENDING_TF   = _RULE_CFG.get("min_trending_timeframes", 2)
 ADX_THRESHOLD     = _RULE_CFG.get("adx_trending_threshold", 20)
 VOL_RATIO_THRESH  = _RULE_CFG.get("volume_ratio_threshold", 1.2)
 RSI_OVERBOUGHT    = _RULE_CFG.get("rsi_overbought", 75)
-RSI_OVERSOLD      = _RULE_CFG.get("rsi_overbought", 25)
+RSI_OVERSOLD      = _RULE_CFG.get("rsi_oversold", 25)
 
 
 def reload_config_from_dict(config: dict) -> None:
@@ -1147,7 +1147,7 @@ def rule_engine_filter(
     if not strong_trend_exemption:
         # 检查是否满足 ADX 豁免条件（中等强度趋势即可豁免，无需极强趋势）
         adx_exemption_threshold = _RULE_CFG.get("rsi_adx_exemption_threshold", 40)
-        adx_exemption_enabled = _RULE_CFG.get("rsi_adx_exemption_enabled", True)
+        adx_exemption_enabled = _RULE_CFG.get("rsi_adx_exemption_enabled", False)
         adx_exemption_active = adx_exemption_enabled and anchor_adx >= adx_exemption_threshold
         
         if adx_exemption_active:
