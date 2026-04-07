@@ -73,8 +73,8 @@ analysis:
 
     # 2.1 基础 RSI 极值过滤（可被 ADX 豁免）
     # 只检查锚周期 RSI，小周期波动大不检查
-    rsi_overbought: 65                  # RSI 超买线（做多保护）← 从 80 收紧到 65，减少超买区交易
-    rsi_oversold: 30                    # RSI 超卖线（做空保护）← 从 20 放宽到 30，减少超卖区交易
+    rsi_overbought: 65                  # RSI 超买线（做多保护）← 从 80 收紧到 60，减少超买区交易
+    rsi_oversold: 25                    # RSI 超卖线（做空保护）← 从 20 放宽到 30，减少超卖区交易
 
 
     # 2.2 ADX 豁免基础 RSI 过滤（防止强趋势 RSI 钝化漏单）
@@ -135,13 +135,15 @@ trading:
   allowed_confidence: ["high"]  # 只有 confidence=high 的信号才允许交易
   min_signal_strength: 7        # 最低信号强度（1-10）← 从6提高到7，过滤弱信号
   min_trend_strength: 7         # 最低趋势强度（1-10）← 从6提高到7
-  min_rr_ratio: 2.0             # 最低盈亏比 ← 从1.5提高到2.0，确保足够利润空间
-  target_rr_ratio: 2.0          # 止盈设置：止盈距离 = 止损距离 × 此倍数 ← 从1.8提高到2.5
+  min_rr_ratio: 1.5             # 最低盈亏比 ← 从1.5提高到2.0，确保足够利润空间
+  target_rr_ratio: 1.5          # 止盈设置：止盈距离 = 止损距离 × 此倍数 ← 从1.8提高到2.5
 
   # 形态仓位倍数（高胜率形态增加仓位）
   pattern_position_boost:
-    hammer: 1.1         # 锤子线：仓位增加10%（胜率85.7%）
-    morning_star: 1.1   # 启明星：仓位增加10%（胜率100%）
+    bullish_engulfing: 1.15      # 看涨吞没：仓位增加15%
+    inverted_hammer: 1.1         # ‌倒锤子线：仓位增加10%
+    morning_star: 1.15           # 启明星：仓位增加15%
+    inside_bar: 1.1              # 孕线：仓位增加10%
     # 其他形态默认为 1.0（无加仓）
 
   # ADX 边缘区间加严（ADX 处于 20-25 时提高信号强度门槛）
@@ -171,9 +173,9 @@ trading:
   trailing_stop_atr_multiplier: 1.5  # 跟踪止损 ATR 倍数（比开仓止损更紧）
 
   # 止损止盈硬性上限（风控红线）
-  max_stop_loss_pct: 2.5           # 止损距离基准上限（%
-  max_stop_loss_multiplier: 2.0  # 止损距离允许放大倍数 ← 从2.5收紧到1.5（实际上限=1.5%×1.5=2.25%）
-  max_take_profit_pct: 6.0       # 止盈距离上限（%）← 从5.0放宽到6.0，配合更高的R:R
+  max_stop_loss_pct: 3           # 止损距离基准上限（%）
+  max_stop_loss_multiplier: 1.5  # 止损距离允许放大倍数 ← 从2.5收紧到1.5（实际上限=1.5%×1.5=2.25%）
+  max_take_profit_pct: 5.0       # 止盈距离上限（%）← 从5.0放宽到6.0，配合更高的R:R
 
 # ── 账户风控 ─────────────────────────────────────────────────────────
 risk:
