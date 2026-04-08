@@ -15,7 +15,7 @@ timeframes: ["1h", "15m", "5m"]
 analysis:
   # mode: "text"      = 规则引擎预过滤 + LLM 文本分析（推荐）
   # mode: "rule_only" = 纯规则引擎，不调用 LLM（适合测试/低成本运行）
-  mode: "text"
+  mode: "rule_only"
 
   # 文本 LLM 配置（text 模式使用，兼容 OpenAI 接口）
   text_llm:
@@ -121,7 +121,7 @@ analysis:
     # EMA200 惯性极强，横盘后刚启动的趋势需 55+ 小时才能形成排列。
     # 解决：单独评估最近 N 根 K 线的方向连续性，作为趋势判断的补充评分项，
     # 并在 ADX 尚低但近期价格突破背景中位价时豁免 ADX 门槛。
-    recent_trend_window: 24             # 近期窗口（根）：1h 周期下 24 根 = 近 24 小时
+    recent_trend_window: 36             # 近期窗口（根）：1h 周期下 24 根 = 近 24 小时
     recent_trend_min_pct: 0.7           # 方向一致 K 线占比下限（65%）
     recent_trend_min_move: 0.015        # 窗口内总振幅下限（1.5%），过滤横盘假信号
     context_trend_window: 90            # 背景窗口（根）：判断近期是否突破了横盘区间
@@ -140,11 +140,11 @@ trading:
 
   # 形态仓位倍数（高胜率形态增加仓位）
   pattern_position_boost:
-    bullish_engulfing: 1.0       # ← P0: 从 1.2 降至 1.0，61% 胜率但 -5 USDT， 看涨吞没：仓位增加20%
-    hammer: 1.0                  # ← P0: 从 1.3 降至 1.0，64% 胜率但 -20 USDT， ‌锤子线：仓位增加30%
+    bullish_engulfing: 1.2       # 看涨吞没：仓位增加20%
+    hammer: 1.2                  # ‌锤子线：仓位增加20%
     morning_star: 1.1            # 启明星：仓位增加10%
-    pin_bar_bull: 1.2            # ← P0: 从 1.1 提高到 1.2，53% 胜率 +61 USDT， 长下影线看涨：仓位增加10%
-    inside_bar: 0.0              # ← P1: 禁用内包线，14% 胜率 -61 USDT              # 孕线：仓位增加10%
+    pin_bar_bull: 1.3            # 长下影线看涨：仓位增加30%
+    # inside_bar: 0.0              # 孕线：仓位增加10%
     # 其他形态默认为 1.0（无加仓）
 
   # ADX 边缘区间加严（ADX 处于 20-25 时提高信号强度门槛）
@@ -195,7 +195,7 @@ trade_manager:
   # 分批止盈
   partial_profit_trigger_pct: 15.0    # 第一批触发阈值（%）
   partial_profit_ratio_1: 0.4         # 第一批平仓比例（40%）
-  partial_profit_trigger_pct_2: 40.0  # 第二批触发阈值（%）
+  partial_profit_trigger_pct_2: 30.0  # 第二批触发阈值（%）
   partial_profit_ratio_2: 1.0         # 第二批平仓比例（100% = 全部平仓）
 
   # 强制平仓（三层止损机制的最后兜底）
