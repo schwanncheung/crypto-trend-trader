@@ -64,7 +64,7 @@ analysis:
     anchor_timeframe: "1h"              # 锚周期：宏观方向判断，必须非横盘才放行
     require_anchor_aligned: true        # 是否要求锚周期与信号方向对齐
     min_trending_timeframes: 2          # 非锚周期中至少几个显示趋势
-    adx_trending_threshold: 20          # ADX >= 此值视为趋势，低于此值为横盘
+    adx_trending_threshold: 25          # ← 从 20 提高到 25，ADX >= 此值视为趋势，减少横盘误判
     volume_ratio_threshold: 0.8         # 量比阈值：当前量 / MA5 >= 此值视为放量
 
     # ═══════════════════════════════════════════════════════════════════
@@ -83,13 +83,13 @@ analysis:
 
     # 2.3 极强趋势豁免（同时满足 ADX + DI 差值条件时，额外豁免量能/反弹/转折保护）
     # 不豁免：RSI 持续保护、RSI 背离保护
-    strong_trend_adx_threshold: 60
-    strong_trend_di_diff_threshold: 20  # +DI 与 -DI 差值 >= 此值视为方向明确
+    strong_trend_adx_threshold: 70        # ← 从 60 提高到 70，减少豁免触发频率，防止趋势末端追单
+    strong_trend_di_diff_threshold: 25    # ← 从 20 提高到 25，+DI 与 -DI 差值 >= 此值视为方向明确
 
     # 2.4 RSI 持续保护（最高优先级，极强趋势也不豁免）
     # 防止在动能耗尽时追单
     rsi_oversold_persist_bars: 10       # 做空保护：RSI 连续 N 根 <= 超卖线后禁止做空
-    rsi_oversold_persist_level: 20      # 超卖判定线（锚周期）
+    rsi_oversold_persist_level: 25      # ← 从 20 提高到 25，与 rsi_oversold:30 缩小 gap，防止超卖区豁免追空
 
     # 2.5 RSI 背离保护（最高优先级，极强趋势也不豁免）
     # 价格新低但 RSI 未新低 = 底背离，动能衰竭，禁止做空
