@@ -89,7 +89,7 @@ analysis:
     # 2.4 RSI 持续保护（最高优先级，极强趋势也不豁免）
     # 防止在动能耗尽时追单
     rsi_oversold_persist_bars: 10       # 做空保护：RSI 连续 N 根 <= 超卖线后禁止做空
-    rsi_oversold_persist_level: 25      # ← 从 20 提高到 25，与 rsi_oversold:30 缩小 gap，防止超卖区豁免追空
+    rsi_oversold_persist_level: 28      # ← P2: 从 25 提高到 28，超卖区 54% 胜率但盈亏比差， ← 从 20 提高到 25，与 rsi_oversold:30 缩小 gap，防止超卖区豁免追空
 
     # 2.5 RSI 背离保护（最高优先级，极强趋势也不豁免）
     # 价格新低但 RSI 未新低 = 底背离，动能衰竭，禁止做空
@@ -133,18 +133,18 @@ trading:
 
   # 信号质量门槛
   allowed_confidence: ["high"]  # 只有 confidence=high 的信号才允许交易
-  min_signal_strength: 7        # 最低信号强度（1-10）← 从6提高到7，过滤弱信号
+  min_signal_strength: 8        # ← P1: 从 7 提高到 8，过滤更多弱信号，减少无形态交易， 最低信号强度（1-10）← 从6提高到7，过滤弱信号
   min_trend_strength: 7         # 最低趋势强度（1-10）← 从6提高到7
   min_rr_ratio: 1.5             # 最低盈亏比 ← 从1.5提高到2.0，确保足够利润空间
   target_rr_ratio: 2.0          # 止盈设置：止盈距离 = 止损距离 × 此倍数 ← 从1.8提高到2.5
 
   # 形态仓位倍数（高胜率形态增加仓位）
   pattern_position_boost:
-    bullish_engulfing: 1.2       # 看涨吞没：仓位增加20%
-    hammer: 1.3                  # ‌锤子线：仓位增加30%
+    bullish_engulfing: 1.0       # ← P0: 从 1.2 降至 1.0，61% 胜率但 -5 USDT， 看涨吞没：仓位增加20%
+    hammer: 1.0                  # ← P0: 从 1.3 降至 1.0，64% 胜率但 -20 USDT， ‌锤子线：仓位增加30%
     morning_star: 1.1            # 启明星：仓位增加10%
-    pin_bar_bull: 1.1            # 长下影线看涨：仓位增加10%
-    # inside_bar: 1.1              # 孕线：仓位增加10%
+    pin_bar_bull: 1.2            # ← P0: 从 1.1 提高到 1.2，53% 胜率 +61 USDT， 长下影线看涨：仓位增加10%
+    inside_bar: 0.0              # ← P1: 禁用内包线，14% 胜率 -61 USDT              # 孕线：仓位增加10%
     # 其他形态默认为 1.0（无加仓）
 
   # ADX 边缘区间加严（ADX 处于 20-25 时提高信号强度门槛）
