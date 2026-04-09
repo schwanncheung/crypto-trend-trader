@@ -4,7 +4,7 @@
 
 backtest:
   # ── 回测时间区间 ──────────────────────────────
-  start_date: "2026-03-01"
+  start_date: "2026-03-15"
   end_date:   "2026-03-31"
 
   # ── 回测账户 ──────────────────────────────────
@@ -53,3 +53,6 @@ override:
   # force_close_loss_pct: -15.0
   # max_open_positions: 3
   # risk_per_trade_pct: 1.0
+  trading:
+    target_rr_ratio: 1.6           # 止盈设置：止盈距离 = 止损距离 × 此倍数
+    stop_loss_atr_multiplier: 1.5  # ATR 基础倍数，减少止损距离
