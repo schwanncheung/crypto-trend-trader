@@ -81,7 +81,7 @@ def _default_wait_response(reason: str) -> dict:
     }
 
 
-def _build_rule_only_decision(tf_indicators: dict, direction: str, symbol: str) -> dict:
+def _build_rule_only_decision(tf_indicators: dict, direction: str, symbol: str, multi_tf_data: dict = None) -> dict:
     """
     纯规则模式：从 tf_indicators 量化指标构造与 risk_filter 兼容的 decision dict。
     """
@@ -209,12 +209,7 @@ def _build_rule_only_decision(tf_indicators: dict, direction: str, symbol: str) 
     else:  # short
         if long_rsi_low <= rsi <= (rsi_overbought - 10):
             score += 1.5  # 反弹充分但未超买
-        # 新增：极端超卖后的整理形态（下跌中继）
-        elif rsi < rsi_oversold:
-            # 检查是否有 inside_bar 或横盘整理形态
-            if pattern in ["inside_bar", "doji", "hammer"] or strong_trend_count > 0:
-                score += 1.5  # 超卖后整理，典型下跌中继
-                logger.info(f"[rule_only] {symbol} RSI极端超卖({rsi:.1f})后整理形态，加分+1.5")
+        # ⚠️ 已删除：错误逻辑（RSI超卖+整理形态≠下跌中继，实际为反弹结构，交给risk_filter硬过滤处理）
 
     # 强趋势豁免（保留原逻辑）
     if strong_trend_exemption:
@@ -244,6 +239,13 @@ def _build_rule_only_decision(tf_indicators: dict, direction: str, symbol: str) 
             score += 1.0
 
     signal_strength = min(10, int(score))
+
+    # ── 高胜率形态信号强度加权（破格加分）──────────────────────────
+    pattern_signal_boost = _TRADING_CFG.get("pattern_signal_boost", {})
+    if pattern in pattern_signal_boost:
+        boost = pattern_signal_boost[pattern]
+        signal_strength = min(10, signal_strength + boost)
+        logger.info(f"[rule_only] {symbol} {pattern} 信号强度 +{boost} → {signal_strength}")
 
     # 使用有形态周期的价格/ATR，若无形态则使用 base_tf
     signal_ind = tf_indicators.get(pattern_tf, {}) if pattern != "none" else tf_indicators.get(base_tf, {})
@@ -293,6 +295,31 @@ def _build_rule_only_decision(tf_indicators: dict, direction: str, symbol: str) 
 
     if rr < min_rr_ratio:
         return _default_wait_response(f"RR不足：{rr:.2f} < {min_rr_ratio}")
+
+    # ── 做空：结构位置过滤（裸K供给区感知）─────────────────────
+    structure_cfg = rule_filter_cfg.get("structure_filter", {})
+    if direction == "short" and structure_cfg.get("short_require_near_resistance", False):
+        if multi_tf_data is not None:
+            anchor_df = multi_tf_data.get(anchor_tf)
+            if anchor_df is not None and not anchor_df.empty:
+                from fetch_kline import detect_trend_structure
+                structure = detect_trend_structure(anchor_df)
+                swing_highs = structure.get("swing_highs", [])
+                if swing_highs:
+                    last_resistance = swing_highs[-1][1]
+                    distance_pct = abs(entry - last_resistance) / entry
+                    threshold = structure_cfg.get("short_resistance_threshold_pct", 0.025)
+                    if distance_pct > threshold:
+                        return _default_wait_response(
+                            f"做空需在阻力区(≈{last_resistance:.4f})附近，"
+                            f"当前偏离{distance_pct:.1%} > {threshold:.1%}，跳过"
+                        )
+                    # 检查空头结构（LH/LL）
+                    if structure_cfg.get("short_require_structure_down", False):
+                        if not structure.get("lh", False) and not structure.get("ll", False):
+                            return _default_wait_response(
+                                f"做空需LH/LL空头结构，当前={structure.get('trend','unknown')}，跳过"
+                            )
 
     confidence    = "high" if (signal_strength >= min_signal_strength and volume_confirmed) else "low"
     trend_strength = min(10, int(adx / 4))
@@ -614,7 +641,7 @@ def analyze_symbol(
             return resp
 
         logger.info(f"[分析入口] {symbol} 规则引擎通过（{direction}），构造规则决策")
-        result = _build_rule_only_decision(tf_indicators, direction, symbol)
+        result = _build_rule_only_decision(tf_indicators, direction, symbol, multi_tf_data)
         result["_analysis_mode"] = "rule_only"
         result["_rule_direction"] = direction
         result["_filter_reason"] = filter_reason

@@ -26,6 +26,10 @@ OKX 永续合约自动交易系统。详细文档见 [CLAUDE.md](CLAUDE.md)
 | `config/settings.yaml` | 主配置入口 |
 | `config/symbols.yaml` | 白名单+黑名单配置 |
 
+## 重要规范
+
+**所有涉及分析代码、策略分析、代码修改的操作，必须先完整学习 `docs/CLAUDE.md` 再执行。**
+
 ## 当前配置
 
 - 时间框架：`["1h", "15m", "5m"]`

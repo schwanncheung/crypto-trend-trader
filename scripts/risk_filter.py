@@ -104,12 +104,21 @@ def check_signal_quality(decision: dict) -> tuple[bool, str]:
     if structure_broken:
         return False, "价格结构已被打破"
 
-    # ── 新增：RSI 极值保护（防止在超买/超卖区追单）────────────
+    # ── RSI 极值保护（防止在超买/超卖区追单）────────────
     if entry_rsi is not None:
         if signal == "long" and entry_rsi >= _RSI_OVERBOUGHT:
             return False, f"RSI={entry_rsi:.1f} 超买（>={_RSI_OVERBOUGHT}），禁止做多"
         if signal == "short" and entry_rsi <= _RSI_OVERSOLD:
             return False, f"RSI={entry_rsi:.1f} 超卖（<={_RSI_OVERSOLD}），禁止做空"
+
+    # ── Bearish Engulfing + RSI 超卖 = 强反弹结构，禁止做空 ───────
+    # 裸K逻辑：RSI 超卖区出现看跌吞没，是价格被快速压低后的反弹结构，非趋势延续
+    entry_pattern = decision.get("signal_type", "none")
+    if (signal == "short"
+            and entry_rsi is not None
+            and entry_rsi <= _RSI_OVERSOLD
+            and entry_pattern == "bearish_engulfing"):
+        return False, f"RSI={entry_rsi:.1f} 超卖 + 看跌吞没 = 反弹结构，禁止做空"
 
     return True, "信号质量检查通过"
 

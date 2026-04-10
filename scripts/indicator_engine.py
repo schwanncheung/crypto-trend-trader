@@ -598,11 +598,16 @@ def _is_bearish(row) -> bool:
     return row["close"] < row["open"]
 
 
-def detect_candlestick_patterns(df: pd.DataFrame) -> list:
+def detect_candlestick_patterns(df: pd.DataFrame, trend_direction: str = None) -> list:
     """
     识别最近3根K线内的裸K形态
     返回列表，每项为 {pattern, direction, bar_index, description}
     bar_index: 0=最新，1=前一根，2=前两根
+
+    Args:
+        df: K线 DataFrame
+        trend_direction: 锚周期趋势方向（'up'/'down'/'sideways'），
+                         Inside Bar 据此判断方向，而非只看当前K线阴阳
     """
     patterns = []
     if len(df) < 5:
@@ -659,11 +664,19 @@ def detect_candlestick_patterns(df: pd.DataFrame) -> list:
             patterns.append({"pattern": "pin_bar_bear", "direction": "short",
                              "bar_index": idx, "description": f"看跌Pin Bar（前{idx}根）"})
 
-    # ── 内包线（前1根被前2根包含，最新K线方向确认）
+    # ── 内包线（前1根被前2根包含，需趋势背景确认方向）
+    # 裸K逻辑：Inside Bar 是顺趋势的突破信号，横盘里的Inside Bar无效
+    # 方向由锚周期趋势决定，不以当前K线阴阳为准
     if (c1["high"] < c2["high"] and c1["low"] > c2["low"]):
-        direction = "long" if _is_bullish(c) else "short"
-        patterns.append({"pattern": "inside_bar", "direction": direction,
-                         "bar_index": 1, "description": f"内包线突破（方向:{direction}）"})
+        _inside_dir = None
+        if trend_direction == "up":
+            _inside_dir = "long"
+        elif trend_direction == "down":
+            _inside_dir = "short"
+        # 横盘或无趋势：Inside Bar 无效，直接跳过
+        if _inside_dir is not None:
+            patterns.append({"pattern": "inside_bar", "direction": _inside_dir,
+                             "bar_index": 1, "description": f"内包线突破({trend_direction})"})
 
     # ── 启明星（三根：大阴 + 小实体 + 大阳）
     if (len(df) >= 4
@@ -993,7 +1006,7 @@ def compute_timeframe_indicators(df: pd.DataFrame, tf_label: str, symbol: str = 
     vol_ratio   = compute_volume_ratio(df)
     momentum    = assess_recent_trend_momentum(df)              # 近期动能评估
     trend       = assess_trend_direction(df, adx_info, ema_info, symbol)
-    patterns    = detect_candlestick_patterns(df)
+    patterns    = detect_candlestick_patterns(df, trend_direction=trend)
     mom_accel   = detect_momentum_acceleration(df)              # 动量加速检测（优化1）
 
     current_price = float(df["close"].iloc[-1])

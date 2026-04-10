@@ -168,6 +168,24 @@ trading:
     # inside_bar: 0.0              # 孕线：仓位增加10%
     # 其他形态默认为 1.0（无加仓）
 
+  # 形态信号强度加权（满分10分，可破格加分）
+  pattern_signal_boost:
+    pin_bar_bull: 1.5            # Pin Bar 多头：信号强度 +1.5
+    pin_bar_bear: 1.5            # Pin Bar 空头：信号强度 +1.5
+    bullish_engulfing: 0.5       # 看涨吞没：+0.5（胜率一般）
+    hammer: 0.5                  # 锤子线：+0.5
+    morning_star: 1.0            # 启明星：+1.0
+
+  # 形态过滤规则
+  pattern_filter:
+    inside_bar_require_trend: true   # Inside Bar 必须有趋势背景（up/down）才生效，横盘时跳过
+
+  # 做空结构位置要求（裸K供给区感知）
+  structure_filter:
+    short_require_near_resistance: true   # 做空需在阻力区附近（±阈值内）
+    short_resistance_threshold_pct: 0.025 # 价格距阻力位 ±2.5% 视为"附近"
+    short_require_structure_down: true     # 做空需空头结构（LH/LL 满足其一）
+
   # ADX 边缘区间加严（ADX 处于 20-25 时提高信号强度门槛）
   adx_edge_min: 25               # ← 从 20 提高到 25，边缘区间加严
   adx_edge_max: 25

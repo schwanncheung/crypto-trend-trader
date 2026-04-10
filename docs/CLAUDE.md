@@ -112,23 +112,31 @@ contracts = risk_usdt / (止损点数 × 合约面值)
 # risk_usdt = 余额 × max_position_pct(15%) × warning_reduction × pattern_boost
 ```
 
-### 3.6 形态仓位倍数
+### 3.6 形态仓位倍数 & 信号强度加权
 
 ```python
-# 高胜率形态增加仓位（从 settings.yaml → trading.pattern_position_boost 读取）
-# 配置示例：
+# 仓位加权（从 settings.yaml → trading.pattern_position_boost 读取）
 #   pattern_position_boost:
-#     hammer: 1.1         # 锤子线：仓位+10%（胜率85.7%）
-#     morning_star: 1.1   # 启明星：仓位+10%（胜率100%）
+#     pin_bar_bull: 1.3   # Pin Bar 多头：仓位+30%
+#     hammer: 1.2         # 锤子线：仓位+20%
+#     bullish_engulfing: 1.2  # 看涨吞没：仓位+20%
 
-# 规则引擎模式（rule_only）：
-#   - 检测到高胜率形态 → signal_strength +1，pattern_boost = 配置值
-#   - decision["pattern_boost"] 传递给 execute_trade
+# 信号强度加权（满分10分，可破格加分；从 trading.pattern_signal_boost 读取）
+#   pattern_signal_boost:
+#     pin_bar_bull: 1.5   # Pin Bar 多头：信号强度 +1.5
+#     pin_bar_bear: 1.5   # Pin Bar 空头：信号强度 +1.5
+#     bullish_engulfing: 0.5
 
-# LLM 模式（text）：
-#   - LLM 返回 signal_type（形态名称）
-#   - 后处理代码从配置读取 pattern_boost
-#   - 高胜率形态 → signal_strength +1
+# Inside Bar 过滤（settings.yaml → trading.pattern_filter.inside_bar_require_trend）
+#   - 方向由锚周期趋势决定，不以当前K线阴阳为准
+#   - 横盘时 Inside Bar 直接跳过（无有效信号）
+
+# Bearish Engulfing + RSI 超卖阻断（risk_filter.py 硬过滤）
+#   - RSI 超卖区出现看跌吞没 = 强反弹结构，禁止做空
+
+# 做空结构位置要求（settings.yaml → trading.structure_filter）
+#   - short_require_near_resistance: 做空需在阻力区 ±2.5% 以内
+#   - short_require_structure_down: 做空需 LH/LL 空头结构满足其一
 ```
 
 ### 3.7 结构平仓 (`fetch_kline.py:detect_trend_structure`)
@@ -171,8 +179,27 @@ trading:
 
   # 形态仓位倍数
   pattern_position_boost:
-    hammer: 1.1         # 锤子线：仓位+10%
-    morning_star: 1.1   # 启明星：仓位+10%
+    pin_bar_bull: 1.3            # Pin Bar 多头：仓位+30%
+    hammer: 1.2                  # 锤子线：仓位+20%
+    bullish_engulfing: 1.2      # 看涨吞没：仓位+20%
+
+  # 形态信号强度加权（可破格加分）
+  pattern_signal_boost:
+    pin_bar_bull: 1.5           # 信号强度 +1.5
+    pin_bar_bear: 1.5
+    bullish_engulfing: 0.5
+    hammer: 0.5
+    morning_star: 1.0
+
+  # 形态过滤规则
+  pattern_filter:
+    inside_bar_require_trend: true   # Inside Bar 需趋势背景
+
+  # 做空结构位置要求
+  structure_filter:
+    short_require_near_resistance: true   # 做空需在阻力区附近
+    short_resistance_threshold_pct: 0.025
+    short_require_structure_down: true     # 做空需 LH/LL 结构
 
 risk:
   max_open_positions: 5         # 最大持仓
