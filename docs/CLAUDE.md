@@ -249,6 +249,7 @@ python -m py_compile backtest/**/*.py
 | 切换纯规则模式 | `settings.yaml → analysis.mode: "rule_only"` |
 | 紧急关闭开仓 | `settings.yaml → trading.enable_open_position: false` |
 | 修改时间框架 | `settings.yaml → timeframes`（同时更新 `analysis.rule_filter.anchor_timeframe`） |
+| 配置交易时段 | `settings.yaml → trading_sessions`（生产全时段，回测通过 `backtest.yaml → override.trading_sessions` 覆盖） |
 
 ---
 
@@ -259,6 +260,9 @@ python backtest/run_backtest.py download --start 2024-01-01
 python backtest/run_backtest.py backtest --start 2024-01-01 --end 2025-01-01
 python backtest/run_backtest.py optimize --workers 4
 ```
+
+**交易时段**：回测与生产共用 `trading_sessions` 配置（backtest override 完整替换，非合集）。
+非交易时段的 bar 直接跳过信号生成，详见 `scripts/trading_hours.py`。
 
 详见 [backtest/docs/design.md](backtest/docs/design.md)
 

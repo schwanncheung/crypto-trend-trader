@@ -126,6 +126,27 @@ analysis:
     recent_trend_min_move: 0.015        # 窗口内总振幅下限（1.5%），过滤横盘假信号
     context_trend_window: 90            # 背景窗口（根）：判断近期是否突破了横盘区间
 
+# ── 交易时段配置 ─────────────────────────────────────────────────────
+trading_sessions:
+  enabled: true                    # 总开关：false = 不限制，全天候交易
+  timezone: "UTC+8"              # 时段描述的时区（计算时转UTC）
+
+  sessions:
+    - name: "asia"
+      label: "亚洲时段"
+      start_hour: 9               # UTC+8 9:00
+      end_hour: 16                # UTC+8 16:00（不含）
+
+    - name: "europe"
+      label: "欧洲时段"
+      start_hour: 15              # UTC+8 15:00
+      end_hour: 23                # UTC+8 23:00（不含）
+
+    - name: "americas"
+      label: "美洲时段"
+      start_hour: 22              # UTC+8 22:00
+      end_hour: 5                  # UTC+8 次日 5:00（end_hour < start_hour 表示跨天）
+
 # ── 交易执行配置 ─────────────────────────────────────────────────────
 trading:
   enable_open_position: true    # 开仓总开关：false=禁止开仓（紧急关闭）

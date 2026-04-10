@@ -98,6 +98,18 @@ def cmd_backtest(args: argparse.Namespace, config: dict) -> None:
     logger.info("[backtest] 开始回测 %s ~ %s",
                 config["backtest"]["start_date"],
                 config["backtest"]["end_date"])
+
+    # 打印交易时段配置
+    session_cfg = config.get("trading_sessions", {})
+    if session_cfg.get("enabled"):
+        sessions = session_cfg.get("sessions", [])
+        if sessions:
+            labels = [f"{s.get('label', s['name'])}({s['start_hour']:02d}:00-{s['end_hour']:02d})" for s in sessions]
+            logger.info("[backtest] 交易时段：%s", " + ".join(labels))
+        else:
+            logger.info("[backtest] 交易时段：未配置，全天候")
+    else:
+        logger.info("[backtest] 交易时段：已关闭，全天候")
     from backtest.sig.ai_mock import RuleOnlyMock, LLMMockCache, LLMRealAnalyzer
     from backtest.sig.pipeline import SignalPipeline
     ai_mode = config.get("backtest", {}).get("ai_mode", "rule_only")

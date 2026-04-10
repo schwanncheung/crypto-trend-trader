@@ -62,6 +62,14 @@ from stop_loss_tracker import (
 
 def main():
     """主执行流程"""
+    from trading_hours import is_trading_session, get_current_session_label
+
+    if not is_trading_session():
+        current = datetime.now().strftime("%H:%M")
+        label = get_current_session_label()
+        logger.info(f"⏭️  当前({current})处于「{label}」，跳过本轮扫描")
+        return
+
     start_time = datetime.now()
     logger.info("🚀 Market Scanner 启动")
     

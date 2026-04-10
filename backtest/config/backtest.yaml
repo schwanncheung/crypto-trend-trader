@@ -42,7 +42,17 @@ backtest:
 # ── 参数覆盖（覆盖 settings.yaml 对应值，用于单次回测调参）──────────────
 # 不填则使用 settings.yaml 中的值
 override:
-  # timeframes: ["1h", "30m", "15m"]
+  rule_filter:
+    adx_trending_threshold: 35         # ADX >= 此值视为趋势环境（从 25 提高到 35，更严格）
+  # 回测仅覆盖美洲时段（完全替换生产配置，非合集）
+  trading_sessions:
+    enabled: true
+    timezone: "UTC+8"
+    sessions:
+      - name: "americas"
+        label: "美洲时段"
+        start_hour: 22
+        end_hour: 5
   # min_signal_strength: 6
   # min_rr_ratio: 1.2
   # trailing_stop_trigger_pct: 15.0

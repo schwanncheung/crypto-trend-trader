@@ -130,6 +130,8 @@ TRADE_MGR_CFG    = CFG.get("trade_manager", {})
 KLINE_CFG        = CFG.get("kline", {})
 # 全局时间框架列表（高周期→低周期），所有模块统一使用
 TIMEFRAMES       = CFG.get("timeframes", ["4h", "1h", "15m"])
+# 交易时段配置
+TRADING_SESSIONS_CFG = CFG.get("trading_sessions", {})
 
 
 # ── 时间工具（统一使用北京时间 CST = UTC+8）────────────────────

@@ -107,6 +107,13 @@ class SignalPipeline:
         _bar_time_cst = _dt.datetime.utcfromtimestamp(ts_ms / 1000 + 8 * 3600).strftime("%Y-%m-%d %H:%M")
         _bar_tag = f"[{symbol} @ {_bar_time_cst} CST]"
 
+        # ── 交易时段过滤 ────────────────────────────────────────────
+        session_cfg = self.config.get("trading_sessions", {})
+        from scripts.trading_hours import is_trading_bar
+        if not is_trading_bar(ts_ms, session_cfg):
+            logger.debug(f"  {_bar_tag} 非交易时段，跳过信号生成")
+            return None
+
         # ── 步骤 1：从 DataFeed 取各周期历史切片 ──────────────────────
         multi_tf_data = {}
         for tf in self.timeframes:
