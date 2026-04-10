@@ -82,6 +82,10 @@ trade_manager.py (持仓管理，每4分钟)
 # 止损距离 < 实际上限 → 使用完整 ATR 止损
 # 止损距离 > 实际上限 → 拒绝信号（品种波动异常）
 
+# 止盈最小绝对距离检查（P0优化）：
+#   min_take_profit_pct: 1.5（%）——止盈距离必须 >= 1.5%（绝对价格）
+#   若止盈距离 < 最小要求 → 返回 None，信号被拒绝（低波动过滤）
+
 # ATR 跟踪止损（第一批止盈后启用）：
 # 跟踪止损 = 当前价 ± ATR × 1.5（多头减，空头加）
 # 仅向有利方向移动，不回退
@@ -101,8 +105,12 @@ trade_manager.py (持仓管理，每4分钟)
 # 7. 无背离风险
 # 8. 结构未打破
 # 9. RSI 极值保护：
-#    做多：entry_rsi < rsi_overbought（默认 70）
-#    做空：entry_rsi > rsi_oversold（默认 25）
+#    做多：entry_rsi < rsi_overbought（默认 65）
+#    做空：entry_rsi > rsi_oversold（默认 35）
+# 10. RSI 超卖严格模式（rsi_oversold_strict=true）：
+#     RSI <= rsi_oversold 时禁止所有做空（裸K逻辑：超卖是反弹结构非趋势延续）
+# 11. Bearish Engulfing + RSI 超卖阻断：
+#     RSI 超卖区出现看跌吞没 = 强反弹结构，禁止做空
 ```
 
 ### 3.5 仓位计算
@@ -127,7 +135,8 @@ contracts = risk_usdt / (止损点数 × 合约面值)
 #     pin_bar_bear: 1.5   # Pin Bar 空头：信号强度 +1.5
 #     bullish_engulfing: 0.5
 
-# Inside Bar 过滤（settings.yaml → trading.pattern_filter.inside_bar_require_trend）
+# Inside Bar 过滤（settings.yaml → trading.pattern_filter.inside_bar_enabled）
+#   - 两月7/7全亏，亏损-120U，已彻底关闭（inside_bar_enabled: false）
 #   - 方向由锚周期趋势决定，不以当前K线阴阳为准
 #   - 横盘时 Inside Bar 直接跳过（无有效信号）
 

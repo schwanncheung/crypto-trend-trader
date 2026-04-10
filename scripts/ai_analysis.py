@@ -289,6 +289,10 @@ def _build_rule_only_decision(tf_indicators: dict, direction: str, symbol: str, 
         key_resistance=key_resistance,
         adx=adx
     )
+    # P0优化：止盈距离不足时拒绝信号
+    if take_profit is None:
+        return _default_wait_response(f"止盈距离不足：{tp_reason}")
+
     risk   = abs(entry - stop_loss)
     reward = abs(take_profit - entry)
     rr     = round(reward / risk, 2) if risk > 0 else 0.0
@@ -712,6 +716,12 @@ def analyze_symbol(
                     key_resistance=key_resistance,
                     adx=adx
                 )
+                # P0优化：止盈距离不足时拒绝信号
+                if take_profit is None:
+                    result["signal"] = "wait"
+                    result["reason"] = f"止盈距离不足：{tp_reason}"
+                    logger.info(f"[分析入口] {symbol} 止盈距离不足，信号降级为 wait")
+                    return result
 
                 # 覆盖 LLM 返回的止损止盈
                 result["stop_loss"] = stop_loss

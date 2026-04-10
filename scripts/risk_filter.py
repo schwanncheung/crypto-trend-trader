@@ -30,6 +30,7 @@ _MIN_SIGNAL_STRENGTH = _TRADING_CFG.get("min_signal_strength", 7)
 _MIN_RR_RATIO = _TRADING_CFG.get("min_rr_ratio", 2.0)
 _RSI_OVERBOUGHT = _RULE_CFG.get("rsi_overbought", 70)
 _RSI_OVERSOLD = _RULE_CFG.get("rsi_oversold", 30)
+_RSI_OVERSOLD_STRICT = _RULE_CFG.get("rsi_oversold_strict", False)  # P1：超卖严格模式
 
 
 def reload_config_from_dict(config: dict) -> None:
@@ -37,7 +38,7 @@ def reload_config_from_dict(config: dict) -> None:
     从外部配置字典重新加载参数（回测系统 override 机制）。
     """
     global _MIN_TREND_STRENGTH, _MIN_SIGNAL_STRENGTH, _MIN_RR_RATIO, _TRADING_CFG, _RISK_CFG, _RULE_CFG
-    global _RSI_OVERBOUGHT, _RSI_OVERSOLD
+    global _RSI_OVERBOUGHT, _RSI_OVERSOLD, _RSI_OVERSOLD_STRICT
 
     trading_cfg = config.get("trading", {})
     risk_cfg = config.get("risk", {})
@@ -52,12 +53,14 @@ def reload_config_from_dict(config: dict) -> None:
     _MIN_RR_RATIO = _TRADING_CFG.get("min_rr_ratio", _MIN_RR_RATIO)
     _RSI_OVERBOUGHT = _RULE_CFG.get("rsi_overbought", _RSI_OVERBOUGHT)
     _RSI_OVERSOLD = _RULE_CFG.get("rsi_oversold", _RSI_OVERSOLD)
+    _RSI_OVERSOLD_STRICT = _RULE_CFG.get("rsi_oversold_strict", _RSI_OVERSOLD_STRICT)
 
     logger.info(
         f"[risk_filter] 配置已重载："
         f"min_signal_strength={_MIN_SIGNAL_STRENGTH}, "
         f"min_rr_ratio={_MIN_RR_RATIO}, "
-        f"rsi_overbought={_RSI_OVERBOUGHT}, rsi_oversold={_RSI_OVERSOLD}"
+        f"rsi_overbought={_RSI_OVERBOUGHT}, rsi_oversold={_RSI_OVERSOLD}, "
+        f"rsi_oversold_strict={_RSI_OVERSOLD_STRICT}"
     )
 
 
@@ -109,6 +112,9 @@ def check_signal_quality(decision: dict) -> tuple[bool, str]:
         if signal == "long" and entry_rsi >= _RSI_OVERBOUGHT:
             return False, f"RSI={entry_rsi:.1f} 超买（>={_RSI_OVERBOUGHT}），禁止做多"
         if signal == "short" and entry_rsi <= _RSI_OVERSOLD:
+            # P1优化：RSI超卖严格模式 + Bearish Engulfing组合保护
+            if _RSI_OVERSOLD_STRICT:
+                return False, f"RSI={entry_rsi:.1f} <= {_RSI_OVERSOLD}（超卖严格模式），禁止做空"
             return False, f"RSI={entry_rsi:.1f} 超卖（<={_RSI_OVERSOLD}），禁止做空"
 
     # ── Bearish Engulfing + RSI 超卖 = 强反弹结构，禁止做空 ───────

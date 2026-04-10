@@ -28,3 +28,6 @@ blacklist:
   - "SKY/USDT:USDT"
   - "LINEA/USDT:USDT"
   - "BABY/USDT:USDT"
+  - "CORE/USDT:USDT"       # 两月做空亏损 -138.96 U，系统性漏洞
+  - "DOT/USDT:USDT"       # 两月做空亏损 -102.59 U，系统性漏洞
+  - "RSR/USDT:USDT"       # 两月做空亏损 -58.07 U，系统性漏洞

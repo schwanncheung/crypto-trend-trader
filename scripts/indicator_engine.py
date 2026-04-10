@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 # ── 读取配置 ──────────────────────────────────────────────────────────
 _IND_CFG  = ANALYSIS_CFG.get("indicator", {})
 _RULE_CFG = ANALYSIS_CFG.get("rule_filter", {})
+_PATTERN_FILTER_CFG = _RULE_CFG.get("pattern_filter", {})  # P0优化：inside_bar开关
 
 EMA_PERIODS       = _IND_CFG.get("ema_periods", [21, 55, 200])
 ADX_PERIOD        = _IND_CFG.get("adx_period", 14)
@@ -52,7 +53,8 @@ def reload_config_from_dict(config: dict) -> None:
     """
     global REQUIRE_ANCHOR, MIN_TRENDING_TF, ADX_THRESHOLD, VOL_RATIO_THRESH, \
            RSI_OVERBOUGHT, RSI_OVERSOLD, ANCHOR_TF, \
-           STRONG_TREND_ADX_THRESHOLD, STRONG_TREND_DI_DIFF_THRESHOLD
+           STRONG_TREND_ADX_THRESHOLD, STRONG_TREND_DI_DIFF_THRESHOLD, \
+           _PATTERN_FILTER_CFG
 
     rule_cfg = config.get("analysis", {}).get("rule_filter", {})
     ind_cfg = config.get("analysis", {}).get("indicator", {})
@@ -68,9 +70,12 @@ def reload_config_from_dict(config: dict) -> None:
     STRONG_TREND_ADX_THRESHOLD = rule_cfg.get("strong_trend_adx_threshold", STRONG_TREND_ADX_THRESHOLD)
     STRONG_TREND_DI_DIFF_THRESHOLD = rule_cfg.get("strong_trend_di_diff_threshold", STRONG_TREND_DI_DIFF_THRESHOLD)
 
+    _PATTERN_FILTER_CFG = rule_cfg.get("pattern_filter", {})  # P0：inside_bar开关
+
     logger.info(
         f"[indicator_engine] 配置已重新加载：ADX_THRESHOLD={ADX_THRESHOLD}, "
-        f"REQUIRE_ANCHOR={REQUIRE_ANCHOR}, MIN_TRENDING_TF={MIN_TRENDING_TF}"
+        f"REQUIRE_ANCHOR={REQUIRE_ANCHOR}, MIN_TRENDING_TF={MIN_TRENDING_TF}, "
+        f"inside_bar_enabled={_PATTERN_FILTER_CFG.get('inside_bar_enabled', True)}"
     )
 
 # ── 新增：趋势转折预警 & 超卖反弹保护参数 ───────────────────────────
@@ -1007,6 +1012,15 @@ def compute_timeframe_indicators(df: pd.DataFrame, tf_label: str, symbol: str = 
     momentum    = assess_recent_trend_momentum(df)              # 近期动能评估
     trend       = assess_trend_direction(df, adx_info, ema_info, symbol)
     patterns    = detect_candlestick_patterns(df, trend_direction=trend)
+
+    # ── P0优化：彻底关闭 inside_bar 信号（两月7/7全亏，亏损-120U）────────
+    _inside_bar_enabled = _PATTERN_FILTER_CFG.get('inside_bar_enabled', True)
+    if not _inside_bar_enabled:
+        _before = len(patterns)
+        patterns = [p for p in patterns if p.get('pattern') != 'inside_bar']
+        if len(patterns) < _before:
+            logger.info(f"[形态过滤] inside_bar 已关闭，移除 {_before - len(patterns)} 个信号")
+
     mom_accel   = detect_momentum_acceleration(df)              # 动量加速检测（优化1）
 
     current_price = float(df["close"].iloc[-1])

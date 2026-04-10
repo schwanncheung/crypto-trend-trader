@@ -74,8 +74,10 @@ analysis:
     # 2.1 基础 RSI 极值过滤（可被 ADX 豁免）
     # 只检查锚周期 RSI，小周期波动大不检查
     rsi_overbought: 65                  # RSI 超买线（做多保护）
-    rsi_oversold: 30                    # RSI 超卖线（做空保护）← 从 25 收紧到 30，防止暴跌后追空
+    rsi_oversold: 35                    # RSI 超卖线（做空保护）← P1优化：从 30 提高到 35，扩大超卖区禁止做空范围
 
+    # P1优化：RSI 超卖严格模式（关闭 RSI 超卖区的所有做空信号）
+    rsi_oversold_strict: true           # 开启后，RSI <= rsi_oversold 时禁止所有做空（裸K逻辑：超卖是反弹结构非趋势延续）
 
     # 2.2 ADX 豁免基础 RSI 过滤（防止强趋势 RSI 钝化漏单）
     rsi_adx_exemption_enabled: false    # 禁用：防止强趋势时 RSI 超卖仍开仓导致超跌反弹
@@ -158,6 +160,7 @@ trading:
   min_trend_strength: 7         # 最低趋势强度（1-10）← 从6提高到7
   min_rr_ratio: 1.5             # 最低盈亏比 ← 从1.5提高到2.0，确保足够利润空间
   target_rr_ratio: 2.0          # 止盈设置：止盈距离 = 止损距离 × 此倍数 ← 从1.8提高到2.5
+  min_take_profit_pct: 1.5           # P0优化：止盈距离必须 >= 1.5%（绝对价格），低波动环境拒绝信号
 
   # 形态仓位倍数（高胜率形态增加仓位）
   pattern_position_boost:
@@ -187,8 +190,8 @@ trading:
     short_require_structure_down: true     # 做空需空头结构（LH/LL 满足其一）
 
   # ADX 边缘区间加严（ADX 处于 20-25 时提高信号强度门槛）
-  adx_edge_min: 25               # ← 从 20 提高到 25，边缘区间加严
-  adx_edge_max: 25
+  adx_edge_min: 35               # ← 从 25 提高到 35，边缘区间加严（ADX 处于 30-35 时视为边缘）
+  adx_edge_max: 35
   adx_edge_min_signal_strength: 8  # 边缘区间内要求的最低信号强度
 
   # 仓位控制
