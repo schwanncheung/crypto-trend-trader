@@ -160,7 +160,7 @@ trading:
   min_trend_strength: 7         # 最低趋势强度（1-10）← 从6提高到7
   min_rr_ratio: 1.5             # 最低盈亏比 ← 从1.5提高到2.0，确保足够利润空间
   target_rr_ratio: 2.0          # 止盈设置：止盈距离 = 止损距离 × 此倍数 ← 从1.8提高到2.5
-  min_take_profit_pct: 1.5           # P0优化：止盈距离必须 >= 1.5%（绝对价格），低波动环境拒绝信号
+  min_take_profit_pct: 0               # 已关闭：止盈距离检查（2026-04-11）
 
   # 形态仓位倍数（高胜率形态增加仓位）
   pattern_position_boost:

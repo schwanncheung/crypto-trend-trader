@@ -43,7 +43,13 @@ backtest:
 # 不填则使用 settings.yaml 中的值
 override:
   rule_filter:
-    adx_trending_threshold: 35         # ADX >= 此值视为趋势环境（从 25 提高到 35，更严格）
+    adx_trending_threshold: 35         # ADX >= 此值视为趋势环境
+    rsi_oversold: 35                   # P1：RSI超卖阈值从30提高到35
+    rsi_oversold_strict: true          # P1：RSI超卖严格模式，禁止所有做空
+    pattern_filter:                     # P0：形态过滤
+      inside_bar_enabled: false         # 彻底关闭inside_bar（两月7/7全亏）
+      inside_bar_require_trend: true    # 保留趋势背景检查
+
   # 回测仅覆盖美洲时段（完全替换生产配置，非合集）
   trading_sessions:
     enabled: true
@@ -53,16 +59,10 @@ override:
         label: "美洲时段"
         start_hour: 22
         end_hour: 5
-  # min_signal_strength: 6
-  # min_rr_ratio: 1.2
-  # trailing_stop_trigger_pct: 15.0
-  # partial_profit_trigger_pct: 25.0
-  # partial_profit_trigger_pct_2: 50.0
-  # partial_profit_ratio_1: 0.3
-  # partial_profit_ratio_2: 0.5
-  # force_close_loss_pct: -15.0
-  # max_open_positions: 3
-  # risk_per_trade_pct: 1.0
+
   trading:
-    target_rr_ratio: 1.6           # 止盈设置：止盈距离 = 止损距离 × 此倍数
-    stop_loss_atr_multiplier: 1.5  # ATR 基础倍数，减少止损距离
+    target_rr_ratio: 2.0               # 止盈设置：止盈距离 = 止损距离 × 2.0
+    stop_loss_atr_multiplier: 1.5      # ATR 基础倍数
+
+  # P0：CORE/DOT/RSR 黑名单（两月亏损-300U，系统性漏洞）
+  # 已写入 config/symbols.yaml，此处无需重复配置

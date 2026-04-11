@@ -240,17 +240,6 @@ def calculate_take_profit(
         logger.info(f"止盈价格已调整为：{actual_tp:.6g}（距离：{max_take_profit_pct*100:.1f}%）")
         reason = f"受上限 {max_take_profit_pct*100:.1f}% 限制"
 
-    # ── P0优化：止盈最小绝对距离检查（低波动环境过滤）───────────────
-    min_tp_pct = _TRADING_CFG.get("min_take_profit_pct", 0) / 100
-    if min_tp_pct > 0:
-        tp_dist_pct = abs(actual_tp - entry_price) / entry_price
-        if tp_dist_pct < min_tp_pct:
-            logger.warning(
-                f"[止盈距离不足拒绝] {tp_dist_pct*100:.2f}% < 最小要求 {min_tp_pct*100:.1f}% "
-                f"(TP={actual_tp:.6g}, Entry={entry_price:.6g})"
-            )
-            return None, f"止盈距离 {tp_dist_pct*100:.2f}% < 最小 {min_tp_pct*100:.1f}%（低波动环境）"
-
     logger.info(f"止盈计算：{reason}")
     return actual_tp, reason
 
