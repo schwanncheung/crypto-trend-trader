@@ -81,8 +81,11 @@ def cmd_backtest(args: argparse.Namespace, config: dict) -> None:
 
     data_dir = config["backtest"].get("data_cache_dir", "backtest/data/cache")
     results_base = config["backtest"].get("results_dir", "backtest/results")
-    run_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_dir = Path(results_base) / run_id
+    if args.output_dir:
+        output_dir = Path(args.output_dir)
+    else:
+        run_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_dir = Path(results_base) / run_id
     output_dir.mkdir(parents=True, exist_ok=True)
 
     logger.info("[backtest] 加载数据...")
@@ -256,6 +259,7 @@ def build_parser() -> argparse.ArgumentParser:
     bt = sub.add_parser("backtest", help="单次回测")
     bt.add_argument("--start", default=None, help="回测起始日期")
     bt.add_argument("--end", default=None, help="回测结束日期")
+    bt.add_argument("--output-dir", default=None, dest="output_dir", help="结果目录路径（默认按时间戳生成）")
 
     # --- optimize ---
     op = sub.add_parser("optimize", help="网格搜索参数优化")
