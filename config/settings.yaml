@@ -64,7 +64,7 @@ analysis:
     anchor_timeframe: "1h"              # 锚周期：宏观方向判断，必须非横盘才放行
     require_anchor_aligned: true        # 是否要求锚周期与信号方向对齐
     min_trending_timeframes: 2          # 非锚周期中至少几个显示趋势
-    adx_trending_threshold: 25          # ← 从 20 提高到 25，ADX >= 此值视为趋势，减少横盘误判
+    adx_trending_threshold: 20          # ADX >= 此值视为趋势，减少横盘误判 ← R2优化：从25降到20
     volume_ratio_threshold: 0.8         # 量比阈值：当前量 / MA5 >= 此值视为放量
 
     # ═══════════════════════════════════════════════════════════════════
@@ -156,6 +156,7 @@ trading:
 
   # 信号质量门槛
   allowed_confidence: ["high"]  # 只有 confidence=high 的信号才允许交易
+  max_adx_entry: 30              # R2优化：ADX 上限（无上限交易两月全亏），ADX >= 30 的交易质量差
   min_signal_strength: 8        # ← P1: 从 7 提高到 8，过滤更多弱信号，减少无形态交易， 最低信号强度（1-10）← 从6提高到7，过滤弱信号
   min_trend_strength: 7         # 最低趋势强度（1-10）← 从6提高到7
   min_rr_ratio: 1.5             # 最低盈亏比 ← 从1.5提高到2.0，确保足够利润空间
@@ -204,7 +205,7 @@ trading:
   warning_keywords: ["低市值", "高波动", "插针", "小市值", "波动大", "仓位减半", "极端缩量"]
 
   # 动态止损（止损距离 = ATR × 倍数，倍数随 ADX 动态调整）
-  stop_loss_atr_multiplier: 2.0  # ATR 基础倍数 ← 从2.5收紧到2.0，减少止损距离
+  stop_loss_atr_multiplier: 1.5  # ATR 基础倍数 ← R2优化：从2.0收紧到1.5，减少单笔损失幅度
   stop_loss_adx_scaling:
     enabled: false
     strong_trend_threshold: 40   # ADX >= 此值视为强趋势
