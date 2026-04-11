@@ -64,7 +64,7 @@ analysis:
     anchor_timeframe: "1h"              # 锚周期：宏观方向判断，必须非横盘才放行
     require_anchor_aligned: true        # 是否要求锚周期与信号方向对齐
     min_trending_timeframes: 2
-    adx_trending_threshold: 25
+    adx_trending_threshold: 20
     volume_ratio_threshold: 0.8         # 量比阈值：当前量 / MA5 >= 此值视为放量
 
     # ═══════════════════════════════════════════════════════════════════
@@ -114,7 +114,7 @@ analysis:
     # ═══════════════════════════════════════════════════════════════════
     # 三、多头信号质量（非硬过滤，仅记录质量供 LLM 参考）
     # ═══════════════════════════════════════════════════════════════════
-    long_signal_rsi_low: 40             # RSI 低于此值视为充分回调，适合做多介入
+    long_signal_rsi_low: 45
     long_signal_vol_ratio: 1.0          # 做多量比最低要求
 
     # ═══════════════════════════════════════════════════════════════════
@@ -156,7 +156,7 @@ trading:
 
   # 信号质量门槛
   allowed_confidence: ["high"]  # 只有 confidence=high 的信号才允许交易
-  min_signal_strength: 8        # ← P1: 从 7 提高到 8，过滤更多弱信号，减少无形态交易， 最低信号强度（1-10）← 从6提高到7，过滤弱信号
+  min_signal_strength: 10
   min_trend_strength: 7         # 最低趋势强度（1-10）← 从6提高到7
   min_rr_ratio: 1.5             # 最低盈亏比 ← 从1.5提高到2.0，确保足够利润空间
   target_rr_ratio: 2.0          # 止盈设置：止盈距离 = 止损距离 × 此倍数 ← 从1.8提高到2.5
