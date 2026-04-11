@@ -156,7 +156,6 @@ trading:
 
   # 信号质量门槛
   allowed_confidence: ["high"]  # 只有 confidence=high 的信号才允许交易
-  max_adx_entry: 30              # R2优化：ADX 上限（无上限交易两月全亏），ADX >= 30 的交易质量差
   min_signal_strength: 8        # ← P1: 从 7 提高到 8，过滤更多弱信号，减少无形态交易， 最低信号强度（1-10）← 从6提高到7，过滤弱信号
   min_trend_strength: 7         # 最低趋势强度（1-10）← 从6提高到7
   min_rr_ratio: 1.5             # 最低盈亏比 ← 从1.5提高到2.0，确保足够利润空间
