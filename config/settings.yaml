@@ -64,7 +64,7 @@ analysis:
     anchor_timeframe: "1h"              # 锚周期：宏观方向判断，必须非横盘才放行
     require_anchor_aligned: true        # 是否要求锚周期与信号方向对齐
     min_trending_timeframes: 2          # 非锚周期中至少几个显示趋势
-    adx_trending_threshold: 20          # ADX >= 此值视为趋势，减少横盘误判 ← R2优化：从25降到20
+    adx_trending_threshold: 25          # ← 从 20 提高到 25，ADX >= 此值视为趋势，减少横盘误判
     volume_ratio_threshold: 0.8         # 量比阈值：当前量 / MA5 >= 此值视为放量
 
     # ═══════════════════════════════════════════════════════════════════
@@ -204,7 +204,7 @@ trading:
   warning_keywords: ["低市值", "高波动", "插针", "小市值", "波动大", "仓位减半", "极端缩量"]
 
   # 动态止损（止损距离 = ATR × 倍数，倍数随 ADX 动态调整）
-  stop_loss_atr_multiplier: 1.2
+  stop_loss_atr_multiplier: 2.0  # ATR 基础倍数 ← 从2.5收紧到2.0，减少止损距离
   stop_loss_adx_scaling:
     enabled: false
     strong_trend_threshold: 40   # ADX >= 此值视为强趋势
@@ -216,7 +216,7 @@ trading:
   trailing_stop_atr_multiplier: 1.5  # 跟踪止损 ATR 倍数（比开仓止损更紧）
 
   # 止损止盈硬性上限（风控红线）
-  max_stop_loss_pct: 0.15
+  max_stop_loss_pct: 2.0           # 止损距离基准上限（%）
   max_stop_loss_multiplier: 1.0  # 止损距离允许放大倍数 ← 从2.5收紧到1.5（实际上限=1.5%×1.5=2.25%）
   max_take_profit_pct: 4.0       # 止盈距离上限（%）← 从5.0放宽到6.0，配合更高的R:R
 
