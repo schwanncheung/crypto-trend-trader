@@ -110,6 +110,35 @@ def get_current_session_label(cfg: Optional[dict] = None) -> str:
     return "非交易时段"
 
 
+def get_session_label_from_ts(ts_ms: int, cfg: Optional[dict] = None) -> str:
+    """
+    根据时间戳返回时段标签（回测/生产通用）。
+
+    Args:
+        ts_ms: bar 收盘时间戳（Unix ms，UTC）
+        cfg:   交易时段配置，传 None 则自动读取
+
+    Returns:
+        时段 label 字符串，如 '亚洲时段'、'欧洲时段'、'美洲时段'、'全天候'、'非交易时段'
+    """
+    if cfg is None:
+        cfg = _load_session_cfg()
+    if not cfg.get("enabled", False):
+        return "全天候"
+    sessions = cfg.get("sessions", [])
+    if not sessions:
+        return "全天候"
+    from datetime import datetime as dt
+    utc_dt = dt.utcfromtimestamp(ts_ms / 1000)
+    tz_offset = _parse_tz_offset(cfg.get("timezone", "UTC+8"))
+    local_dt = utc_dt + timedelta(hours=tz_offset)
+    current_hour = local_dt.hour
+    for s in sessions:
+        if _hour_in_session(current_hour, s["start_hour"], s["end_hour"]):
+            return s.get("label", s["name"])
+    return "非交易时段"
+
+
 def is_trading_bar(ts_ms: int, cfg: Optional[dict] = None) -> bool:
     """
     判断指定 bar 时间戳（UTC 毫秒）是否处于交易时段。

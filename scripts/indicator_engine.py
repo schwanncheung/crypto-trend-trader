@@ -21,6 +21,7 @@ import pandas as pd
 from typing import Optional, List, Tuple
 
 from config_loader import ANALYSIS_CFG, TIMEFRAMES
+from trading_hours import get_session_label_from_ts
 
 logger = logging.getLogger(__name__)
 
@@ -1025,6 +1026,12 @@ def compute_timeframe_indicators(df: pd.DataFrame, tf_label: str, symbol: str = 
 
     current_price = float(df["close"].iloc[-1])
 
+    # 获取当前 bar 的 UTC 毫秒时间戳（用于时段判断）
+    try:
+        ts_ms = int(df.index[-1].value // 10**6)
+    except Exception:
+        ts_ms = 0
+
     return {
         "timeframe":    tf_label,
         "valid":        True,
@@ -1042,6 +1049,7 @@ def compute_timeframe_indicators(df: pd.DataFrame, tf_label: str, symbol: str = 
         "vol_price_alignment": None,  # 量价同向：在 rule_engine_filter 中按方向计算后注入
         "patterns":     patterns,
         "atr":          adx_info.get("atr", 0),  # ATR用于止损计算
+        "ts_ms":        ts_ms,        # 当前 bar UTC ms 时间戳（用于时段判断）
     }
 
 
@@ -1196,6 +1204,14 @@ def rule_engine_filter(
                     reason = f"{symbol} {ANCHOR_TF} RSI={rsi} 超卖（<={RSI_OVERSOLD}），拒绝做空"
                     logger.info(f"[规则过滤] {reason}")
                     return False, "wait", reason
+                # ── 新增：RSI 中性偏弱区（40-60）禁止做空（Round 5 分析：7笔全亏）
+                RSI_NEUTRAL_SHORT_BAN_UPPER = _RULE_CFG.get("rsi_neutral_short_ban_upper", 60)
+                RSI_NEUTRAL_SHORT_BAN_LOWER = _RULE_CFG.get("rsi_neutral_short_ban_lower", 40)
+                if signal_direction == "short" and RSI_NEUTRAL_SHORT_BAN_LOWER <= rsi <= RSI_NEUTRAL_SHORT_BAN_UPPER:
+                    reason = (f"{symbol} {ANCHOR_TF} RSI={rsi} 中性偏弱区"
+                              f"（{RSI_NEUTRAL_SHORT_BAN_LOWER}-{RSI_NEUTRAL_SHORT_BAN_UPPER}），趋势不明，禁止做空")
+                    logger.info(f"[规则过滤] {reason}")
+                    return False, "wait", reason
 
     # ── 6. 成交量确认（至少一个小周期放量，极强趋势时豁免）
     if not strong_trend_exemption:
@@ -1223,7 +1239,19 @@ def rule_engine_filter(
             logger.info(f"[规则过滤] {symbol} {reversal_reason}")
             return False, "wait", f"{symbol} {reversal_reason}"
 
-    # ── 9. [优化4] 做多质量检查：多头信号需满足回调买点条件（非硬过滤，仅记录质量）
+    # ── 9. [新增] 时段过滤：禁止在特定时段做空（Round 5 分析：欧洲盘做空7笔6亏）
+    if signal_direction == "short" and not strong_trend_exemption:
+        anchor_ind = tf_indicators.get(ANCHOR_TF, {})
+        bar_ts = anchor_ind.get("ts_ms", 0)
+        if bar_ts:
+            session_label = get_session_label_from_ts(bar_ts)
+            banned_sessions = _RULE_CFG.get("session_short_banned", ["欧洲时段", "europe"])
+            if session_label in banned_sessions:
+                reason = f"{symbol} 当前时段（{session_label}），禁止做空"
+                logger.info(f"[规则过滤] {reason}")
+                return False, "wait", reason
+
+    # ── 10. [优化4] 做多质量检查：多头信号需满足回调买点条件（非硬过滤，仅记录质量）
     if signal_direction == "long":
         long_ok, long_detail = detect_long_signal_conditions(tf_indicators, symbol)
         if not long_ok:
@@ -1232,7 +1260,7 @@ def rule_engine_filter(
         else:
             logger.info(f"[规则过滤] {symbol} {long_detail}")
 
-    # ── 10. 规则引擎通过
+    # ── 11. 规则引擎通过
     reason = (
         f"{symbol} 规则引擎通过：方向={signal_direction}，"
         f"{ANCHOR_TF}锚={anchor_trend}，对齐周期={'多头' if signal_direction=='long' else '空头'}{max(up_count,down_count)}/{len(check_tfs)}"

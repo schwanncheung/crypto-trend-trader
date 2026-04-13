@@ -111,6 +111,13 @@ analysis:
     rsi_reversal_consecutive_rounds: 2  # 连续 N 轮 RSI 同向运动触发预警
     rsi_reversal_vol_confirm: true      # 是否要求量能放大才触发预警
 
+    # 2.8 RSI 中性偏弱区禁止做空（Round 5 分析：RSI 40-60 做空 7 笔全亏，贡献 -124 U）
+    rsi_neutral_short_ban_upper: 60
+    rsi_neutral_short_ban_lower: 40
+
+    # 2.9 时段做空限制（Round 5 分析：欧洲盘做空 7 笔 6 亏，贡献 -95 U）
+    session_short_banned: ["欧洲时段"]  # 禁止做空的时段列表
+
     # ═══════════════════════════════════════════════════════════════════
     # 三、多头信号质量（非硬过滤，仅记录质量供 LLM 参考）
     # ═══════════════════════════════════════════════════════════════════
@@ -134,20 +141,15 @@ trading_sessions:
   timezone: "UTC+8"              # 时段描述的时区（计算时转UTC）
 
   sessions:
-    - name: "asia"
-      label: "亚洲时段"
-      start_hour: 9               # UTC+8 9:00
-      end_hour: 16                # UTC+8 16:00（不含）
-
     - name: "europe"
       label: "欧洲时段"
-      start_hour: 15              # UTC+8 15:00
-      end_hour: 23                # UTC+8 23:00（不含）
+      start_hour: 15
+      end_hour: 23
 
     - name: "americas"
       label: "美洲时段"
-      start_hour: 22              # UTC+8 22:00
-      end_hour: 5                  # UTC+8 次日 5:00（end_hour < start_hour 表示跨天）
+      start_hour: 22
+      end_hour: 5
 
 # ── 交易执行配置 ─────────────────────────────────────────────────────
 trading:

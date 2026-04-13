@@ -248,13 +248,15 @@ def execute_from_decision(
 
         # ── 2. 仓位信息（优先用风控传入的，否则自动计算）──
         pattern_boost = decision.get("pattern_boost", 1.0)  # 形态仓位倍数
+        entry_pattern = decision.get("signal_type", "none")  # 形态类型（none=无形态）
         if position_info is None:
             position_info = _calculate_position(
                 exchange=exchange,
                 symbol=symbol,
                 entry_price=float(entry_price),
                 stop_loss=float(stop_loss),
-                pattern_boost=pattern_boost,  # 传递形态仓位倍数
+                pattern_boost=pattern_boost,
+                entry_pattern=entry_pattern,
             )
 
         contracts   = position_info.get("contracts")
@@ -453,13 +455,16 @@ def _calculate_position(
     symbol: str,
     entry_price: float,
     stop_loss: float,
-    pattern_boost: float = 1.0,  # 新增：形态仓位倍数（hammer=1.1）
+    pattern_boost: float = 1.0,
+    entry_pattern: str = "none",
 ) -> dict:
     """
     根据固定风险比例自动计算开仓张数
     默认每笔交易风险不超过总资金的 1%
     已用保证金从可用余额中扣除，避免超额使用资金
+
     pattern_boost: 形态仓位倍数，hammer 形态为 1.1（增加10%仓位）
+    entry_pattern: 形态类型，"none" 表示无形态 → 仓位降至 50%
     """
     try:
         risk_pct      = RISK_CFG.get("risk_per_trade_pct", 1.0) / 100
@@ -470,12 +475,18 @@ def _calculate_position(
         free_usdt = _get_usdt_balance(balance)
         available_usdt = free_usdt
 
+        # 无形态信号 → 仓位降至 50%（Round 5 分析：9笔无形态亏损-103.6 U）
+        effective_boost = pattern_boost
+        if entry_pattern == "none" or entry_pattern == "":
+            effective_boost = pattern_boost * 0.5
+            logger.info(f"[仓位计算] {symbol} 无形态信号（entry_pattern={entry_pattern}），仓位降至 50%（boost: {pattern_boost}→{effective_boost}）")
+
         logger.info(
             f"余额状态 | free（可用）：{free_usdt:.2f} USDT | "
-            f"本次风险金额：{free_usdt * risk_pct * pattern_boost:.2f} USDT"
+            f"本次风险金额：{free_usdt * risk_pct * effective_boost:.2f} USDT"
         )
 
-        risk_usdt = available_usdt * risk_pct * pattern_boost  # 应用形态 boost
+        risk_usdt = available_usdt * risk_pct * effective_boost  # 应用形态 boost
 
         # 每张合约的风险
         price_diff = abs(entry_price - stop_loss)
