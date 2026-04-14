@@ -141,10 +141,10 @@ trading_sessions:
   timezone: "UTC+8"              # 时段描述的时区（计算时转UTC）
 
   sessions:
-    - name: "europe"
-      label: "欧洲时段"
-      start_hour: 15
-      end_hour: 23
+    # - name: "europe"         # 禁用欧洲时段（2026-04-14）
+    #   label: "欧洲时段"
+    #   start_hour: 15
+    #   end_hour: 23
 
     - name: "americas"
       label: "美洲时段"
