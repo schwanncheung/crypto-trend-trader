@@ -1022,6 +1022,14 @@ def compute_timeframe_indicators(df: pd.DataFrame, tf_label: str, symbol: str = 
         if len(patterns) < _before:
             logger.info(f"[形态过滤] inside_bar 已关闭，移除 {_before - len(patterns)} 个信号")
 
+    # ── Round 8：彻底关闭 bearish_engulfing 做空信号（7连败0胜率亏损-176U）
+    _bearish_engulfing_short_ban = _PATTERN_FILTER_CFG.get('bearish_engulfing_short_ban', False)
+    if _bearish_engulfing_short_ban:
+        _before = len(patterns)
+        patterns = [p for p in patterns if not (p.get('pattern') == 'bearish_engulfing' and p.get('direction') == 'short')]
+        if len(patterns) < _before:
+            logger.info(f"[形态过滤] bearish_engulfing 做空已关闭，移除 {_before - len(patterns)} 个信号")
+
     mom_accel   = detect_momentum_acceleration(df)              # 动量加速检测（优化1）
 
     current_price = float(df["close"].iloc[-1])
