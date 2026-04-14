@@ -2,7 +2,7 @@
 python backtest/run_backtest.py download \
     --timeframes 5m 15m 30m 1h \
     --start 2025-10-01 \
-    --end 2025-12-31 \
+    --end 2026-04-15 \
     --symbols \
     SATS/USDT:USDT PEPE/USDT:USDT SHIB/USDT:USDT BONK/USDT:USDT FLOKI/USDT:USDT \
     RLS/USDT:USDT NEIRO/USDT:USDT PUMP/USDT:USDT DOGE/USDT:USDT GALA/USDT:USDT \
