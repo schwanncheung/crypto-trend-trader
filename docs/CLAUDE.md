@@ -130,7 +130,7 @@ contracts = risk_usdt / (止损点数 × 合约面值)
 ```python
 # 仓位加权（从 settings.yaml → trading.pattern_position_boost 读取）
 #   pattern_position_boost:
-#     pin_bar_bull: 1.3   # Pin Bar 多头：仓位+30%
+#     pin_bar_bull: 2.0   # Pin Bar 多头：仓位+100%（Round 9：3笔全胜 +20.51 U）
 #     hammer: 1.2         # 锤子线：仓位+20%
 #     bullish_engulfing: 1.2  # 看涨吞没：仓位+20%
 
@@ -138,8 +138,8 @@ contracts = risk_usdt / (止损点数 × 合约面值)
 
 # 信号强度加权（满分10分，可破格加分；从 trading.pattern_signal_boost 读取）
 #   pattern_signal_boost:
-#     pin_bar_bull: 1.5   # Pin Bar 多头：信号强度 +1.5
-#     pin_bar_bear: 1.5   # Pin Bar 空头：信号强度 +1.5
+#     pin_bar_bull: 2.5   # Pin Bar 多头：信号强度 +2.5（Round 9：3笔全胜 +20.51 U）
+#     pin_bar_bear: 0     # Pin Bar 空头：已禁用（Round 9：3笔全败 -15.23 U，0%胜率）
 #     bullish_engulfing: 0.5
 
 # Inside Bar 过滤（settings.yaml → trading.pattern_filter.inside_bar_enabled）
@@ -186,7 +186,7 @@ timeframes: ["1h", "15m", "5m"]
 trading:
   enable_open_position: true    # 开仓总开关
   min_signal_strength: 7        # 最低信号强度
-  min_rr_ratio: 2.0             # 最低盈亏比
+  min_rr_ratio: 2.0             # 最低盈亏比（Round 9：RR<1.5 的13笔亏损 -3.44 U，胜率 46%）
   target_rr_ratio: 2.5          # 止盈R倍数
   stop_loss_atr_multiplier: 1.5 # 止损ATR倍数
   max_stop_loss_pct: 1.5        # 止损上限(%)
@@ -195,7 +195,7 @@ trading:
 
   # 形态仓位倍数
   pattern_position_boost:
-    pin_bar_bull: 1.3            # Pin Bar 多头：仓位+30%
+    pin_bar_bull: 2.0            # Pin Bar 多头：仓位+100%（Round 9：3笔全胜 +20.51 U，100%胜率）
     hammer: 1.2                  # 锤子线：仓位+20%
     bullish_engulfing: 1.2      # 看涨吞没：仓位+20%
 

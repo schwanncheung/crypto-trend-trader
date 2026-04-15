@@ -31,3 +31,4 @@ blacklist:
   - "CORE/USDT:USDT"       # 两月做空亏损 -138.96 U，系统性漏洞
   - "DOT/USDT:USDT"       # 两月做空亏损 -102.59 U，系统性漏洞
   - "RSR/USDT:USDT"       # 两月做空亏损 -58.07 U，系统性漏洞
+  - "LINK/USDT:USDT"      # Round 9：8笔亏损 -33.66 U，37.5%胜率，均 -4.21U/笔，系统性漏洞

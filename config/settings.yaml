@@ -160,7 +160,7 @@ trading:
   allowed_confidence: ["high"]  # 只有 confidence=high 的信号才允许交易
   min_signal_strength: 10
   min_trend_strength: 7         # 最低趋势强度（1-10）← 从6提高到7
-  min_rr_ratio: 1.5             # 最低盈亏比 ← 从1.5提高到2.0，确保足够利润空间
+  min_rr_ratio: 2.0             # 最低盈亏比（Round 9：RR<1.5的13笔亏损-3.44U，胜率46%）
   target_rr_ratio: 2.0          # 止盈设置：止盈距离 = 止损距离 × 此倍数 ← 从1.8提高到2.5
   min_take_profit_pct: 0               # 已关闭：止盈距离检查（2026-04-11）
 
@@ -169,14 +169,14 @@ trading:
     bullish_engulfing: 1.2       # 看涨吞没：仓位增加20%
     hammer: 1.2                  # ‌锤子线：仓位增加20%
     morning_star: 1.1            # 启明星：仓位增加10%
-    pin_bar_bull: 1.3            # 长下影线看涨：仓位增加30%
+    pin_bar_bull: 2.0            # 长下影线看涨：仓位增加100%
     # inside_bar: 0.0              # 孕线：仓位增加10%
     # 其他形态默认为 1.0（无加仓）
 
   # 形态信号强度加权（满分10分，可破格加分）
   pattern_signal_boost:
-    pin_bar_bull: 1.5            # Pin Bar 多头：信号强度 +1.5
-    pin_bar_bear: 1.5            # Pin Bar 空头：信号强度 +1.5
+    pin_bar_bull: 2.5            # Pin Bar 多头：信号强度 +2.5
+    pin_bar_bear: 0              # Pin Bar 空头：禁用（Round 9：3笔全败-15.23U，0%胜率）
     bullish_engulfing: 0.5       # 看涨吞没：+0.5（胜率一般）
     hammer: 0.5                  # 锤子线：+0.5
     morning_star: 1.0            # 启明星：+1.0
