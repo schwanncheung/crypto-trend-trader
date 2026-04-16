@@ -88,10 +88,11 @@ def cmd_backtest(args: argparse.Namespace, config: dict) -> None:
         output_dir = Path(results_base) / run_id
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    logger.info("[backtest] 加载数据...")
+    symbols = args.symbols if args.symbols else (config.get("symbols") or _discover_symbols(data_dir))
+    logger.info("[backtest] 加载数据... (%d 品种)", len(symbols))
     feed = DataFeed(
         cache_dir=data_dir,
-        symbols=config.get("symbols") or _discover_symbols(data_dir),
+        symbols=symbols,
         timeframes=config.get("timeframes", ["1h", "15m", "5m"]),
         start_date=config["backtest"]["start_date"],
         end_date=config["backtest"]["end_date"],
@@ -260,6 +261,7 @@ def build_parser() -> argparse.ArgumentParser:
     bt.add_argument("--start", default=None, help="回测起始日期")
     bt.add_argument("--end", default=None, help="回测结束日期")
     bt.add_argument("--output-dir", default=None, dest="output_dir", help="结果目录路径（默认按时间戳生成）")
+    bt.add_argument("--symbols", nargs="+", dest="symbols", help="指定品种列表（默认全部品种）")
 
     # --- optimize ---
     op = sub.add_parser("optimize", help="网格搜索参数优化")

@@ -42,7 +42,15 @@ backtest:
 override:
   # ── 放开做空限制（生产禁止，回测测试做空）───────────────────
   rule_filter:
-    session_short_banned: []                # 移除欧洲时段禁止做空
+    session_short_banned: []                # 移除所有时段禁止做空限制（欧洲+亚洲+美洲全部开放）
     rsi_neutral_short_ban_upper: 100        # 关闭 RSI 中性偏弱区禁止做空（原40-60）
     rsi_neutral_short_ban_lower: 0
     bearish_engulfing_short_ban: true       # 保持关闭（做空7连败0胜率亏损-176U）
+    # ── R12 新增限制 ──────────────────────────────────────────
+    adx_trending_threshold: 30              # ← R12：从20提高到30，减少ADX20-25伪信号（均亏损-0.91U/笔）
+    rsi_overbought: 60                      # ← R12：从65降低到60，留5%安全边际（AVAX RSI=64.6快速止损）
+
+  # ── 形态仓位配置 ─────────────────────────────────────────────
+  trading:
+    pattern_position_boost:
+      none: 0.5                             # ← R12：无形态信号仓位降至50%（none形态4笔亏损-0.51U/笔）
