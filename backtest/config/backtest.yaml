@@ -40,21 +40,9 @@ backtest:
   log_level: "INFO"             # DEBUG / INFO / WARNING
 
 override:
-  # rule_filter:
-  #   adx_trending_threshold: 35
-  #   rsi_oversold: 35
-  #   rsi_oversold_strict: true
-  #   pattern_filter:
-  #     inside_bar_enabled: false
-  #     inside_bar_require_trend: true
-  # trading_sessions:
-  #   enabled: true
-  #   timezone: "UTC+8"
-  #   sessions:
-  #     - name: "americas"
-  #       label: "美洲时段"
-  #       start_hour: 22
-  #       end_hour: 5
-  # trading:
-  #   target_rr_ratio: 2.0
-  #   stop_loss_atr_multiplier: 1.5
+  # ── 放开做空限制（生产禁止，回测测试做空）───────────────────
+  rule_filter:
+    session_short_banned: []                # 移除欧洲时段禁止做空
+    rsi_neutral_short_ban_upper: 100        # 关闭 RSI 中性偏弱区禁止做空（原40-60）
+    rsi_neutral_short_ban_lower: 0
+    bearish_engulfing_short_ban: true       # 保持关闭（做空7连败0胜率亏损-176U）
