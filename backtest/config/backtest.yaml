@@ -39,18 +39,19 @@ backtest:
   # ── 日志级别 ──────────────────────────────────
   log_level: "INFO"             # DEBUG / INFO / WARNING
 
-override:
+# ── override 配置（暂时禁用，恢复与生产环境一致）──────────────────────
+# override:
   # ── 放开做空限制（生产禁止，回测测试做空）───────────────────
-  rule_filter:
-    session_short_banned: []                # 移除所有时段禁止做空限制（欧洲+亚洲+美洲全部开放）
-    rsi_neutral_short_ban_upper: 100        # 关闭 RSI 中性偏弱区禁止做空（原40-60）
-    rsi_neutral_short_ban_lower: 0
-    bearish_engulfing_short_ban: true       # 保持关闭（做空7连败0胜率亏损-176U）
-    # ── R13 配置 ──────────────────────────────────────────────
-    adx_trending_threshold: 20              # ← R13：回退到20（ADX=30在11-12月横盘市过滤过度，仅2笔交易全亏）
-    rsi_overbought: 60                      # ← R12：从65降低到60，留5%安全边际（AVAX RSI=64.6快速止损）
+  # rule_filter:
+    # session_short_banned: []                # 移除所有时段禁止做空限制（欧洲+亚洲+美洲全部开放）
+    # rsi_neutral_short_ban_upper: 100        # 关闭 RSI 中性偏弱区禁止做空（原40-60）
+    # rsi_neutral_short_ban_lower: 0
+    # bearish_engulfing_short_ban: true       # 保持关闭（做空7连败0胜率亏损-176U）
+    # # ── R13 配置 ──────────────────────────────────────────────
+    # adx_trending_threshold: 20              # ← R13：回退到20（ADX=30在11-12月横盘市过滤过度，仅2笔交易全亏）
+    # rsi_overbought: 60                      # ← R12：从65降低到60，留5%安全边际（AVAX RSI=64.6快速止损）
 
   # ── 形态仓位配置 ─────────────────────────────────────────────
-  trading:
-    pattern_position_boost:
-      none: 0.5                             # ← R12：无形态信号仓位降至50%（none形态4笔亏损-0.51U/笔）
+  # trading:
+    # pattern_position_boost:
+      # none: 0.5                             # ← R12：无形态信号仓位降至50%（none形态4笔亏损-0.51U/笔）
