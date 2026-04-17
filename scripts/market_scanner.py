@@ -36,8 +36,8 @@ from fetch_kline import (
     calculate_support_resistance,
     _load_blacklist,
 )
-from ai_analysis import analyze_symbol, save_decision_log, passes_risk_filter
-from risk_filter import check_daily_loss
+from ai_analysis import analyze_symbol, save_decision_log
+from risk_filter import check_daily_loss, check_signal_quality
 from execute_trade import (
     create_exchange,
     get_open_positions,
@@ -260,10 +260,11 @@ def main():
 
             logger.info(f"{symbol} 风控检查: {risk_checks}")
 
-            if not passes_risk_filter(decision):
-                logger.warning(f"{symbol} 风控未通过 | 失败项: {failed_checks} | signal={decision.get('signal')}, confidence={decision.get('confidence')}")
+            ok, reason = check_signal_quality(decision)
+            if not ok:
+                logger.warning(f"{symbol} 风控未通过 | {reason} | signal={decision.get('signal')}, confidence={decision.get('confidence')}")
                 # 记录风控失败的合约及原因
-                risk_failed_symbols.append((symbol, direction, failed_checks))
+                risk_failed_symbols.append((symbol, direction, reason))
                 continue
             
             logger.info(f"{symbol} 风控通过 ✅")
