@@ -360,43 +360,6 @@ def _build_rule_only_decision(tf_indicators: dict, direction: str, symbol: str, 
     }
 
 
-def passes_risk_filter(decision: dict) -> bool:
-    """风控过滤：只有通过所有检查才允许交易"""
-    checks = {
-        "信号方向明确":
-            decision.get("signal") in ["long", "short"],
-        "置信度为high":
-            decision.get("confidence") == "high",
-        f"信号强度>={_MIN_SIGNAL_STRENGTH}":
-            decision.get("signal_strength", 0) >= _MIN_SIGNAL_STRENGTH,
-        "成交量确认":
-            decision.get("volume_confirmed", False) is True,
-        "无背离风险":
-            decision.get("divergence_risk", True) is False,
-        "结构未打破":
-            decision.get("structure_broken", True) is False,
-        f"风险回报比>={_MIN_RR_RATIO}":
-            _parse_rr(decision.get("risk_reward", "1:0")) >= _MIN_RR_RATIO,
-    }
-
-    failed = [k for k, v in checks.items() if not v]
-    if failed:
-        logger.info(f"风控过滤未通过：{failed}")
-        return False
-
-    logger.info("风控过滤通过，允许交易")
-    return True
-
-
-def _parse_rr(rr_str: str) -> float:
-    """解析风险回报比字符串，如 '1:2.5' -> 2.5"""
-    try:
-        parts = rr_str.split(":")
-        return float(parts[1]) / float(parts[0])
-    except Exception:
-        return 0.0
-
-
 def save_decision_log(
     symbol: str,
     timeframe: str,
