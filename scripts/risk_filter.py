@@ -71,7 +71,7 @@ def check_signal_quality(decision: dict) -> tuple[bool, str]:
     检查AI信号质量
     返回 (是否通过, 原因)
     """
-    signal = decision.get("signal", "wait")
+    signal = decision.get("_rule_direction") or decision.get("signal", "wait")
     confidence = decision.get("confidence", "low")
     signal_strength = decision.get("signal_strength", 0)
     trend_strength = decision.get("trend_strength", 0)
