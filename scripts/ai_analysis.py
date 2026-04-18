@@ -172,12 +172,14 @@ def _build_rule_only_decision(tf_indicators: dict, direction: str, symbol: str, 
     # K 线形态检测（检查所有周期，优先使用有形态的周期）
     pattern = "none"
     pattern_tf = base_tf
+    pattern_direction = None  # 形态方向：long/short，与信号方向冲突时降低强度
     pattern_boost = 1.0  # 仓位倍数（高胜率形态时增加）
     for tf in timeframes:
         patterns_list = tf_indicators.get(tf, {}).get("patterns", [])
         if patterns_list and patterns_list[0].get("pattern") not in ("none", "", None):
             pattern = patterns_list[0]["pattern"]
             pattern_tf = tf
+            pattern_direction = patterns_list[0].get("direction")
             break
 
     if pattern not in ("none", "", None):
@@ -187,7 +189,15 @@ def _build_rule_only_decision(tf_indicators: dict, direction: str, symbol: str, 
         if boost_ratio > 1.0:
             score += 1.0  # 高胜率形态额外加1分
             pattern_boost = boost_ratio
-            logger.info(f"[rule_only] {symbol} {pattern} 形态：信号强度+1，仓位+{(boost_ratio-1)*100:.0f}%")
+            logger.info(f"[rule_only] {symbol} {pattern} 形态：信号强度+1，仓位+{(boost_ratio-1)*100:.0%}")
+
+        # 形态方向与信号方向冲突检测（做空形态出现在做多信号中，或做多形态出现在做空信号中）
+        if pattern_direction in ("short", "bearish") and direction == "long":
+            score -= 5.0
+            logger.warning(f"[rule_only] {symbol} {pattern}({pattern_direction}) 与做多信号冲突，信号强度-5")
+        elif pattern_direction == "long" and direction == "short":
+            score -= 5.0
+            logger.warning(f"[rule_only] {symbol} {pattern}({pattern_direction}) 与做空信号冲突，信号强度-5")
 
     # ADX 边缘区减分（对齐 AI prompt）
     adx_edge_min = _TRADING_CFG.get("adx_edge_min", 20)
