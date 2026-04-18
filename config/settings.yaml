@@ -171,12 +171,14 @@ trading:
     morning_star: 1.1            # 启明星：仓位增加10%
     pin_bar_bull: 2.0            # 长下影线看涨：仓位增加100%
     # inside_bar: 0.0              # 孕线：仓位增加10%
+    pin_bar_bear: -10        # 做空Pin Bar做多=方向冲突，强度-10
+    bearish_engulfing: -10   # 做空吞没做多=方向冲突，强度-10
     # 其他形态默认为 1.0（无加仓）
 
   # 形态信号强度加权（满分10分，可破格加分）
   pattern_signal_boost:
     pin_bar_bull: 2.5            # Pin Bar 多头：信号强度 +2.5
-    pin_bar_bear: 0              # Pin Bar 空头：禁用（Round 9：3笔全败-15.23U，0%胜率）
+    pin_bar_bear: -10           # Pin Bar 空头：方向冲突惩罚-10（做多时出现做空形态）
     bullish_engulfing: 0.5       # 看涨吞没：+0.5（胜率一般）
     hammer: 0.5                  # 锤子线：+0.5
     morning_star: 1.0            # 启明星：+1.0

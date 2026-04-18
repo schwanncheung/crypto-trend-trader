@@ -191,13 +191,14 @@ def _build_rule_only_decision(tf_indicators: dict, direction: str, symbol: str, 
             pattern_boost = boost_ratio
             logger.info(f"[rule_only] {symbol} {pattern} 形态：信号强度+1，仓位+{(boost_ratio-1)*100:.0%}")
 
-        # 形态方向与信号方向冲突检测（做空形态出现在做多信号中，或做多形态出现在做空信号中）
-        if pattern_direction in ("short", "bearish") and direction == "long":
-            score -= 5.0
-            logger.warning(f"[rule_only] {symbol} {pattern}({pattern_direction}) 与做多信号冲突，信号强度-5")
-        elif pattern_direction == "long" and direction == "short":
-            score -= 5.0
-            logger.warning(f"[rule_only] {symbol} {pattern}({pattern_direction}) 与做空信号冲突，信号强度-5")
+        # 形态方向与信号方向冲突检测
+        # 仅惩罚 bearish patterns（pin_bar_bear, bearish_engulfing）出现在做多信号中
+        # bullish patterns（hammer, morning_star, bullish_engulfing）是回调买点，不惩罚
+        # 惩罚力度从 pattern_position_boost 读取（负值 = 惩罚，正值 = 加分）
+        pattern_conflict_penalty = _PATTERN_POSITION_BOOST.get(pattern, 0)
+        if pattern_direction == "short" and direction == "long" and pattern_conflict_penalty < 0:
+            score += pattern_conflict_penalty  # 负值直接扣分
+            logger.warning(f"[rule_only] {symbol} {pattern}({pattern_direction}) 与做多信号冲突，信号强度{pattern_conflict_penalty}")
 
     # ADX 边缘区减分（对齐 AI prompt）
     adx_edge_min = _TRADING_CFG.get("adx_edge_min", 20)
