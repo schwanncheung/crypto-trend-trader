@@ -357,9 +357,26 @@ def main():
 
     if risk_failed_symbols:
         lines.append(f"\n⚠️ 风控拒绝【{len(risk_failed_symbols)}】：")
-        for sym, direction, reason in risk_failed_symbols:
+        for sym, direction, failed in risk_failed_symbols:
             short_name = sym.split("/")[0]
-            lines.append(f"  {short_name}（{reason}）")
+            # 将正向检查项名称转换为负向描述
+            label_map = {
+                "信号方向明确": "方向不明",
+                "置信度为high": "信心不足",
+                "成交量确认": "量能不足",
+                "无背离风险": "背离风险",
+                "结构未打破": "结构已破",
+            }
+            simplified_failed = []
+            for reason in failed:
+                if "信号强度" in reason:
+                    simplified_failed.append("信号不强")
+                elif "风险回报比" in reason:
+                    simplified_failed.append("R:R不足")
+                else:
+                    simplified_failed.append(label_map.get(reason, reason))
+            reason_str = "、".join(simplified_failed)
+            lines.append(f"  {short_name}（{reason_str}）")
 
     send_notification("\n".join(lines))
 
