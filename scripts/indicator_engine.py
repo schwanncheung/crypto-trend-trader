@@ -567,7 +567,9 @@ def detect_short_signal_quality(
         return False, f"无小周期下跌趋势支持，做空质量不足"
 
     # ── R21新增：做空最低ADX要求 ────────────────────────────────────
-    anchor_adx = anchor_ind.get("adx", 0)
+    # 注意：anchor_ind["adx"] 存储的是 compute_adx() 返回的完整字典 {"adx": ..., "plus_di": ..., "minus_di": ...}
+    anchor_adx_info = anchor_ind.get("adx", {})
+    anchor_adx = anchor_adx_info.get("adx", 0) if isinstance(anchor_adx_info, dict) else 0
     if anchor_adx < _SHORT_MIN_ADX:
         return False, f"ADX={anchor_adx}<{_SHORT_MIN_ADX}，趋势不够强，不适合做空"
 
