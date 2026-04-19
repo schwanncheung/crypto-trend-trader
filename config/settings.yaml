@@ -146,10 +146,7 @@ trading_sessions:
   timezone: "UTC+8"              # 时段描述的时区（计算时转UTC）
 
   sessions:
-    - name: "europe"         # R21重新开放欧洲时段
-      label: "欧洲时段"
-      start_hour: 15
-      end_hour: 23
+    # - name: "europe"       # R22关闭：欧洲时段做多胜率仅38.8%，亏损-101.42U
 
     - name: "americas"
       label: "美洲时段"
@@ -205,7 +202,7 @@ trading:
         pin_bar_bear: 2.0    # Pin Bar 空头：仓位+100%
         bearish_engulfing: 1.2
       signal_boost_per_pattern:  # 各形态独立信号强度加分
-        pin_bar_bear: 2.5
+        pin_bar_bear: 0.2    # R22大幅降权：原2.5导致空头陷阱，降到0.2几乎不触发
         bearish_engulfing: 0.5
 
   # 做空结构位置要求（裸K供给区感知）
