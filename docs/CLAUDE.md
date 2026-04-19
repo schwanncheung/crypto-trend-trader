@@ -125,33 +125,48 @@ contracts = risk_usdt / (止损点数 × 合约面值)
 # risk_usdt = 余额 × max_position_pct(15%) × warning_reduction × pattern_boost
 ```
 
-### 3.6 形态仓位倍数 & 信号强度加权
+### 3.6 形态仓位倍数 & 信号强度加权（R20 重构）
 
-```python
-# 仓位加权（从 settings.yaml → trading.pattern_position_boost 读取）
-#   pattern_position_boost:
-#     pin_bar_bull: 2.0   # Pin Bar 多头：仓位+100%（Round 9：3笔全胜 +20.51 U）
-#     hammer: 1.2         # 锤子线：仓位+20%
-#     bullish_engulfing: 1.2  # 看涨吞没：仓位+20%
+```yaml
+# R20 重构：配置驱动的双向冲突检测
+# pattern_filter 下分 bullish_patterns 和 bearish_patterns 两大类
+# bullish_patterns: 做多时加分加仓，做空时惩罚
+# bearish_patterns: 做空时加分加仓，做多时惩罚
 
-# 无形态信号 → 仓位降至 50%（Round 5 分析：9笔无形态亏损-103.6 U）
+pattern_filter:
+  bullish_patterns:
+    patterns: [pin_bar_bull, hammer, bullish_engulfing, morning_star]
+    position_boost: 1.2       # 默认仓位倍数
+    signal_boost: 1.0         # 默认信号强度加分
+    position_boost_per_pattern:
+      pin_bar_bull: 2.0       # Pin Bar 多头：仓位+100%（Round 9：3笔全胜 +20.51 U）
+      hammer: 1.2             # 锤子线：仓位+20%
+      bullish_engulfing: 1.2  # 看涨吞没：仓位+20%
+    signal_boost_per_pattern:
+      pin_bar_bull: 2.5       # Pin Bar 多头：+2.5
+      bullish_engulfing: 0.5
+      hammer: 0.5
+  bearish_patterns:
+    patterns: [pin_bar_bear, bearish_engulfing]
+    position_boost_per_pattern:
+      pin_bar_bear: 2.0       # Pin Bar 空头：仓位+100%
+      bearish_engulfing: 1.2
+    signal_boost_per_pattern:
+      pin_bar_bear: 2.5
+      bearish_engulfing: 0.5
+```
 
-# 信号强度加权（满分10分，可破格加分；从 trading.pattern_signal_boost 读取）
-#   pattern_signal_boost:
-#     pin_bar_bull: 2.5   # Pin Bar 多头：信号强度 +2.5（Round 9：3笔全胜 +20.51 U）
-#     pin_bar_bear: 0     # Pin Bar 空头：已禁用（Round 9：3笔全败 -15.23 U，0%胜率）
-#     bullish_engulfing: 0.5
-
-# Inside Bar 过滤（settings.yaml → trading.pattern_filter.inside_bar_enabled）
-#   - 两月7/7全亏，亏损-120U，已彻底关闭（inside_bar_enabled: false）
-#   - 方向由锚周期趋势决定，不以当前K线阴阳为准
-#   - 横盘时 Inside Bar 直接跳过（无有效信号）
+**冲突处理矩阵（R20 修复 bug）**：
+| 形态方向 | 出现在做多信号 | 出现在做空信号 |
+|----------|---------------|---------------|
+| bullish | +score + position_boost + signal_boost | **惩罚**（score + penalty） |
+| bearish | **惩罚**（score + penalty） | +score + position_boost + signal_boost |
 
 # Bearish Engulfing + RSI 超卖阻断（risk_filter.py 硬过滤）
 #   - RSI 超卖区出现看跌吞没 = 强反弹结构，禁止做空
 
 # 做空结构位置要求（settings.yaml → trading.structure_filter）
-#   - short_require_near_resistance: 做空需在阻力区 ±2.5% 以内
+#   - short_require_near_resistance: 做空需在阻力区 ±5% 以内
 #   - short_require_structure_down: 做空需 LH/LL 空头结构满足其一
 ```
 
