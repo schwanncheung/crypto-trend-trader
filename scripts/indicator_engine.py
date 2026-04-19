@@ -20,7 +20,7 @@ import numpy as np
 import pandas as pd
 from typing import Optional, List, Tuple
 
-from config_loader import ANALYSIS_CFG, TIMEFRAMES
+from config_loader import ANALYSIS_CFG, TIMEFRAMES, TRADING_CFG
 from trading_hours import get_session_label_from_ts
 
 logger = logging.getLogger(__name__)
@@ -46,6 +46,11 @@ VOL_RATIO_THRESH  = _RULE_CFG.get("volume_ratio_threshold", 1.2)
 RSI_OVERBOUGHT    = _RULE_CFG.get("rsi_overbought", 75)
 RSI_OVERSOLD      = _RULE_CFG.get("rsi_oversold", 25)
 
+# R21新增：做空保护参数
+_SHORT_MIN_ADX    = TRADING_CFG.get("short_min_adx", 40)
+_RSI_SHORT_GUARD  = _RULE_CFG.get("rsi_short_guard_zone", 40)
+_BULLISH_PATTERNS = set(_PATTERN_FILTER_CFG.get("bullish_patterns", {}).get("patterns", []))
+
 
 def reload_config_from_dict(config: dict) -> None:
     """
@@ -55,10 +60,11 @@ def reload_config_from_dict(config: dict) -> None:
     global REQUIRE_ANCHOR, MIN_TRENDING_TF, ADX_THRESHOLD, VOL_RATIO_THRESH, \
            RSI_OVERBOUGHT, RSI_OVERSOLD, ANCHOR_TF, \
            STRONG_TREND_ADX_THRESHOLD, STRONG_TREND_DI_DIFF_THRESHOLD, \
-           _PATTERN_FILTER_CFG
+           _PATTERN_FILTER_CFG, _SHORT_MIN_ADX, _RSI_SHORT_GUARD, _BULLISH_PATTERNS
 
     rule_cfg = config.get("analysis", {}).get("rule_filter", {})
     ind_cfg = config.get("analysis", {}).get("indicator", {})
+    trading_cfg = config.get("trading", {})
 
     # 更新全局变量
     ANCHOR_TF = rule_cfg.get("anchor_timeframe", ANCHOR_TF)
@@ -72,6 +78,11 @@ def reload_config_from_dict(config: dict) -> None:
     STRONG_TREND_DI_DIFF_THRESHOLD = rule_cfg.get("strong_trend_di_diff_threshold", STRONG_TREND_DI_DIFF_THRESHOLD)
 
     _PATTERN_FILTER_CFG = rule_cfg.get("pattern_filter", {})  # P0：inside_bar开关
+
+    # R21新增：做空保护参数
+    _SHORT_MIN_ADX = trading_cfg.get("short_min_adx", _SHORT_MIN_ADX)
+    _RSI_SHORT_GUARD = rule_cfg.get("rsi_short_guard_zone", _RSI_SHORT_GUARD)
+    _BULLISH_PATTERNS = set(_PATTERN_FILTER_CFG.get("bullish_patterns", {}).get("patterns", []))
 
     logger.info(
         f"[indicator_engine] 配置已重新加载：ADX_THRESHOLD={ADX_THRESHOLD}, "
@@ -555,15 +566,24 @@ def detect_short_signal_quality(
     if down_count < 1:
         return False, f"无小周期下跌趋势支持，做空质量不足"
 
+    # ── R21新增：做空最低ADX要求 ────────────────────────────────────
+    anchor_adx = anchor_ind.get("adx", 0)
+    if anchor_adx < _SHORT_MIN_ADX:
+        return False, f"ADX={anchor_adx}<{_SHORT_MIN_ADX}，趋势不够强，不适合做空"
+
     # ── 条件2: 入场时机 — RSI从超买回调到合理区间 ─────────────────
     # 理想做空区间: RSI在50-65（从超买回调，尚未进入反弹区）
     # 不在RSI>70做空（超买区，等回调）
     # 不在RSI<45做空（偏弱区，可能是反弹结构）
     # 不在RSI 45-50做空（中性区，趋势不明）
+    # R21新增：不在RSI 35-40做空（近超卖区，反弹风险高）
     if anchor_rsi > 70:
         return False, f"RSI={anchor_rsi}仍在超买区，等待回调"
     if anchor_rsi < 45:
         return False, f"RSI={anchor_rsi}已进入偏弱区(≤45)，反弹结构禁止做空"
+    # R21新增：近超卖区检查
+    if 35 <= anchor_rsi < _RSI_SHORT_GUARD:
+        return False, f"RSI={anchor_rsi}接近超卖区({_RSI_SHORT_GUARD})，反弹风险高"
     if 45 <= anchor_rsi < 50:
         return False, f"RSI={anchor_rsi}在中性偏弱区(45-50)，趋势不明"
 
@@ -584,6 +604,19 @@ def detect_short_signal_quality(
     # 近期动能应与做空方向一致
     if momentum_dir not in ("down", "neutral"):
         return False, f"近期动能={momentum_dir}，与做空方向不一致"
+
+    # ── R21新增：做空时检测bullish形态冲突 ─────────────────────────
+    # 如果检测到看涨形态（hammer/pin_bar_bull等）出现在任何周期，拒绝做空
+    bullish_conflict = []
+    for tf, ind in tf_indicators.items():
+        if not ind.get("valid"):
+            continue
+        for p in ind.get("patterns", []):
+            if p.get("direction") == "long" and p.get("pattern") in _BULLISH_PATTERNS:
+                bullish_conflict.append(f"{p['pattern']}({tf})")
+
+    if bullish_conflict:
+        return False, f"检测到看涨形态{','.join(bullish_conflict)}，与做空方向冲突"
 
     # ── 质量确认通过 ───────────────────────────────────────────────
     detail = (

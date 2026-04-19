@@ -57,9 +57,16 @@ trade_manager.py (持仓管理，每4分钟)
    - 背离保护（底背离禁空，不可豁免）
 5. 至少一个小周期量比 ≥ 0.8
 6. 超卖反弹保护、趋势转折预警（小周期RSI连续回升+放量）
-7. 时段过滤：欧洲时段禁止做空（Round 5 分析：7笔6亏）
+7. 时段过滤：全时段开放做空（R21重新开放欧洲时段）
 8. 形态做多质量检查（非硬过滤）
 9. 规则引擎通过
+
+### 3.1.1 做空质量检查（R21重构：`detect_short_signal_quality`）
+做空使用独立的确认逻辑（4层）：
+1. 趋势确认：锚周期下跌 + 至少1个小周期也下跌 + ADX >= 40（R21新增）
+2. 入场时机：RSI在50-65区间（非超买非超卖）；R21新增近超卖区拦截（RSI < 40）
+3. 小周期RSI同步下降（无反弹信号）
+4. 无bullish形态冲突（R21新增：检测到hammer/pin_bar_bull等则拒绝做空）
 ```
 
 ### 3.2 趋势判断 (`assess_trend_direction`)
@@ -226,6 +233,10 @@ trading:
   # 形态过滤规则
   pattern_filter:
     inside_bar_require_trend: true   # Inside Bar 需趋势背景
+
+  # R21新增：做空保护参数
+  short_min_adx: 40              # 做空最低ADX要求（趋势必须够强）
+  rsi_short_guard_zone: 40       # RSI低于此值禁止做空（近超卖区35-40）
 
   # 做空结构位置要求
   structure_filter:
