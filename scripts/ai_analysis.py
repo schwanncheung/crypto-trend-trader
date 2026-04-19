@@ -452,11 +452,15 @@ def _build_text_analysis_prompt() -> str:
     vol_burst_thresh = vol_ratio_thresh * 2
     momentum_strong_pct = int(recent_momentum_pct * 100)
 
-    # 动态生成形态加分说明（从配置读取，仅说明信号强度加分）
+    # R20重构：从新配置结构读取形态加分说明
     pattern_boost_lines = []
-    for pattern, boost in _PATTERN_POSITION_BOOST.items():
-        if boost > 1.0:
-            pattern_boost_lines.append(f"  - {pattern}：额外+1分")
+    pattern_filter_cfg = _TRADING_CFG.get("pattern_filter", {})
+    for section in ["bullish_patterns", "bearish_patterns"]:
+        cfg = pattern_filter_cfg.get(section, {})
+        for pattern, boost in cfg.get("position_boost_per_pattern", {}).items():
+            if boost > 1.0:
+                direction = "看涨" if section == "bullish_patterns" else "看跌"
+                pattern_boost_lines.append(f"  - {pattern}（{direction}）：额外+1分")
     pattern_boost_note = "\n".join(pattern_boost_lines) if pattern_boost_lines else "  - （未配置高胜率形态）"
 
     return f"""你是一位激进型裸K趋势交易员，专注加密货币合约单边行情，追求高胜率的趋势早期入场。
