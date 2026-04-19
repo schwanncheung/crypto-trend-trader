@@ -28,14 +28,13 @@ _TRADING_CFG = TRADING_CFG.copy() if TRADING_CFG else {}
 
 _MIN_SIGNAL_STRENGTH = _TRADING_CFG.get("min_signal_strength", 7)
 _MIN_RR_RATIO        = _TRADING_CFG.get("min_rr_ratio", 2.0)
-_PATTERN_POSITION_BOOST = _TRADING_CFG.get("pattern_position_boost", {})  # 形态仓位倍数配置
 
 
 def reload_config_from_dict(config: dict) -> None:
     """
     从外部配置字典重新加载参数（回测系统 override 机制）。
     """
-    global _MIN_SIGNAL_STRENGTH, _MIN_RR_RATIO, _TRADING_CFG, _PATTERN_POSITION_BOOST
+    global _MIN_SIGNAL_STRENGTH, _MIN_RR_RATIO, _TRADING_CFG
 
     trading_cfg = config.get("trading", {})
 
@@ -45,12 +44,10 @@ def reload_config_from_dict(config: dict) -> None:
     # 更新全局变量
     _MIN_SIGNAL_STRENGTH = _TRADING_CFG.get("min_signal_strength", _MIN_SIGNAL_STRENGTH)
     _MIN_RR_RATIO = _TRADING_CFG.get("min_rr_ratio", _MIN_RR_RATIO)
-    _PATTERN_POSITION_BOOST = _TRADING_CFG.get("pattern_position_boost", _PATTERN_POSITION_BOOST)
 
     logger.info(
         f"[ai_analysis] 配置已重新加载："
-        f"min_signal_strength={_MIN_SIGNAL_STRENGTH}, min_rr_ratio={_MIN_RR_RATIO}, "
-        f"pattern_position_boost={_PATTERN_POSITION_BOOST}"
+        f"min_signal_strength={_MIN_SIGNAL_STRENGTH}, min_rr_ratio={_MIN_RR_RATIO}"
     )
 
 
@@ -182,23 +179,49 @@ def _build_rule_only_decision(tf_indicators: dict, direction: str, symbol: str, 
             pattern_direction = patterns_list[0].get("direction")
             break
 
-    if pattern not in ("none", "", None):
-        score += 1.5
-        # 高胜率形态额外加分 + 仓位 boost（从配置读取）
-        boost_ratio = _PATTERN_POSITION_BOOST.get(pattern, 1.0)
-        if boost_ratio > 1.0:
-            score += 1.0  # 高胜率形态额外加1分
-            pattern_boost = boost_ratio
-            logger.info(f"[rule_only] {symbol} {pattern} 形态：信号强度+1，仓位+{(boost_ratio-1)*100:.0%}")
+    # ── R20重构：配置驱动的形态方向检测 ────────────────────────────
+    # bullish_patterns 做多时加分加仓，做空时惩罚
+    # bearish_patterns 做空时加分加仓，做多时惩罚
+    pattern_filter_cfg = _TRADING_CFG.get("pattern_filter", {})
+    bullish_cfg = pattern_filter_cfg.get("bullish_patterns", {})
+    bearish_cfg = pattern_filter_cfg.get("bearish_patterns", {})
+    bullish_patterns_set = set(bullish_cfg.get("patterns", []))
+    bearish_patterns_set = set(bearish_cfg.get("patterns", []))
 
-        # 形态方向与信号方向冲突检测
-        # 仅惩罚 bearish patterns（pin_bar_bear, bearish_engulfing）出现在做多信号中
-        # bullish patterns（hammer, morning_star, bullish_engulfing）是回调买点，不惩罚
-        # 惩罚力度从 pattern_position_boost 读取（负值 = 惩罚，正值 = 加分）
-        pattern_conflict_penalty = _PATTERN_POSITION_BOOST.get(pattern, 0)
-        if pattern_direction == "short" and direction == "long" and pattern_conflict_penalty < 0:
-            score += pattern_conflict_penalty  # 负值直接扣分
-            logger.warning(f"[rule_only] {symbol} {pattern}({pattern_direction}) 与做多信号冲突，信号强度{pattern_conflict_penalty}")
+    if pattern not in ("none", "", None):
+        score += 1.5  # 基础形态分
+        pattern_in_bullish = pattern in bullish_patterns_set
+        pattern_in_bearish = pattern in bearish_patterns_set
+
+        if pattern_in_bullish:
+            # 看涨形态：做多时加分加仓，做空时惩罚
+            if direction == "long":
+                pos_boost_per = bullish_cfg.get("position_boost_per_pattern", {}).get(pattern, bullish_cfg.get("position_boost", 1.0))
+                sig_boost_per = bullish_cfg.get("signal_boost_per_pattern", {}).get(pattern, bullish_cfg.get("signal_boost", 1.0))
+                if pos_boost_per > 1.0:
+                    score += 1.0
+                    pattern_boost = pos_boost_per
+                    logger.info(f"[rule_only] {symbol} {pattern}(看涨形态)做多：信号+1，仓位+{(pos_boost_per-1)*100:.0%}")
+            else:  # direction == "short"
+                sig_boost = bullish_cfg.get("signal_boost_per_pattern", {}).get(pattern, bullish_cfg.get("signal_boost", 1.0))
+                penalty = -abs(sig_boost)
+                score += penalty
+                logger.warning(f"[rule_only] {symbol} {pattern}(看涨形态)与做空冲突：信号强度{penalty}")
+
+        elif pattern_in_bearish:
+            # 看跌形态：做空时加分加仓，做多时惩罚
+            if direction == "short":
+                pos_boost_per = bearish_cfg.get("position_boost_per_pattern", {}).get(pattern, bearish_cfg.get("position_boost", 1.0))
+                sig_boost_per = bearish_cfg.get("signal_boost_per_pattern", {}).get(pattern, bearish_cfg.get("signal_boost", 1.0))
+                if pos_boost_per > 1.0:
+                    score += 1.0
+                    pattern_boost = pos_boost_per
+                    logger.info(f"[rule_only] {symbol} {pattern}(看跌形态)做空：信号+1，仓位+{(pos_boost_per-1)*100:.0%}")
+            else:  # direction == "long"
+                sig_boost = bearish_cfg.get("signal_boost_per_pattern", {}).get(pattern, bearish_cfg.get("signal_boost", 1.0))
+                penalty = -abs(sig_boost)
+                score += penalty
+                logger.warning(f"[rule_only] {symbol} {pattern}(看跌形态)与做多冲突：信号强度{penalty}")
 
     # ADX 边缘区减分（对齐 AI prompt）
     adx_edge_min = _TRADING_CFG.get("adx_edge_min", 20)
@@ -251,12 +274,17 @@ def _build_rule_only_decision(tf_indicators: dict, direction: str, symbol: str, 
 
     signal_strength = min(10, int(score))
 
-    # ── 高胜率形态信号强度加权（破格加分）──────────────────────────
-    pattern_signal_boost = _TRADING_CFG.get("pattern_signal_boost", {})
-    if pattern in pattern_signal_boost:
-        boost = pattern_signal_boost[pattern]
-        signal_strength = min(10, signal_strength + boost)
-        logger.info(f"[rule_only] {symbol} {pattern} 信号强度 +{boost} → {signal_strength}")
+    # ── 形态信号强度额外加权（direction match时破格加分）─────────────
+    # 仅在形态方向与交易方向一致时应用额外加分，冲突时已在上面通过score惩罚处理
+    if pattern not in ("none", "", None):
+        extra_boost = 0
+        if pattern_in_bullish and direction == "long":
+            extra_boost = bullish_cfg.get("signal_boost_per_pattern", {}).get(pattern, bullish_cfg.get("signal_boost", 1.0))
+        elif pattern_in_bearish and direction == "short":
+            extra_boost = bearish_cfg.get("signal_boost_per_pattern", {}).get(pattern, bearish_cfg.get("signal_boost", 1.0))
+        if extra_boost > 0:
+            signal_strength = min(10, max(0, signal_strength + extra_boost))
+            logger.info(f"[rule_only] {symbol} {pattern} 信号强度 +{extra_boost} → {signal_strength}")
 
     # 使用有形态周期的价格/ATR，若无形态则使用 base_tf
     signal_ind = tf_indicators.get(pattern_tf, {}) if pattern != "none" else tf_indicators.get(base_tf, {})
@@ -700,15 +728,35 @@ def analyze_symbol(
                 result["_tp_reason"] = tp_reason
                 logger.info(f"已应用动态止损止盈：SL={stop_loss:.6g}, TP={take_profit:.6g}, RR={rr:.2f}, {tp_reason}")
 
-            # 根据形态设置仓位倍数（与 rule_only 模式保持一致）
+            # 根据形态设置仓位倍数（R20重构：配置驱动双向检测）
             signal_type = result.get("signal_type", "none")
-            pattern_boost = _PATTERN_POSITION_BOOST.get(signal_type, 1.0)
-            result["pattern_boost"] = pattern_boost
-            if pattern_boost > 1.0:
-                # 高胜率形态额外加分
-                current_strength = result.get("signal_strength", 0)
-                result["signal_strength"] = min(10, current_strength + 1)
-                logger.info(f"[分析入口] {symbol} {signal_type} 形态：信号强度+1（{current_strength}→{result['signal_strength']}），仓位+{(pattern_boost-1)*100:.0f}%")
+            signal_direction = result.get("direction", "long")
+            pattern_filter_cfg = _TRADING_CFG.get("pattern_filter", {})
+            bullish_cfg = pattern_filter_cfg.get("bullish_patterns", {})
+            bearish_cfg = pattern_filter_cfg.get("bearish_patterns", {})
+            bullish_patterns_set = set(bullish_cfg.get("patterns", []))
+            bearish_patterns_set = set(bearish_cfg.get("patterns", []))
+
+            if signal_type in bullish_patterns_set:
+                if signal_direction == "long":
+                    pattern_boost = bullish_cfg.get("position_boost_per_pattern", {}).get(signal_type, bullish_cfg.get("position_boost", 1.0))
+                    result["pattern_boost"] = pattern_boost
+                    if pattern_boost > 1.0:
+                        current_strength = result.get("signal_strength", 0)
+                        result["signal_strength"] = min(10, current_strength + 1)
+                        logger.info(f"[分析入口] {symbol} {signal_type}(看涨形态)做多：信号+1，仓位+{(pattern_boost-1)*100:.0f}%")
+                else:  # short: bullish pattern conflicts
+                    result["pattern_boost"] = 1.0
+            elif signal_type in bearish_patterns_set:
+                if signal_direction == "short":
+                    pattern_boost = bearish_cfg.get("position_boost_per_pattern", {}).get(signal_type, bearish_cfg.get("position_boost", 1.0))
+                    result["pattern_boost"] = pattern_boost
+                    if pattern_boost > 1.0:
+                        current_strength = result.get("signal_strength", 0)
+                        result["signal_strength"] = min(10, current_strength + 1)
+                        logger.info(f"[分析入口] {symbol} {signal_type}(看跌形态)做空：信号+1，仓位+{(pattern_boost-1)*100:.0f}%")
+                else:  # long: bearish pattern conflicts
+                    result["pattern_boost"] = 1.0
             else:
                 result["pattern_boost"] = 1.0
 

@@ -76,8 +76,9 @@ analysis:
     rsi_overbought: 65                  # RSI 超买线（做多保护）
     rsi_oversold: 35                    # RSI 超卖线（做空保护）← P1优化：从 30 提高到 35，扩大超卖区禁止做空范围
 
-    # P1优化：RSI 超卖严格模式（关闭 RSI 超卖区的所有做空信号）
-    rsi_oversold_strict: true           # 开启后，RSI <= rsi_oversold 时禁止所有做空（裸K逻辑：超卖是反弹结构非趋势延续）
+    # R19重构：关闭 RSI 超卖严格模式，改用新的做空质量检查（detect_short_signal_quality）
+    # 新逻辑：趋势确认 + RSI回调位置(50-65) + 小周期同步 + 无反弹风险
+    rsi_oversold_strict: false          # 关闭严格模式，由新函数统一处理做空RSI检查
 
     # 2.2 ADX 豁免基础 RSI 过滤（防止强趋势 RSI 钝化漏单）
     rsi_adx_exemption_enabled: false    # 禁用：防止强趋势时 RSI 超卖仍开仓导致超跌反弹
@@ -116,7 +117,7 @@ analysis:
     rsi_neutral_short_ban_lower: 35   # ← 从40降至35，填补35-40做空漏洞
 
     # 2.9 时段做空限制（Round 5 分析：欧洲盘做空 7 笔 6 亏，贡献 -95 U）
-    session_short_banned: ["欧洲时段"]  # 禁止做空的时段列表
+    session_short_banned: []  # 禁止做空的时段列表
 
     # ═══════════════════════════════════════════════════════════════════
     # 三、多头信号质量（非硬过滤，仅记录质量供 LLM 参考）
@@ -164,34 +165,49 @@ trading:
   target_rr_ratio: 2.0          # 止盈设置：止盈距离 = 止损距离 × 此倍数 ← 从1.8提高到2.5
   min_take_profit_pct: 0               # 已关闭：止盈距离检查（2026-04-11）
 
-  # 形态仓位倍数（高胜率形态增加仓位）
-  pattern_position_boost:
-    bullish_engulfing: 1.2       # 看涨吞没：仓位增加20%
-    hammer: 1.2                  # ‌锤子线：仓位增加20%
-    morning_star: 1.1            # 启明星：仓位增加10%
-    pin_bar_bull: 2.0            # 长下影线看涨：仓位增加100%
-    # inside_bar: 0.0              # 孕线：仓位增加10%
-    pin_bar_bear: -10        # 做空Pin Bar做多=方向冲突，强度-10
-    bearish_engulfing: -10   # 做空吞没做多=方向冲突，强度-10
-    # 其他形态默认为 1.0（无加仓）
-
-  # 形态信号强度加权（满分10分，可破格加分）
-  pattern_signal_boost:
-    pin_bar_bull: 2.5            # Pin Bar 多头：信号强度 +2.5
-    pin_bar_bear: -10           # Pin Bar 空头：方向冲突惩罚-10（做多时出现做空形态）
-    bullish_engulfing: 0.5       # 看涨吞没：+0.5（胜率一般）
-    hammer: 0.5                  # 锤子线：+0.5
-    morning_star: 1.0            # 启明星：+1.0
-
-  # 形态过滤规则
+  # ── R20重构：形态方向分类配置 ─────────────────────────────────────
+  # bullish_patterns: 做多时出现 → 加分加仓；做空时出现 → 惩罚
+  # bearish_patterns: 做空时出现 → 加分加仓；做多时出现 → 惩罚
   pattern_filter:
     inside_bar_require_trend: true   # Inside Bar 必须有趋势背景（up/down）才生效，横盘时跳过
     bearish_engulfing_short_ban: true # ← Round 7：bearish_engulfing做空7连败0胜率亏损-176U，彻底关闭
 
+    bullish_patterns:
+      patterns:             # 看涨形态列表
+        - pin_bar_bull       # 长下影线看涨
+        - hammer             # 锤子线
+        - bullish_engulfing  # 看涨吞没
+        - morning_star       # 启明星
+      position_boost: 1.2    # 默认仓位倍数（低于1=减仓，高于1=加仓）
+      signal_boost: 1.0      # 默认信号强度加分
+      position_boost_per_pattern:  # 各形态独立仓位倍数（覆盖默认值）
+        pin_bar_bull: 2.0    # Pin Bar 多头：仓位+100%（Round 9：3笔全胜 +20.51 U）
+        hammer: 1.2          # 锤子线：仓位+20%
+        bullish_engulfing: 1.2  # 看涨吞没：仓位+20%
+        morning_star: 1.1    # 启明星：仓位+10%
+      signal_boost_per_pattern:  # 各形态独立信号强度加分（覆盖默认值）
+        pin_bar_bull: 2.5    # Pin Bar 多头：+2.5（Round 9：3笔全胜 +20.51 U）
+        bullish_engulfing: 0.5
+        hammer: 0.5
+        morning_star: 1.0
+
+    bearish_patterns:
+      patterns:             # 看跌形态列表
+        - pin_bar_bear       # 长上影线看跌
+        - bearish_engulfing  # 看跌吞没
+      position_boost: 1.2    # 默认仓位倍数
+      signal_boost: 1.0      # 默认信号强度加分
+      position_boost_per_pattern:  # 各形态独立仓位倍数
+        pin_bar_bear: 2.0    # Pin Bar 空头：仓位+100%
+        bearish_engulfing: 1.2
+      signal_boost_per_pattern:  # 各形态独立信号强度加分
+        pin_bar_bear: 2.5
+        bearish_engulfing: 0.5
+
   # 做空结构位置要求（裸K供给区感知）
   structure_filter:
-    short_require_near_resistance: true   # 做空需在阻力区附近（±阈值内）
-    short_resistance_threshold_pct: 0.025 # 价格距阻力位 ±2.5% 视为"附近"
+    short_require_near_resistance: true   # 做空需在阻力区附近
+    short_resistance_threshold_pct: 0.05  # 价格距阻力位 ±5% 视为"附近"（R19优化：放宽到5%）
     short_require_structure_down: true     # 做空需空头结构（LH/LL 满足其一）
 
   # ADX 边缘区间加严（ADX 处于 20-25 时提高信号强度门槛）

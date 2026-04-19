@@ -513,6 +513,89 @@ def detect_long_signal_conditions(tf_indicators: dict, symbol: str = "") -> Tupl
         return False, detail
 
 
+# ── R19新增：做空质量检查（重构版）────────────────────────────────────
+def detect_short_signal_quality(
+    tf_indicators: dict,
+    symbol: str = "",
+) -> Tuple[bool, str]:
+    """
+    做空质量检查（重构版）：替代原来的"禁止"逻辑为"确认"逻辑。
+
+    做空条件（4层确认）：
+    1. 趋势确认: 锚周期下跌 + 至少1个小周期也下跌
+    2. 入场时机: RSI从超买回调到合理区间(50-65)，非超卖非中性
+    3. 小周期同步: 小周期RSI需同步下降（无反弹信号）
+    4. 无底背离: 底背离是动能衰竭信号，禁止做空
+
+    注意：此函数在规则引擎检测到底部背离后调用，
+    用于进一步过滤做空信号，不影响已有的底背离保护。
+
+    返回: (quality_ok: bool, detail: str)
+    """
+    anchor_ind = tf_indicators.get(ANCHOR_TF, {})
+    if not anchor_ind.get("valid"):
+        return False, "锚周期数据无效"
+
+    anchor_rsi = anchor_ind.get("rsi", 50)
+    anchor_trend = anchor_ind.get("trend", "sideways")
+    anchor_momentum = anchor_ind.get("momentum", {})
+    momentum_dir = anchor_momentum.get("direction", "neutral")
+
+    # ── 条件1: 趋势确认 ─────────────────────────────────────────────
+    # 锚周期必须是下跌趋势
+    if anchor_trend != "down":
+        return False, f"锚周期趋势={anchor_trend}，非下跌趋势"
+
+    # 检查非锚周期趋势（至少1个下跌）
+    check_tfs = [tf for tf in TIMEFRAMES if tf != ANCHOR_TF and tf_indicators.get(tf, {}).get("valid")]
+    down_count = sum(
+        1 for tf in check_tfs
+        if tf_indicators.get(tf, {}).get("trend") == "down"
+    )
+    if down_count < 1:
+        return False, f"无小周期下跌趋势支持，做空质量不足"
+
+    # ── 条件2: 入场时机 — RSI从超买回调到合理区间 ─────────────────
+    # 理想做空区间: RSI在50-65（从超买回调，尚未进入反弹区）
+    # 不在RSI>70做空（超买区，等回调）
+    # 不在RSI<45做空（偏弱区，可能是反弹结构）
+    # 不在RSI 45-50做空（中性区，趋势不明）
+    if anchor_rsi > 70:
+        return False, f"RSI={anchor_rsi}仍在超买区，等待回调"
+    if anchor_rsi < 45:
+        return False, f"RSI={anchor_rsi}已进入偏弱区(≤45)，反弹结构禁止做空"
+    if 45 <= anchor_rsi < 50:
+        return False, f"RSI={anchor_rsi}在中性偏弱区(45-50)，趋势不明"
+
+    # ── 条件3: 小周期RSI需同步下降 ──────────────────────────────────
+    # 小周期RSI回升意味着反弹正在发展，不适合做空
+    rising_tfs = []
+    for tf in ["5m", "15m"]:
+        ind = tf_indicators.get(tf, {})
+        if ind.get("valid"):
+            rsi_series = ind.get("rsi_series", [])
+            if len(rsi_series) >= 2 and rsi_series[-1] > rsi_series[-2]:
+                rising_tfs.append(f"{tf}({rsi_series[-2]:.1f}→{rsi_series[-1]:.1f})")
+
+    if rising_tfs:
+        return False, f"{'、'.join(rising_tfs)}周期RSI正在回升，反弹风险高"
+
+    # ── 条件4: 近期动能方向确认 ────────────────────────────────────
+    # 近期动能应与做空方向一致
+    if momentum_dir not in ("down", "neutral"):
+        return False, f"近期动能={momentum_dir}，与做空方向不一致"
+
+    # ── 质量确认通过 ───────────────────────────────────────────────
+    detail = (
+        f"做空质量确认: 锚周期下跌={anchor_trend}, "
+        f"小周期下跌支持={down_count}/{len(check_tfs)}, "
+        f"RSI={anchor_rsi}(回调合理区), "
+        f"小周期无反弹"
+    )
+    logger.info(f"[做空质量] {symbol} {detail}")
+    return True, detail
+
+
 def compute_adx(df: pd.DataFrame, period: int = ADX_PERIOD) -> dict:
     """
     计算 ADX / +DI / -DI
@@ -1186,13 +1269,13 @@ def rule_engine_filter(
         return False, "wait", divergence_reason
 
     # ── 5. RSI 极值过滤（趋势末端保护，强趋势时豁免）
-    # 方案 1：ADX 豁免 —— 当锚周期 ADX≥阈值时，允许 RSI 超买/超卖状态下开仓（防止强趋势中 RSI 钝化漏单）
+    # 做多：RSI超买禁止；做空：使用新的做空质量检查替代旧的多层禁止规则
     if not strong_trend_exemption:
         # 检查是否满足 ADX 豁免条件（中等强度趋势即可豁免，无需极强趋势）
         adx_exemption_threshold = _RULE_CFG.get("rsi_adx_exemption_threshold", 40)
         adx_exemption_enabled = _RULE_CFG.get("rsi_adx_exemption_enabled", False)
         adx_exemption_active = adx_exemption_enabled and anchor_adx >= adx_exemption_threshold
-        
+
         if adx_exemption_active:
             logger.info(
                 f"[规则过滤] {symbol} ADX 豁免 RSI 超买/超卖保护：ADX={anchor_adx:.1f}(>={adx_exemption_threshold})，"
@@ -1200,7 +1283,7 @@ def rule_engine_filter(
             )
         else:
             # 不满足豁免条件，执行正常 RSI 过滤
-            # 优化：只检查锚周期的 RSI，小周期（30m/15m）波动更大，不应用同样严格的阈值
+            # 做多：只检查锚周期的 RSI 超买
             anchor_ind = tf_indicators.get(ANCHOR_TF, {})
             if anchor_ind.get("valid"):
                 rsi = anchor_ind.get("rsi", 50)
@@ -1208,18 +1291,17 @@ def rule_engine_filter(
                     reason = f"{symbol} {ANCHOR_TF} RSI={rsi} 超买（>={RSI_OVERBOUGHT}），拒绝做多"
                     logger.info(f"[规则过滤] {reason}")
                     return False, "wait", reason
-                if signal_direction == "short" and rsi <= RSI_OVERSOLD:
-                    reason = f"{symbol} {ANCHOR_TF} RSI={rsi} 超卖（<={RSI_OVERSOLD}），拒绝做空"
-                    logger.info(f"[规则过滤] {reason}")
-                    return False, "wait", reason
-                # ── 新增：RSI 中性偏弱区（40-60）禁止做空（Round 5 分析：7笔全亏）
-                RSI_NEUTRAL_SHORT_BAN_UPPER = _RULE_CFG.get("rsi_neutral_short_ban_upper", 60)
-                RSI_NEUTRAL_SHORT_BAN_LOWER = _RULE_CFG.get("rsi_neutral_short_ban_lower", 40)
-                if signal_direction == "short" and RSI_NEUTRAL_SHORT_BAN_LOWER <= rsi <= RSI_NEUTRAL_SHORT_BAN_UPPER:
-                    reason = (f"{symbol} {ANCHOR_TF} RSI={rsi} 中性偏弱区"
-                              f"（{RSI_NEUTRAL_SHORT_BAN_LOWER}-{RSI_NEUTRAL_SHORT_BAN_UPPER}），趋势不明，禁止做空")
-                    logger.info(f"[规则过滤] {reason}")
-                    return False, "wait", reason
+                # ── R19重构：做空使用新的做空质量检查
+                # 旧逻辑：RSI超卖禁止 + RSI中性偏弱区禁止 + 超卖反弹保护 + 时段禁止
+                # 新逻辑：趋势确认 + RSI回调位置 + 小周期同步 + 无反弹风险
+                if signal_direction == "short":
+                    short_ok, short_detail = detect_short_signal_quality(tf_indicators, symbol)
+                    if not short_ok:
+                        reason = f"{symbol} 做空质量不达标：{short_detail}"
+                        logger.info(f"[规则过滤] {reason}")
+                        return False, "wait", reason
+                    else:
+                        logger.info(f"[规则过滤] {symbol} {short_detail}")
 
     # ── 6. 成交量确认（至少一个小周期放量，极强趋势时豁免）
     if not strong_trend_exemption:
@@ -1233,33 +1315,17 @@ def rule_engine_filter(
             logger.info(f"[规则过滤] {reason}")
             return False, "wait", reason
 
-    # ── 7. [优化2] 超卖反弹保护：RSI从超卖区反弹 → 禁止做空（极强趋势时豁免）
-    if not strong_trend_exemption:
-        bounce_blocked, bounce_reason = detect_oversold_bounce_guard(tf_indicators, signal_direction, symbol)
-        if bounce_blocked:
-            logger.info(f"[规则过滤] {symbol} {bounce_reason}")
-            return False, "wait", f"{symbol} {bounce_reason}"
+    # ── 7. [R19重构] 做空已使用新的做空质量检查（detect_short_signal_quality）
+    #    旧规则（超卖反弹保护、时段禁止）已移除，由新函数统一处理
 
-    # ── 8. [优化1] 趋势转折预警：小周期RSI连升+放量 → 暂停做空（极强趋势时豁免）
-    if not strong_trend_exemption:
+    # ── 8. 趋势转折预警：仅对做多方向执行（做空由新函数处理）
+    if not strong_trend_exemption and signal_direction == "long":
         reversal_warned, reversal_reason = detect_rsi_reversal_warning(tf_indicators, signal_direction, symbol)
         if reversal_warned:
             logger.info(f"[规则过滤] {symbol} {reversal_reason}")
             return False, "wait", f"{symbol} {reversal_reason}"
 
-    # ── 9. [新增] 时段过滤：禁止在特定时段做空（Round 5 分析：欧洲盘做空7笔6亏）
-    if signal_direction == "short" and not strong_trend_exemption:
-        anchor_ind = tf_indicators.get(ANCHOR_TF, {})
-        bar_ts = anchor_ind.get("ts_ms", 0)
-        if bar_ts:
-            session_label = get_session_label_from_ts(bar_ts)
-            banned_sessions = _RULE_CFG.get("session_short_banned", ["欧洲时段", "europe"])
-            if session_label in banned_sessions:
-                reason = f"{symbol} 当前时段（{session_label}），禁止做空"
-                logger.info(f"[规则过滤] {reason}")
-                return False, "wait", reason
-
-    # ── 10. [优化4] 做多质量检查：多头信号需满足回调买点条件（非硬过滤，仅记录质量）
+    # ── 9. [优化4] 做多质量检查：多头信号需满足回调买点条件（非硬过滤，仅记录质量）
     if signal_direction == "long":
         long_ok, long_detail = detect_long_signal_conditions(tf_indicators, symbol)
         if not long_ok:
@@ -1268,7 +1334,7 @@ def rule_engine_filter(
         else:
             logger.info(f"[规则过滤] {symbol} {long_detail}")
 
-    # ── 11. 规则引擎通过
+    # ── 10. 规则引擎通过
     reason = (
         f"{symbol} 规则引擎通过：方向={signal_direction}，"
         f"{ANCHOR_TF}锚={anchor_trend}，对齐周期={'多头' if signal_direction=='long' else '空头'}{max(up_count,down_count)}/{len(check_tfs)}"
