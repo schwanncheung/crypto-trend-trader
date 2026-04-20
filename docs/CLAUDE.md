@@ -146,9 +146,11 @@ pattern_filter:
     position_boost: 1.2       # 默认仓位倍数
     signal_boost: 1.0         # 默认信号强度加分
     position_boost_per_pattern:
-      pin_bar_bull: 2.0       # Pin Bar 多头：仓位+100%（Round 9：3笔全胜 +20.51 U）
-      hammer: 1.2             # 锤子线：仓位+20%
+      pin_bar_bull: 2.5       # ← R24调高：均笔+5.86U历史最强形态
+      hammer: 0.5             # ← R24调低：1笔亏-13.54U降至最低仓
       bullish_engulfing: 1.2  # 看涨吞没：仓位+20%
+      morning_star: 1.3       # ← R24调高：100%胜率全胜记录，值得加仓
+      none: 1.3              # ← R24新增：无形态89.5%胜率+2.68U均笔，不应低配
     signal_boost_per_pattern:
       pin_bar_bull: 2.5       # Pin Bar 多头：+2.5
       bullish_engulfing: 0.5
@@ -156,10 +158,10 @@ pattern_filter:
   bearish_patterns:
     patterns: [pin_bar_bear, bearish_engulfing]
     position_boost_per_pattern:
-      pin_bar_bear: 2.0       # Pin Bar 空头：仓位+100%
+      pin_bar_bear: 0.5       # ← R24调低：2笔亏-17.51U（均笔-8.75U），做空禁令已关闭
       bearish_engulfing: 1.2
     signal_boost_per_pattern:
-      pin_bar_bear: 2.5
+      pin_bar_bear: 0.0       # ← R24清零：做空禁令关闭，该形态继续扣分至零
       bearish_engulfing: 0.5
 ```
 
@@ -217,10 +219,10 @@ trading:
 
   # 形态仓位倍数
   pattern_position_boost:
-    pin_bar_bull: 2.0            # Pin Bar 多头：仓位+100%（Round 9：3笔全胜 +20.51 U，100%胜率）
-    hammer: 1.2                  # 锤子线：仓位+20%
+    pin_bar_bull: 2.5            # ← R24调高：均笔+5.86U历史最强形态
+    hammer: 0.5                  # ← R24调低：1笔亏-13.54U降至最低仓
     bullish_engulfing: 1.2      # 看涨吞没：仓位+20%
-    none: 0.5                    # 无形态信号：仓位降至50%（R11：4笔none亏损-0.51U/笔）
+    none: 1.3                    # ← R24新增：无形态89.5%胜率+2.68U均笔，不应低配
 
   # 形态信号强度加权（可破格加分）
   pattern_signal_boost:

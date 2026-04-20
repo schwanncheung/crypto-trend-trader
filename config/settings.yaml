@@ -182,10 +182,11 @@ trading:
       position_boost: 1.2    # 默认仓位倍数（低于1=减仓，高于1=加仓）
       signal_boost: 1.0      # 默认信号强度加分
       position_boost_per_pattern:  # 各形态独立仓位倍数（覆盖默认值）
-        pin_bar_bull: 2.0    # Pin Bar 多头：仓位+100%（Round 9：3笔全胜 +20.51 U）
-        hammer: 1.2          # 锤子线：仓位+20%
+        pin_bar_bull: 2.5    # ← R24调高：均笔+5.86U历史最强形态，超配
+        hammer: 0.5          # ← R24调低：1笔亏-13.54U降至最低仓
         bullish_engulfing: 1.2  # 看涨吞没：仓位+20%
-        morning_star: 1.1    # 启明星：仓位+10%
+        morning_star: 1.3    # ← R24调高：100%胜率全胜记录，值得加仓
+        none: 1.3             # ← R24新增：无形态信号均笔+2.68U，89.5%胜率，高频高效不应低配
       signal_boost_per_pattern:  # 各形态独立信号强度加分（覆盖默认值）
         pin_bar_bull: 2.5    # Pin Bar 多头：+2.5（Round 9：3笔全胜 +20.51 U）
         bullish_engulfing: 0.5
@@ -199,10 +200,10 @@ trading:
       position_boost: 1.2    # 默认仓位倍数
       signal_boost: 1.0      # 默认信号强度加分
       position_boost_per_pattern:  # 各形态独立仓位倍数
-        pin_bar_bear: 2.0    # Pin Bar 空头：仓位+100%
+        pin_bar_bear: 0.5    # ← R24调低：2笔亏-17.51U（均笔-8.75U），做空禁令已关闭，继续降权
         bearish_engulfing: 1.2
       signal_boost_per_pattern:  # 各形态独立信号强度加分
-        pin_bar_bear: 0.2    # R22大幅降权：原2.5导致空头陷阱，降到0.2几乎不触发
+        pin_bar_bear: 0.0    # ← R24清零：做空禁令关闭，该形态继续扣分至零
         bearish_engulfing: 0.5
 
   # 做空结构位置要求（裸K供给区感知）
@@ -217,7 +218,7 @@ trading:
   adx_edge_min_signal_strength: 8  # 边缘区间内要求的最低信号强度
 
   # 仓位控制
-  max_position_pct: 0.15        # 单笔最大仓位占账户净值比例（15%）
+  max_position_pct: 0.20        # ← R24从15%上调至20%：最强形态（pin_bar_bull 2.5x）可占50%仓位
   max_margin_usage_ratio: 0.5   # 保证金占可用余额的最大比例（50%）
   max_slippage_pct: 5.0         # 滑点超过此百分比时重新计算止损止盈
 
@@ -245,7 +246,7 @@ trading:
 # ── 账户风控 ─────────────────────────────────────────────────────────
 risk:
   leverage: 10                   # 杠杆倍数（与 trading.default_leverage 保持一致）
-  risk_per_trade_pct: 1.0        # 单笔最大风险占可用余额比例（%）
+  risk_per_trade_pct: 1.2        # ← R24从1.0%上调至1.2%：配合max_position上调，整体仓位提高20%
   max_open_positions: 5          # 最大同时持仓数
   max_loss_pct: -10.0             # 日亏损上限（%），超过后当日停止自动交易
   stop_loss_cooldown_hours: 4    # 止损后冷却时间（小时），防止短期内重复开仓同一合约

@@ -9,12 +9,12 @@ priority:
   - "STABLE/USDT:USDT"
   - "XRP/USDT:USDT"
   - "NOT/USDT:USDT"
-  - "DOGE/USDT:USDT"
   - "ADA/USDT:USDT"
   - "AVAX/USDT:USDT"
   - "DOT/USDT:USDT"
   - "TRX/USDT:USDT"
   - "PEPE/USDT:USDT"
+  - "MOODENG/USDT:USDT"   # R24：6笔全胜+33.92U，100%胜率，策略最强标的
   - "TRUMP/USDT:USDT"
   - "RESOLV/USDT:USDT"
   - "GALA/USDT:USDT"
@@ -31,3 +31,4 @@ blacklist:
   - "DOT/USDT:USDT"       # 两月做空亏损 -102.59 U，系统性漏洞
   - "RSR/USDT:USDT"       # 两月做空亏损 -58.07 U，系统性漏洞
   - "LINK/USDT:USDT"      # Round 9：8笔亏损 -33.66 U，37.5%胜率，均 -4.21U/笔，系统性漏洞
+  - "DOGE/USDT:USDT"         # R24：1笔亏-6.27U，做空禁令期间仍尝试做空，风险过高
