@@ -20,6 +20,18 @@ priority:
   - "GALA/USDT:USDT"
   - "ZIL/USDT:USDT"
   - "MEME/USDT:USDT"
+  # ── R25回测盈利新增（2026-04-21）────────────────────────────
+  - "ALGO/USDT:USDT"       # 回测+7.00U，5笔80%胜率
+  - "BOME/USDT:USDT"       # 回测+6.02U，5笔100%胜率
+  - "PUMP/USDT:USDT"      # 回测+3.81U，2笔100%胜率
+  - "SAHARA/USDT:USDT"    # 回测+6.09U，5笔60%胜率
+  - "PENGU/USDT:USDT"      # 回测+6.51U，2笔100%胜率
+  - "HUMA/USDT:USDT"      # 回测+10.46U，2笔100%胜率
+  - "PEOPLE/USDT:USDT"     # 回测+5.36U，1笔100%胜率
+  - "DOOD/USDT:USDT"       # 回测+3.75U，1笔100%胜率
+  - "ORDER/USDT:USDT"      # 回测+2.38U，2笔100%胜率
+  - "ANIME/USDT:USDT"      # 回测+1.47U，5笔80%胜率
+  - "ATH/USDT:USDT"        # 回测+2.15U，1笔100%胜率
 
 
 # 黑名单：扫描时自动跳过
