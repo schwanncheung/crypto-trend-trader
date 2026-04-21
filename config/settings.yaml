@@ -218,7 +218,7 @@ trading:
   adx_edge_min_signal_strength: 8  # 边缘区间内要求的最低信号强度
 
   # 仓位控制
-  max_position_pct: 0.20        # ← R24从15%上调至20%：最强形态（pin_bar_bull 2.5x）可占50%仓位
+  max_position_pct: 0.25        # ← R26从20%上调至25%：增加开仓能力
   max_margin_usage_ratio: 0.5   # 保证金占可用余额的最大比例（50%）
   max_slippage_pct: 5.0         # 滑点超过此百分比时重新计算止损止盈
 
@@ -247,7 +247,7 @@ trading:
 risk:
   leverage: 10                   # 杠杆倍数（与 trading.default_leverage 保持一致）
   risk_per_trade_pct: 1.2        # ← R24从1.0%上调至1.2%：配合max_position上调，整体仓位提高20%
-  max_open_positions: 5          # 最大同时持仓数
+  max_open_positions: 4          # ← R26从5降至4：聚焦持仓质量
   max_loss_pct: -10.0             # 日亏损上限（%），超过后当日停止自动交易
   stop_loss_cooldown_hours: 4    # 止损后冷却时间（小时），防止短期内重复开仓同一合约
   take_profit_cooldown_minutes: 30  # 止盈后冷却时间（分钟），防止刚止盈又立即重新开仓
