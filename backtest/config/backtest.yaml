@@ -44,6 +44,7 @@ override:
   # ── 放开做空限制（生产禁止，回测测试做空）───────────────────
   rule_filter:
     bearish_engulfing_short_ban: false       # ← 放开：测试 bearish_engulfing 做空表现
+    session_short_banned: []                # ← R30：移除所有时段禁止做空限制（欧洲+亚洲+美洲全部开放）
   # ── 放开做空限制（生产禁止，回测测试做空）───────────────────
   # rule_filter:
     # session_short_banned: []                # 移除所有时段禁止做空限制（欧洲+亚洲+美洲全部开放）
