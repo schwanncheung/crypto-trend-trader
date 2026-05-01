@@ -20,6 +20,7 @@ priority:
   - "GALA/USDT:USDT"
   - "ZIL/USDT:USDT"
   - "MEME/USDT:USDT"
+  - "ENJ/USDT:USDT"         # R32新进盈利（2026-05-01）
   # ── R25回测盈利新增（2026-04-21）────────────────────────────
   - "ALGO/USDT:USDT"       # 回测+7.00U，5笔80%胜率
   - "BOME/USDT:USDT"       # 回测+6.02U，5笔100%胜率
