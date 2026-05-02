@@ -146,8 +146,14 @@ trading_sessions:
   timezone: "UTC+8"              # 时段描述的时区（计算时转UTC）
 
   sessions:
-    # - name: "europe"       # R22关闭：欧洲时段做多胜率仅38.8%，亏损-101.42U
-
+    - name: "asia"
+      label: "亚洲时段"
+      start_hour: 9
+      end_hour: 16
+    - name: "europe"
+      label: "欧洲时段"
+      start_hour: 15
+      end_hour: 23
     - name: "americas"
       label: "美洲时段"
       start_hour: 22
