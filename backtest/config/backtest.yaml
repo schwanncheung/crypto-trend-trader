@@ -4,8 +4,8 @@
 
 backtest:
   # ── 回测时间区间 ──────────────────────────────
-  start_date: "2025-08-01"
-  end_date:   "2026-04-21"
+  start_date: "2026-04-15"
+  end_date:   "2026-05-03"
 
   # ── 回测账户 ──────────────────────────────────
   initial_balance: 100.0     # 初始资金 (USDT)
@@ -41,15 +41,11 @@ backtest:
 
 # ── override 配置 ────────────────────────────────────────────────
 override:
-  # ── 放开所有交易时段（生产只开美洲，回测全开）──────────────
+  # ── 时段配置（与生产一致：欧洲+美洲，关闭亚洲）──────────────
   trading_sessions:
     enabled: true
     timezone: "UTC+8"
     sessions:
-      - name: "asia"
-        label: "亚洲时段"
-        start_hour: 9
-        end_hour: 16
       - name: "europe"
         label: "欧洲时段"
         start_hour: 15
@@ -59,21 +55,29 @@ override:
         start_hour: 22
         end_hour: 5
 
-  # ── 放开做空限制（生产禁止，回测测试做空）───────────────────
-  rule_filter:
-    bearish_engulfing_short_ban: false       # ← 放开：测试 bearish_engulfing 做空表现
-    session_short_banned: []                # ← R30：移除所有时段禁止做空限制（欧洲+亚洲+美洲全部开放）
-  # ── 放开做空限制（生产禁止，回测测试做空）───────────────────
-  # rule_filter:
-    # session_short_banned: []                # 移除所有时段禁止做空限制（欧洲+亚洲+美洲全部开放）
-    # rsi_neutral_short_ban_upper: 100        # 关闭 RSI 中性偏弱区禁止做空（原40-60）
-    # rsi_neutral_short_ban_lower: 0
-    # bearish_engulfing_short_ban: true       # 保持关闭（做空7连败0胜率亏损-176U）
-    # # ── R13 配置 ──────────────────────────────────────────────
-    # adx_trending_threshold: 20              # ← R13：回退到20（ADX=30在11-12月横盘市过滤过度，仅2笔交易全亏）
-    # rsi_overbought: 60                      # ← R12：从65降低到60，留5%安全边际（AVAX RSI=64.6快速止损）
+  # ── 交易参数（必须与生产保持一致，防止遗漏导致回测失真）─────
+  trading:
+    min_signal_strength: 7            # ← 必须覆盖：避免回测用默认值7而非生产配置的10
+    min_rr_ratio: 2.0
+    allowed_confidence: ["high"]
+    min_trend_strength: 7
+    max_position_pct: 0.20
+    max_open_positions: 4
 
-  # ── 形态仓位配置 ─────────────────────────────────────────────
+  rule_filter:
+    bearish_engulfing_short_ban: true    # ← 生产：bearish_engulfing 做空禁止
+    session_short_banned: []             # ← 生产：所有时段允许做空
+    short_min_adx: 40                    # ← 生产：做空最低 ADX 要求
+    rsi_short_guard_zone: 40             # ← 生产：RSI 低于此值禁止做空
+    rsi_neutral_short_ban_upper: 60       # ← 生产：RSI 40-60 中性偏弱区禁止做空
+    rsi_neutral_short_ban_lower: 35       # ← 生产：RSI 中性区下界
+
+  # ── 形态仓位（与生产一致：inside_bar/inverted_hammer 降权 50%）──
   # trading:
     # pattern_position_boost:
-      # none: 0.5                             # ← R12：无形态信号仓位降至50%（none形态4笔亏损-0.51U/笔）
+      # inside_bar: 0.5
+      # inverted_hammer: 0.5
+
+  # ── 仓位（与生产一致：20%，最多4持仓）───────────────────────────
+  # trading:
+    # max_position_pct: 0.20
