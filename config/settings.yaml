@@ -162,7 +162,7 @@ trading:
 
   # 信号质量门槛
   allowed_confidence: ["high"]  # 只有 confidence=high 的信号才允许交易
-  min_signal_strength: 10
+  min_signal_strength: 7  # 从10调低，修复实盘0成交问题
   min_trend_strength: 7         # 最低趋势强度（1-10）← 从6提高到7
   min_rr_ratio: 2.0             # 最低盈亏比（Round 9：RR<1.5的13笔亏损-3.44U，胜率46%）
   target_rr_ratio: 2.0          # 止盈设置：止盈距离 = 止损距离 × 此倍数 ← 从1.8提高到2.5
@@ -186,13 +186,13 @@ trading:
       position_boost: 1.2    # 默认仓位倍数（低于1=减仓，高于1=加仓）
       signal_boost: 1.0      # 默认信号强度加分
       position_boost_per_pattern:  # 各形态独立仓位倍数（覆盖默认值）
-        pin_bar_bull: 2.5    # ← R24调高：均笔+5.86U历史最强形态
+        pin_bar_bull: 3.5    # ← R31调高：R30 7笔+14.30U/85.7%胜率，均笔+2.04U，扩大仓位至3.5x
         hammer: 0.5          # ← R24调低：1笔亏-13.54U降至最低仓
         inside_bar: 0.5     # ← R27新增：横盘期亏损-35U，胜率33%，降权50%
-        inverted_hammer: 0.5 # ← R27新增：横盘期亏损-19U，胜率33%，降权50%
+        inverted_hammer: 0.25 # ← R31再降：R30 3笔-12.94U/33%胜率，进一步降至25%仓位
         bullish_engulfing: 1.2  # 看涨吞没：仓位+20%
         morning_star: 1.3    # ← R24调高：100%胜率全胜记录，值得加仓
-        none: 1.3             # ← R24新增：无形态信号均笔+2.68U，89.5%胜率，高频高效不应低配
+        none: 0.0             # ← R31关闭：无形态R30亏损-74.83U/30.3%胜率，核心风险源，彻底禁止
       signal_boost_per_pattern:  # 各形态独立信号强度加分（覆盖默认值）
         pin_bar_bull: 2.5    # Pin Bar 多头：+2.5（Round 9：3笔全胜 +20.51 U）
         bullish_engulfing: 0.5

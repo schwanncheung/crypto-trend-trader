@@ -45,3 +45,4 @@ blacklist:
   - "RSR/USDT:USDT"       # 两月做空亏损 -58.07 U，系统性漏洞
   - "LINK/USDT:USDT"      # Round 9：8笔亏损 -33.66 U，37.5%胜率，均 -4.21U/笔，系统性漏洞
   - "DOGE/USDT:USDT"         # R24：1笔亏-6.27U，做空禁令期间仍尝试做空，风险过高
+  - "XPL/USDT:USDT"         # R31：3笔全亏-20.56U，0%胜率，单币破坏力最强，封禁
