@@ -378,6 +378,11 @@ def main():
             reason_str = "、".join(simplified_failed)
             lines.append(f"  {short_name}（{reason_str}）")
 
+    # 全被过滤时，不发飞书通知（避免空轮次骚扰）
+    if triggered_trades == 0 and not rule_passed_symbols:
+        logger.info("本轮全被过滤，无有效信号，跳过飞书通知")
+        return
+
     send_notification("\n".join(lines))
 
 

@@ -146,11 +146,12 @@ pattern_filter:
     position_boost: 1.2       # 默认仓位倍数
     signal_boost: 1.0         # 默认信号强度加分
     position_boost_per_pattern:
-      pin_bar_bull: 2.5       # ← R24调高：均笔+5.86U历史最强形态
+      pin_bar_bull: 3.5       # ← R31调高：R30 7笔+14.30U/85.7%胜率，扩大至3.5x
       hammer: 0.5             # ← R24调低：1笔亏-13.54U降至最低仓
       bullish_engulfing: 1.2  # 看涨吞没：仓位+20%
       morning_star: 1.3       # ← R24调高：100%胜率全胜记录，值得加仓
-      none: 1.3              # ← R24新增：无形态89.5%胜率+2.68U均笔，不应低配
+      inverted_hammer: 0.25   # ← R31再降：R30 3笔-12.94U/33%胜率，降至25%仓位
+      none: 0.0               # ← R31封禁：无形态R30亏损-74.83U/30.3%胜率，核心风险源
     signal_boost_per_pattern:
       pin_bar_bull: 2.5       # Pin Bar 多头：+2.5
       bullish_engulfing: 0.5
@@ -219,10 +220,11 @@ trading:
 
   # 形态仓位倍数
   pattern_position_boost:
-    pin_bar_bull: 2.5            # ← R24调高：均笔+5.86U历史最强形态
+    pin_bar_bull: 3.5            # ← R31调高：R30 7笔+14.30U/85.7%胜率，扩大至3.5x
     hammer: 0.5                  # ← R24调低：1笔亏-13.54U降至最低仓
     bullish_engulfing: 1.2      # 看涨吞没：仓位+20%
-    none: 1.3                    # ← R24新增：无形态89.5%胜率+2.68U均笔，不应低配
+    none: 0.0                    # ← R31封禁：无形态R30亏损-74.83U/30.3%胜率，核心风险源
+    inverted_hammer: 0.25       # ← R31再降：R30 3笔-12.94U/33%胜率，降至25%仓位
 
   # 形态信号强度加权（可破格加分）
   pattern_signal_boost:
@@ -317,7 +319,7 @@ python -m py_compile backtest/**/*.py
 | 场景 | 修改位置 |
 |------|----------|
 | 调整信号强度阈值 | `settings.yaml → trading.min_signal_strength` |
-| 添加黑名单 | `settings.yaml → blacklist` |
+| 添加黑名单 | `symbols.yaml → blacklist`（配置区） + `settings.yaml → trading.pattern_filter`（形态过滤） |
 | 切换纯规则模式 | `settings.yaml → analysis.mode: "rule_only"` |
 | 紧急关闭开仓 | `settings.yaml → trading.enable_open_position: false` |
 | 修改时间框架 | `settings.yaml → timeframes`（同时更新 `analysis.rule_filter.anchor_timeframe`） |
