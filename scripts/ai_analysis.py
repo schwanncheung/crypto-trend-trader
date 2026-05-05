@@ -336,6 +336,10 @@ def _build_rule_only_decision(tf_indicators: dict, direction: str, symbol: str, 
     if rr < min_rr_ratio:
         return _default_wait_response(f"RR不足：{rr:.2f} < {min_rr_ratio}")
 
+    # ── R31新增：无形态硬过滤（代码层面封禁none） ─────────────────
+    if pattern == "none":
+        return _default_wait_response(f"无技术形态（none），代码层面过滤")
+
     # ── 做空：结构位置过滤（裸K供给区感知）─────────────────────
     structure_cfg = rule_filter_cfg.get("structure_filter", {})
     if direction == "short" and structure_cfg.get("short_require_near_resistance", False):
