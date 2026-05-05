@@ -164,8 +164,8 @@ trading:
   allowed_confidence: ["high"]  # 只有 confidence=high 的信号才允许交易
   min_signal_strength: 7  # 从10调低，修复实盘0成交问题
   min_trend_strength: 7         # 最低趋势强度（1-10）← 从6提高到7
-  min_rr_ratio: 2.0             # 最低盈亏比（Round 9：RR<1.5的13笔亏损-3.44U，胜率46%）
-  target_rr_ratio: 2.0          # 止盈设置：止盈距离 = 止损距离 × 此倍数 ← 从1.8提高到2.5
+  min_rr_ratio: 1.8             # 最低盈亏比（Round 31：调整至1.8）
+  target_rr_ratio: 1.8          # 止盈设置：止盈距离 = 止损距离 × 此倍数（Round 31：调整至1.8）
   min_take_profit_pct: 0               # 已关闭：止盈距离检查（2026-04-11）
 
   # ── R20重构：形态方向分类配置 ─────────────────────────────────────
