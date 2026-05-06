@@ -146,6 +146,10 @@ trading_sessions:
   timezone: "UTC+8"              # 时段描述的时区（计算时转UTC）
 
   sessions:
+    - name: "asia"
+      label: "亚洲时段"
+      start_hour: 9
+      end_hour: 16
     - name: "europe"
       label: "欧洲时段"
       start_hour: 15
