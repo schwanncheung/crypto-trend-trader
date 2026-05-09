@@ -44,6 +44,11 @@ def generate_close_report(
         open_log = _find_latest_log(TRADES_DIR, symbol_safe, prefix="", exclude_prefix="position_", date=today)
         open_data = _load_json(open_log) if open_log else {}
 
+        # ── 1b. 读取平仓记录（获取真实平仓时间）──
+        close_log = _find_latest_log(TRADES_DIR, symbol_safe, prefix="", suffix="_close_", date=today)
+        close_data = _load_json(close_log) if close_log else {}
+        close_ts_raw = close_data.get("timestamp", "")  # 平仓真实时间戳
+
         # fallback：从 decisions 日志补全开仓信息
         decision_log = _find_latest_log(DECISIONS_DIR, symbol_safe, prefix="", date=today)
         decision_raw = _load_json(decision_log) if decision_log else {}
@@ -188,8 +193,8 @@ def generate_close_report(
             )
             step += 1
 
-        # 平仓事件
-        close_dt = now_cst_str("%Y-%m-%d %H:%M:%S")
+        # 平仓事件（使用真实平仓时间戳）
+        close_dt = _fmt_ts(close_ts_raw) if close_ts_raw else now_cst_str("%Y-%m-%d %H:%M:%S")
         timeline_lines.append(
             f"{step}️⃣ 平仓 ({close_dt})\n"
             f"盈亏: {pnl_sign}{final_pnl:.2f} USDT ({pnl_sign}{final_pnl_pct:.1f}%)\n"
@@ -239,6 +244,7 @@ def _find_latest_log(
     symbol_safe: str,
     prefix: str = "",
     exclude_prefix: str = "",
+    suffix: str = "",
     date: str = "",
 ) -> Optional[Path]:
     """在 directory 中找匹配 symbol_safe 的最新文件"""
@@ -246,6 +252,8 @@ def _find_latest_log(
     candidates = list(directory.glob(pattern))
     if exclude_prefix:
         candidates = [f for f in candidates if not f.name.startswith(exclude_prefix)]
+    if suffix:
+        candidates = [f for f in candidates if suffix in f.name]
     if date:
         candidates = [f for f in candidates if date in f.name]
     if not candidates:
