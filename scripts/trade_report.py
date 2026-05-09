@@ -41,7 +41,8 @@ def generate_close_report(
         today = now_cst_str("%Y%m%d")
 
         # ── 1. 读取开仓记录（优先 trades 目录，fallback 到 decisions）──
-        open_log = _find_latest_log(TRADES_DIR, symbol_safe, prefix="", exclude_prefix="position_", date=today)
+        # 注意：排除所有含 _close_ 的文件（不能再用 exclude_prefix="position_" 排除开仓文件）
+        open_log = _find_latest_log(TRADES_DIR, symbol_safe, prefix="", exclude_prefix="position_", exclude_contains="_close_", date=today)
         open_data = _load_json(open_log) if open_log else {}
 
         # ── 1b. 读取平仓记录（获取真实平仓时间）──
@@ -244,6 +245,7 @@ def _find_latest_log(
     symbol_safe: str,
     prefix: str = "",
     exclude_prefix: str = "",
+    exclude_contains: str = "",
     suffix: str = "",
     date: str = "",
 ) -> Optional[Path]:
@@ -252,6 +254,8 @@ def _find_latest_log(
     candidates = list(directory.glob(pattern))
     if exclude_prefix:
         candidates = [f for f in candidates if not f.name.startswith(exclude_prefix)]
+    if exclude_contains:
+        candidates = [f for f in candidates if exclude_contains not in f.name]
     if suffix:
         candidates = [f for f in candidates if suffix in f.name]
     if date:
@@ -261,6 +265,8 @@ def _find_latest_log(
         candidates = list(directory.glob(pattern))
         if exclude_prefix:
             candidates = [f for f in candidates if not f.name.startswith(exclude_prefix)]
+        if exclude_contains:
+            candidates = [f for f in candidates if exclude_contains not in f.name]
         # 二次校验：确保文件名确实以 symbol_safe 开头，防止跨品种串数据
         candidates = [f for f in candidates if f.name.startswith(symbol_safe + "_")]
     return max(candidates, key=lambda f: f.name) if candidates else None
