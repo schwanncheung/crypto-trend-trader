@@ -58,6 +58,10 @@ def _save_close_trade_log(symbol: str, side: str, position_data: dict, pnl: floa
             "timestamp": datetime.now(timezone(timedelta(hours=8))).isoformat(),
         }
 
+        if log_path.exists():
+            logger.info(f"平仓日志已存在，跳过：{log_path}")
+            return
+
         with open(log_path, "w", encoding="utf-8") as f:
             json.dump(close_log, f, ensure_ascii=False, indent=2)
 
@@ -69,9 +73,19 @@ def _save_close_trade_log(symbol: str, side: str, position_data: dict, pnl: floa
 
 def _call_generate_report(symbol: str, pnl: float, position_data: dict, reason: str):
     """
-    调用交易报告生成函数
+    调用交易报告生成函数（带去重：若当日已生成过则跳过）
     """
     try:
+        # ── 去重检查：若当日已有平仓报告文件，则跳过 ──
+        from config_loader import now_cst_str
+        log_dir = Path("logs/trades")
+        safe_symbol = symbol.replace("/", "_").replace(":", "_")
+        today = now_cst_str("%Y%m%d")
+        existing_close = list(log_dir.glob(f"{safe_symbol}_close_{today}_*.json"))
+        if existing_close:
+            logger.info(f"{symbol} 当日平仓报告已存在（{existing_close[0].name})，跳过重复发送")
+            return
+
         generate_close_report = _get_generate_close_report()
         entry_price = position_data.get("entry_price", 0)
         contracts = position_data.get("contracts", 0)
