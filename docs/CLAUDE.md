@@ -374,4 +374,4 @@ ln -sf $(pwd)/docs/MEMORY.md ~/.claude/projects/$(pwd | sed 's/\//-/g')/memory/M
 
 ---
 
-*最后更新：2026-05-09（min_rr_ratio调回1.8，解决阻力位过近导致的成交缺失问题）*
+*最后更新：2026-05-09（min_rr_ratio调回1.8；平仓时间从close_log读取真实时间戳，修复开仓/平仓时间一样的bug）*
