@@ -374,4 +374,4 @@ ln -sf $(pwd)/docs/MEMORY.md ~/.claude/projects/$(pwd | sed 's/\//-/g')/memory/M
 
 ---
 
-*最后更新：2026-05-09（min_rr_ratio调回1.8；平仓时间从close_log读取真实时间戳；_find_latest_log新增exclude_contains排除_close_文件；detect_and_record_stop_loss加去重防止双进程重复通知）*
+*最后更新：2026-05-11（detect_and_record_stop_loss去重检查移到_save_close_trade_log之前，修复零发送bug）*
