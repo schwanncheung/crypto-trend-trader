@@ -383,7 +383,7 @@ def main():
         logger.info("本轮全被过滤，无有效信号，跳过飞书通知")
         return
 
-    send_notification("\n".join(lines))
+    send_notification("\n".join(lines), cooldown_key="scan_summary", cooldown_seconds=SCANNER_CFG.get("scan_summary_cooldown_minutes", 60) * 60)
 
 
 if __name__ == "__main__":

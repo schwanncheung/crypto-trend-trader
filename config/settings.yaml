@@ -302,3 +302,4 @@ scanner:
   top_n_symbols: 50           # 每轮扫描的热门合约数量（按 24h 成交量降序）
   min_volume_usdt: 80000000   # 最低 24h 成交量门槛（USDT），过滤流动性不足的合约
   max_price_usdt: 5.0        # 最高价格门槛（USDT），0 = 不限制
+  scan_summary_cooldown_minutes: 60  # 扫描完成汇总通知的冷却时间（分钟），避免通知过于频繁
