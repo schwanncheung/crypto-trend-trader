@@ -324,6 +324,7 @@ python -m py_compile backtest/**/*.py
 | 紧急关闭开仓 | `settings.yaml → trading.enable_open_position: false` |
 | 修改时间框架 | `settings.yaml → timeframes`（同时更新 `analysis.rule_filter.anchor_timeframe`） |
 | 配置交易时段 | `settings.yaml → trading_sessions`（生产全时段，回测通过 `backtest.yaml → override.trading_sessions` 覆盖） |
+| 配置扫描通知冷却 | `settings.yaml → scanner.scan_summary_cooldown_minutes`（默认60分钟，减少通知轰炸） |
 
 ---
 
