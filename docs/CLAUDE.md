@@ -45,34 +45,38 @@ trade_manager.py (持仓管理，每4分钟)
 ### 3.1 规则引擎预过滤 (`indicator_engine.py:rule_engine_filter`)
 
 ```
-流程：锚周期方向 → 多周期对齐 → 动量加速检测 → RSI保护 → 量能确认 → 时段过滤 → 规则通过
+流程：锚周期方向 → 多周期对齐 → 动量衰减硬性拒绝 → RSI保护 → 量能确认 → 时段过滤 → 规则通过
 
-1. 锚周期(1h)必须非横盘（ADX >= 30，R12从20提高到30，减少ADX20-25伪信号）
+1. 锚周期(1h)必须非横盘（ADX >= 30）
 2. 至少2个小周期与锚周期方向一致
-3. 动量加速检测（优化1）：锚周期实体放大 >= 1.5x 加分，衰减 < 0.8x 减分
+3. 动量衰减硬性拒绝：锚周期实体缩小 < 0.8x → 直接拒绝，禁止在趋势末尾追单
 4. RSI保护（多层，部分可被ADX豁免）：
-   - 基础极值（>60禁多，<35禁空，R12做多上限从65降到60）
-   - RSI中性偏弱区（40-60）禁止做空（Round 5 分析：7笔全亏）
+   - 基础极值（>60禁多，<35禁空）
+   - RSI中性区（40-60）禁止做空
    - 持续保护（连续超买/超卖，不可豁免）
    - 背离保护（底背离禁空，不可豁免）
-5. 至少一个小周期量比 ≥ 0.8
-6. 超卖反弹保护、趋势转折预警（小周期RSI连续回升+放量）
-7. 时段过滤：全时段开放做空（R21重新开放欧洲时段）
-8. 形态做多质量检查（非硬过滤）
-9. 规则引擎通过
+5. 回调入场过滤（Price Action原则）：
+   - 做多：RSI需在30-50区间（回调低位），不在55+追多
+   - 做空：RSI需在50-70区间（回调高位），不在45-追空
+6. 至少一个小周期量比 ≥ 0.8
+7. 超卖反弹保护、趋势转折预警（小周期RSI连续回升+放量）
+8. 时段过滤：全时段开放做空
+9. 形态做多质量检查（非硬过滤）
+10. 规则引擎通过
 
-### 3.1.1 做空质量检查（R21重构：`detect_short_signal_quality`）
+### 3.1.1 做空质量检查
+
 做空使用独立的确认逻辑（4层）：
-1. 趋势确认：锚周期下跌 + 至少1个小周期也下跌 + ADX >= 40（R21新增）
-2. 入场时机：RSI在50-65区间（非超买非超卖）；R21新增近超卖区拦截（RSI < 40）
+1. 趋势确认：锚周期下跌 + 至少1个小周期也下跌 + ADX >= 30
+2. 入场时机：RSI在50-65区间（非超买非超卖）；近超卖区拦截（RSI < 45）
 3. 小周期RSI同步下降（无反弹信号）
-4. 无bullish形态冲突（R21新增：检测到hammer/pin_bar_bull等则拒绝做空）
+4. 无bullish形态冲突（检测到hammer/pin_bar_bull等则拒绝做空）
 ```
 
 ### 3.2 趋势判断 (`assess_trend_direction`)
 
 ```
-评分项（满分5分，≥3分判趋势）：
+评分项（满分5分，≥3.5分判趋势）：
 - EMA排列（2分）：EMA21>55>200 或反之
 - DI方向（1分）：+DI > -DI 或反之
 - 价格位置（1分）：价格 vs EMA21
@@ -83,14 +87,15 @@ trade_manager.py (持仓管理，每4分钟)
 
 ```python
 # 止损距离 = ATR × multiplier
+# 基础倍数 2.0x，给予更多呼吸空间，减少正常波动被止损
 # multiplier 随 ADX 动态调整（需启用 stop_loss_adx_scaling.enabled）：
-#   ADX < 40:  1.5x（基础）
-#   ADX 40-60: 1.8x（强趋势）
-#   ADX ≥ 60:  2.25x（极强趋势）
+#   ADX < 40:  2.0x（基础）
+#   ADX 40-60: 2.4x（强趋势）
+#   ADX ≥ 60:  3.0x（极强趋势）
 
 # 止损合理性检查（不强制收缩）：
 # 实际上限 = max_stop_loss_pct × max_stop_loss_multiplier
-# 默认 1.5% × 1.5 = 2.25%
+# 默认 2.0% × 1.5 = 3.0%
 # 止损距离 < 实际上限 → 使用完整 ATR 止损
 # 止损距离 > 实际上限 → 拒绝信号（品种波动异常）
 
@@ -99,7 +104,7 @@ trade_manager.py (持仓管理，每4分钟)
 #   问题：低波动环境下有效信号被误杀，过于严格
 
 # ATR 跟踪止损（第一批止盈后启用）：
-# 跟踪止损 = 当前价 ± ATR × 1.5（多头减，空头加）
+# 跟踪止损 = 当前价 ± ATR × 2.0
 # 仅向有利方向移动，不回退
 # 状态持久化：logs/trailing_stop_state.json
 ```
@@ -117,12 +122,14 @@ trade_manager.py (持仓管理，每4分钟)
 # 7. 无背离风险
 # 8. 结构未打破
 # 9. RSI 极值保护：
-#    做多：entry_rsi < rsi_overbought（默认 60，R12从65下调）
+#    做多：entry_rsi < rsi_overbought（默认 60）
 #    做空：entry_rsi > rsi_oversold（默认 35）
 # 10. RSI 超卖严格模式（rsi_oversold_strict=true）：
 #     RSI <= rsi_oversold 时禁止所有做空（裸K逻辑：超卖是反弹结构非趋势延续）
 # 11. Bearish Engulfing + RSI 超卖阻断：
 #     RSI 超卖区出现看跌吞没 = 强反弹结构，禁止做空
+# 12. RSI 中性区做空保护：40-60区间禁止做空
+# 13. 回调入场过滤（Price Action原则，check_pullback_entry）
 ```
 
 ### 3.5 仓位计算
@@ -132,10 +139,10 @@ contracts = risk_usdt / (止损点数 × 合约面值)
 # risk_usdt = 余额 × max_position_pct(15%) × warning_reduction × pattern_boost
 ```
 
-### 3.6 形态仓位倍数 & 信号强度加权（R20 重构）
+### 3.6 形态仓位倍数 & 信号强度加权
 
 ```yaml
-# R20 重构：配置驱动的双向冲突检测
+# 配置驱动的双向冲突检测
 # pattern_filter 下分 bullish_patterns 和 bearish_patterns 两大类
 # bullish_patterns: 做多时加分加仓，做空时惩罚
 # bearish_patterns: 做空时加分加仓，做多时惩罚
@@ -146,27 +153,27 @@ pattern_filter:
     position_boost: 1.2       # 默认仓位倍数
     signal_boost: 1.0         # 默认信号强度加分
     position_boost_per_pattern:
-      pin_bar_bull: 3.5       # ← R31调高：R30 7笔+14.30U/85.7%胜率，扩大至3.5x
-      hammer: 0.5             # ← R24调低：1笔亏-13.54U降至最低仓
-      bullish_engulfing: 1.2  # 看涨吞没：仓位+20%
-      morning_star: 1.3       # ← R24调高：100%胜率全胜记录，值得加仓
-      inverted_hammer: 0.25   # ← R31再降：R30 3笔-12.94U/33%胜率，降至25%仓位
-      none: 0.0               # ← R31封禁：无形态R30亏损-74.83U/30.3%胜率，核心风险源
+      pin_bar_bull: 0.5       # Pin Bar在强趋势中为假信号，降低仓位
+      hammer: 0.5            # 锤子形态：最低仓位
+      bullish_engulfing: 1.2 # 看涨吞没：仓位+20%
+      morning_star: 1.3       # 晨星形态：值得加仓
+      inverted_hammer: 0.3    # 倒锤形态：中等仓位
+      none: 0.5               # 无形态：保留最低仓位避免无交易
     signal_boost_per_pattern:
-      pin_bar_bull: 2.5       # Pin Bar 多头：+2.5
+      pin_bar_bull: 0.5
       bullish_engulfing: 0.5
       hammer: 0.5
   bearish_patterns:
     patterns: [pin_bar_bear, bearish_engulfing]
     position_boost_per_pattern:
-      pin_bar_bear: 0.5       # ← R24调低：2笔亏-17.51U（均笔-8.75U），做空禁令已关闭
+      pin_bar_bear: 0.5
       bearish_engulfing: 1.2
     signal_boost_per_pattern:
-      pin_bar_bear: 0.0       # ← R24清零：做空禁令关闭，该形态继续扣分至零
+      pin_bar_bear: 0.0
       bearish_engulfing: 0.5
 ```
 
-**冲突处理矩阵（R20 修复 bug）**：
+**冲突处理矩阵**：
 | 形态方向 | 出现在做多信号 | 出现在做空信号 |
 |----------|---------------|---------------|
 | bullish | +score + position_boost + signal_boost | **惩罚**（score + penalty） |
@@ -198,9 +205,9 @@ trade_manager 按持仓方向选择对应字段，避免多头创新高时被误
 1. 强制平仓：浮亏 < -30%（兜底）
 2. 动量衰减出场（优化4）：浮盈 >= 5% 且 5m 周期实体连续缩小 + 反向影线
 3. 结构平仓：1h 结构破坏 / 支撑阻力突破
-止盈流程：
-- 浮盈 >= 20%：第一批止盈 40%，剩余启用 ATR 跟踪止损（优化2）
-- 浮盈 >= 50%：第二批止盈（全平剩余）
+止盈流程（分两批止盈，锁定利润防止回吐）：
+- 浮盈 >= 20%：第一批止盈 30%，剩余启用 ATR 跟踪止损
+- 剩余70%仓位：跟踪止损，让利润奔跑
 ```
 
 --- (`config/settings.yaml`)
@@ -211,25 +218,26 @@ timeframes: ["1h", "15m", "5m"]
 trading:
   enable_open_position: true    # 开仓总开关
   min_signal_strength: 7        # 最低信号强度
-  min_rr_ratio: 2.0             # 最低盈亏比（Round 9：RR<1.5 的13笔亏损 -3.44 U，胜率 46%）
+  min_rr_ratio: 2.0             # 最低盈亏比
   target_rr_ratio: 2.5          # 止盈R倍数
-  stop_loss_atr_multiplier: 1.5 # 止损ATR倍数
-  max_stop_loss_pct: 1.5        # 止损上限(%)
+  stop_loss_atr_multiplier: 2.0 # 止损ATR倍数
+  max_stop_loss_pct: 2.0        # 止损上限(%)
   max_take_profit_pct: 6.0      # 止盈上限(%)
-  trailing_stop_atr_multiplier: 1.5  # 跟踪止损 ATR 倍数
+  trailing_stop_atr_multiplier: 2.0  # 跟踪止损 ATR 倍数
 
   # 形态仓位倍数
   pattern_position_boost:
-    pin_bar_bull: 3.5            # ← R31调高：R30 7笔+14.30U/85.7%胜率，扩大至3.5x
-    hammer: 0.5                  # ← R24调低：1笔亏-13.54U降至最低仓
+    pin_bar_bull: 0.5            # Pin Bar在强趋势中为假信号，降低仓位
+    hammer: 0.5                  # 锤子形态：最低仓位
     bullish_engulfing: 1.2      # 看涨吞没：仓位+20%
-    none: 0.0                    # ← R31封禁：无形态R30亏损-74.83U/30.3%胜率，核心风险源
-    inverted_hammer: 0.25       # ← R31再降：R30 3笔-12.94U/33%胜率，降至25%仓位
+    none: 0.5                    # 无形态：保留最低仓位避免无交易
+    inverted_hammer: 0.3        # 倒锤形态：中等仓位
+    morning_star: 1.3           # 晨星形态：值得加仓
 
   # 形态信号强度加权（可破格加分）
   pattern_signal_boost:
-    pin_bar_bull: 1.5           # 信号强度 +1.5
-    pin_bar_bear: 1.5
+    pin_bar_bull: 0.5
+    pin_bar_bear: 0.0
     bullish_engulfing: 0.5
     hammer: 0.5
     morning_star: 1.0
@@ -238,15 +246,21 @@ trading:
   pattern_filter:
     inside_bar_require_trend: true   # Inside Bar 需趋势背景
 
-  # R21新增：做空保护参数
-  short_min_adx: 40              # 做空最低ADX要求（趋势必须够强）
-  rsi_short_guard_zone: 40       # RSI低于此值禁止做空（近超卖区35-40）
+  # 做空保护参数
+  short_min_adx: 30              # 做空最低ADX要求
+  rsi_short_guard_zone: 50       # RSI低于此值禁止做空（扩大保护范围）
 
   # 做空结构位置要求
   structure_filter:
     short_require_near_resistance: true   # 做空需在阻力区附近
     short_resistance_threshold_pct: 0.025
     short_require_structure_down: true     # 做空需 LH/LL 结构
+
+  # 分批止盈
+  partial_profit_enabled: true       # 分批止盈开关
+  partial_profit_trigger_pct: 20.0   # 止盈触发浮盈(%)
+  partial_profit_ratio_1: 0.3        # 止盈比例（30%仓位）
+  # 剩余70%仓位：跟踪止损
 
 risk:
   max_open_positions: 5         # 最大持仓
@@ -259,6 +273,8 @@ analysis:
     momentum_accel_ratio: 1.5        # 动量加速阈值（实体放大倍数）
     momentum_decay_lookback: 3       # 动量衰减检测窗口（根）
     momentum_decay_shadow_ratio: 1.0 # 反向影线/实体比阈值
+  rule_filter:
+    adx_threshold: 30              # ADX趋势判断阈值
   circuit_breaker:
     failure_threshold: 3        # LLM 连续失败次数熔断
     recovery_window_sec: 300    # 熔断后恢复窗口 (秒)
@@ -374,5 +390,7 @@ ln -sf $(pwd)/docs/MEMORY.md ~/.claude/projects/$(pwd | sed 's/\//-/g')/memory/M
 ```
 
 ---
+
+*最后更新：2026-06-13（ADX30、ATR2.0x、PinBar0.5x、两批止盈）*
 
 *最后更新：2026-05-11（detect_and_record_stop_loss去重检查移到_save_close_trade_log之前，修复零发送bug）*

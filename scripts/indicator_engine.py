@@ -41,12 +41,12 @@ SWING_COUNT       = _IND_CFG.get("swing_count", 3)
 ANCHOR_TF         = _RULE_CFG.get("anchor_timeframe", "4h")
 REQUIRE_ANCHOR    = _RULE_CFG.get("require_anchor_aligned", True)
 MIN_TRENDING_TF   = _RULE_CFG.get("min_trending_timeframes", 2)
-ADX_THRESHOLD     = _RULE_CFG.get("adx_trending_threshold", 20)
+ADX_THRESHOLD     = _RULE_CFG.get("adx_trending_threshold", 30)  # ADX趋势判断阈值
 VOL_RATIO_THRESH  = _RULE_CFG.get("volume_ratio_threshold", 1.2)
 RSI_OVERBOUGHT    = _RULE_CFG.get("rsi_overbought", 75)
 RSI_OVERSOLD      = _RULE_CFG.get("rsi_oversold", 25)
 
-# R21新增：做空保护参数
+# 做空保护参数
 _SHORT_MIN_ADX    = TRADING_CFG.get("short_min_adx", 40)
 _RSI_SHORT_GUARD  = _RULE_CFG.get("rsi_short_guard_zone", 40)
 _BULLISH_PATTERNS = set(_PATTERN_FILTER_CFG.get("bullish_patterns", {}).get("patterns", []))
@@ -79,7 +79,7 @@ def reload_config_from_dict(config: dict) -> None:
 
     _PATTERN_FILTER_CFG = rule_cfg.get("pattern_filter", {})  # P0：inside_bar开关
 
-    # R21新增：做空保护参数
+    # 做空保护参数
     _SHORT_MIN_ADX = trading_cfg.get("short_min_adx", _SHORT_MIN_ADX)
     _RSI_SHORT_GUARD = rule_cfg.get("rsi_short_guard_zone", _RSI_SHORT_GUARD)
     _BULLISH_PATTERNS = set(_PATTERN_FILTER_CFG.get("bullish_patterns", {}).get("patterns", []))
@@ -524,7 +524,7 @@ def detect_long_signal_conditions(tf_indicators: dict, symbol: str = "") -> Tupl
         return False, detail
 
 
-# ── R19新增：做空质量检查（重构版）────────────────────────────────────
+# ── 做空质量检查（重构版）────────────────────────────────────
 def detect_short_signal_quality(
     tf_indicators: dict,
     symbol: str = "",
@@ -566,7 +566,7 @@ def detect_short_signal_quality(
     if down_count < 1:
         return False, f"无小周期下跌趋势支持，做空质量不足"
 
-    # ── R21新增：做空最低ADX要求 ────────────────────────────────────
+    # ── 做空最低ADX要求 ────────────────────────────────────
     # 注意：anchor_ind["adx"] 存储的是 compute_adx() 返回的完整字典 {"adx": ..., "plus_di": ..., "minus_di": ...}
     anchor_adx_info = anchor_ind.get("adx", {})
     anchor_adx = anchor_adx_info.get("adx", 0) if isinstance(anchor_adx_info, dict) else 0
@@ -578,12 +578,12 @@ def detect_short_signal_quality(
     # 不在RSI>70做空（超买区，等回调）
     # 不在RSI<45做空（偏弱区，可能是反弹结构）
     # 不在RSI 45-50做空（中性区，趋势不明）
-    # R21新增：不在RSI 35-40做空（近超卖区，反弹风险高）
+    # 不在RSI 35-40做空（近超卖区，反弹风险高）
     if anchor_rsi > 70:
         return False, f"RSI={anchor_rsi}仍在超买区，等待回调"
     if anchor_rsi < 45:
         return False, f"RSI={anchor_rsi}已进入偏弱区(≤45)，反弹结构禁止做空"
-    # R21新增：近超卖区检查
+    # 近超卖区检查
     if 35 <= anchor_rsi < _RSI_SHORT_GUARD:
         return False, f"RSI={anchor_rsi}接近超卖区({_RSI_SHORT_GUARD})，反弹风险高"
     if 45 <= anchor_rsi < 50:
@@ -607,7 +607,7 @@ def detect_short_signal_quality(
     if momentum_dir not in ("down", "neutral"):
         return False, f"近期动能={momentum_dir}，与做空方向不一致"
 
-    # ── R21新增：做空时检测bullish形态冲突 ─────────────────────────
+    # ── 做空时检测bullish形态冲突 ─────────────────────────
     # 如果检测到看涨形态（hammer/pin_bar_bull等）出现在任何周期，拒绝做空
     bullish_conflict = []
     for tf, ind in tf_indicators.items():
@@ -917,7 +917,7 @@ def assess_trend_direction(df: pd.DataFrame, adx_info: dict, ema_info: dict, sym
     综合 EMA 排列 + ADX + 收盘价位置 + 近期动能 判断单边趋势方向
     返回 "up" / "down" / "sideways"
 
-    评分规则（满分5分，≥3分判为趋势）：
+    评分规则（满分5分，≥3.5分判为趋势）
       EMA排列（2分）：解决中长期趋势结构确认
       DI方向（1分）：ADX方向分量确认
       价格vs EMA21（1分）：短期位置确认
@@ -934,7 +934,7 @@ def assess_trend_direction(df: pd.DataFrame, adx_info: dict, ema_info: dict, sym
     momentum = assess_recent_trend_momentum(df)
     momentum_dir = momentum["direction"]
 
-    # ADX门槛：ADX<20时额外看近期动能，若动能明确可豁免ADX门槛（刚启动场景）
+    # ADX门槛：ADX<30时额外看近期动能，若动能明确可豁免ADX门槛（刚启动场景）
     adx_ok = adx >= ADX_THRESHOLD
     # 豁免条件：近期动能方向明确 + 从背景中位价突破（代表真实趋势启动）
     adx_waived = (not adx_ok) and momentum["breakout"] and momentum_dir != "neutral"
@@ -983,9 +983,9 @@ def assess_trend_direction(df: pd.DataFrame, adx_info: dict, ema_info: dict, sym
         f"{'up' if bullish_signals>=3 else 'down' if bearish_signals>=3 else 'sideways'}"
     )
 
-    if bullish_signals >= 3:
+    if bullish_signals >= 3.5:
         return "up"
-    elif bearish_signals >= 3:
+    elif bearish_signals >= 3.5:
         return "down"
     return "sideways"
 
@@ -1244,17 +1244,15 @@ def rule_engine_filter(
         logger.info(f"[规则过滤] {reason}")
         return False, "wait", reason
 
-    # ── 3b. 量价同向验证（优化3）：计算并注入锚周期量价对齐信息
-    anchor_df_key = ANCHOR_TF
-    # 此处 tf_indicators 已包含各周期指标，但原始 df 需从外部传入
-    # 通过 momentum 数据间接判断：若锚周期动量方向与信号方向一致，量价对齐概率更高
-    # 实际量价对齐计算在 ai_analysis.py 中通过 multi_tf_data 完成
+    # ── 3b. 动量衰减硬性拒绝（趋势末尾禁止入场）────────────────
     anchor_mom_accel = anchor.get("momentum_acceleration", {})
     if anchor_mom_accel.get("decelerating", False):
-        logger.info(
-            f"[规则过滤] {symbol} 锚周期动量衰减（实体比={anchor_mom_accel.get('ratio', 1.0):.2f}），"
-            f"信号强度将被降低"
+        reason = (
+            f"{symbol} 锚周期 {ANCHOR_TF} 动量衰减中（实体比={anchor_mom_accel.get('ratio', 1.0):.2f}），"
+            f"趋势末尾禁止入场"
         )
+        logger.info(f"[规则过滤] {reason}")
+        return False, "wait", reason
 
     # ── 4. 趋势强度豁免检查（方案D：极强趋势中跳过RSI超卖/超买保护）
     anchor_adx_info = anchor.get("adx", {})
@@ -1326,7 +1324,7 @@ def rule_engine_filter(
                     reason = f"{symbol} {ANCHOR_TF} RSI={rsi} 超买（>={RSI_OVERBOUGHT}），拒绝做多"
                     logger.info(f"[规则过滤] {reason}")
                     return False, "wait", reason
-                # ── R19重构：做空使用新的做空质量检查
+                # ── 做空使用新的做空质量检查
                 # 旧逻辑：RSI超卖禁止 + RSI中性偏弱区禁止 + 超卖反弹保护 + 时段禁止
                 # 新逻辑：趋势确认 + RSI回调位置 + 小周期同步 + 无反弹风险
                 if signal_direction == "short":
@@ -1350,7 +1348,7 @@ def rule_engine_filter(
             logger.info(f"[规则过滤] {reason}")
             return False, "wait", reason
 
-    # ── 7. [R19重构] 做空已使用新的做空质量检查（detect_short_signal_quality）
+    # ── 7. 做空已使用新的做空质量检查（detect_short_signal_quality）
     #    旧规则（超卖反弹保护、时段禁止）已移除，由新函数统一处理
 
     # ── 8. 趋势转折预警：仅对做多方向执行（做空由新函数处理）

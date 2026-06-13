@@ -24,8 +24,6 @@ logger = logging.getLogger(__name__)
 TRAILING_STOP_PCT      = TRADE_MGR_CFG.get("trailing_stop_trigger_pct",   15.0)
 PARTIAL_PROFIT_PCT     = TRADE_MGR_CFG.get("partial_profit_trigger_pct",   25.0)
 PARTIAL_PROFIT_RATIO_1 = TRADE_MGR_CFG.get("partial_profit_ratio_1",        0.3)
-PARTIAL_PROFIT_PCT_2   = TRADE_MGR_CFG.get("partial_profit_trigger_pct_2", 50.0)
-PARTIAL_PROFIT_RATIO_2 = TRADE_MGR_CFG.get("partial_profit_ratio_2",        0.5)
 FORCE_CLOSE_PCT        = TRADE_MGR_CFG.get("force_close_loss_pct",         -10.0)
 STRUCTURE_TF           = TRADE_MGR_CFG.get("structure_check_timeframe",     "1h")
 SUPPORT_BUFFER_PCT     = TRADE_MGR_CFG.get("support_buffer_pct",             0.3)
@@ -304,38 +302,8 @@ def main():
                 except Exception as e:
                     logger.error(f"  ⚠️ 移动止损失败：{e}")
 
-            # 情况 B：分两批部分止盈（使用实时持仓量，止盈后立即保本）
-            # 第二批：浮盈 >= PARTIAL_PROFIT_PCT_2，平 PARTIAL_PROFIT_RATIO_2 仓位
-            # 第一批：浮盈 >= PARTIAL_PROFIT_PCT，平 PARTIAL_PROFIT_RATIO_1 仓位
-            if pnl_pct >= PARTIAL_PROFIT_PCT_2:
-                if _is_partial_profit_done(symbol, side, 2):
-                    logger.info(f"  第二批止盈已执行过，跳过")
-                else:
-                    live_positions = get_open_positions(exchange)
-                    live_pos = next(
-                        (p for p in live_positions if p["symbol"] == symbol and p["side"] == side), None
-                    )
-                    live_contracts = live_pos["contracts"] if live_pos else contracts
-                    partial_contracts = int(live_contracts * PARTIAL_PROFIT_RATIO_2)
-                    if partial_contracts > 0:
-                        logger.info(f"  浮盈{pnl_pct:.1f}%（>{PARTIAL_PROFIT_PCT_2:.0f}%），第二批止盈{int(PARTIAL_PROFIT_RATIO_2*100)}%（{partial_contracts} 张）")
-                        try:
-                            exchange.create_order(
-                                symbol=symbol,
-                                type="market",
-                                side="sell" if side == "long" else "buy",
-                                amount=partial_contracts,
-                                params={"tdMode": "cross", "reduceOnly": True},
-                            )
-                            _mark_partial_profit_done(symbol, side, 2)
-                            send_notification(
-                                f"{symbol} 浮盈{pnl_pct:.1f}%，第二批止盈{int(PARTIAL_PROFIT_RATIO_2*100)}%（{partial_contracts} 张），剩余持仓继续运行"
-                            )
-                            closed_count += 1
-                            _move_stop_to_breakeven(exchange, symbol, side, live_contracts - partial_contracts, entry_price)
-                        except Exception as e:
-                            logger.error(f"  ⚠️ 第二批止盈失败：{e}")
-            elif pnl_pct >= PARTIAL_PROFIT_PCT:
+            # 分批止盈：浮盈 >= 20%，平 30% 仓位，剩余启用跟踪止损
+            if pnl_pct >= PARTIAL_PROFIT_PCT:
                 if _is_partial_profit_done(symbol, side, 1):
                     logger.info(f"  第一批止盈已执行过，跳过")
                 else:

@@ -179,7 +179,7 @@ def _build_rule_only_decision(tf_indicators: dict, direction: str, symbol: str, 
             pattern_direction = patterns_list[0].get("direction")
             break
 
-    # ── R20重构：配置驱动的形态方向检测 ────────────────────────────
+    # ── 配置驱动的形态方向检测 ────────────────────────────
     # bullish_patterns 做多时加分加仓，做空时惩罚
     # bearish_patterns 做空时加分加仓，做多时惩罚
     pattern_filter_cfg = _TRADING_CFG.get("pattern_filter", {})
@@ -452,7 +452,7 @@ def _build_text_analysis_prompt() -> str:
     vol_burst_thresh = vol_ratio_thresh * 2
     momentum_strong_pct = int(recent_momentum_pct * 100)
 
-    # R20重构：从新配置结构读取形态加分说明
+    # 从新配置结构读取形态加分说明
     pattern_boost_lines = []
     pattern_filter_cfg = _TRADING_CFG.get("pattern_filter", {})
     for section in ["bullish_patterns", "bearish_patterns"]:
@@ -732,7 +732,7 @@ def analyze_symbol(
                 result["_tp_reason"] = tp_reason
                 logger.info(f"已应用动态止损止盈：SL={stop_loss:.6g}, TP={take_profit:.6g}, RR={rr:.2f}, {tp_reason}")
 
-            # 根据形态设置仓位倍数（R20重构：配置驱动双向检测）
+            # 根据形态设置仓位倍数（配置驱动双向检测）
             signal_type = result.get("signal_type", "none")
             signal_direction = result.get("direction", "long")
             pattern_filter_cfg = _TRADING_CFG.get("pattern_filter", {})

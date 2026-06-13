@@ -64,7 +64,7 @@ analysis:
     anchor_timeframe: "1h"              # 锚周期：宏观方向判断，必须非横盘才放行
     require_anchor_aligned: true        # 是否要求锚周期与信号方向对齐
     min_trending_timeframes: 2
-    adx_trending_threshold: 20
+    adx_trending_threshold: 30
     volume_ratio_threshold: 0.8         # 量比阈值：当前量 / MA5 >= 此值视为放量
 
     # ═══════════════════════════════════════════════════════════════════
@@ -74,9 +74,9 @@ analysis:
     # 2.1 基础 RSI 极值过滤（可被 ADX 豁免）
     # 只检查锚周期 RSI，小周期波动大不检查
     rsi_overbought: 65                  # RSI 超买线（做多保护）
-    rsi_oversold: 35                    # RSI 超卖线（做空保护）← P1优化：从 30 提高到 35，扩大超卖区禁止做空范围
+    rsi_oversold: 35                    # RSI 超卖线（做空保护）
 
-    # R19重构：关闭 RSI 超卖严格模式，改用新的做空质量检查（detect_short_signal_quality）
+    # 关闭 RSI 超卖严格模式，改用新的做空质量检查（detect_short_signal_quality）
     # 新逻辑：趋势确认 + RSI回调位置(50-65) + 小周期同步 + 无反弹风险
     rsi_oversold_strict: false          # 关闭严格模式，由新函数统一处理做空RSI检查
 
@@ -86,13 +86,13 @@ analysis:
 
     # 2.3 极强趋势豁免（同时满足 ADX + DI 差值条件时，额外豁免量能/反弹/转折保护）
     # 不豁免：RSI 持续保护、RSI 背离保护
-    strong_trend_adx_threshold: 70        # ← 从 60 提高到 70，减少豁免触发频率，防止趋势末端追单
-    strong_trend_di_diff_threshold: 25    # ← 从 20 提高到 25，+DI 与 -DI 差值 >= 此值视为方向明确
+    strong_trend_adx_threshold: 70        # 极强趋势ADX阈值，防止趋势末端追单
+    strong_trend_di_diff_threshold: 25    # +DI与-DI差值，方向明确判定
 
     # 2.4 RSI 持续保护（最高优先级，极强趋势也不豁免）
     # 防止在动能耗尽时追单
     rsi_oversold_persist_bars: 10       # 做空保护：RSI 连续 N 根 <= 超卖线后禁止做空
-    rsi_oversold_persist_level: 28      # ← P2: 从 25 提高到 28，超卖区 54% 胜率但盈亏比差， ← 从 20 提高到 25，与 rsi_oversold:30 缩小 gap，防止超卖区豁免追空
+    rsi_oversold_persist_level: 28      # 超卖持续保护RSI阈值
 
     # 2.5 RSI 背离保护（最高优先级，极强趋势也不豁免）
     # 价格新低但 RSI 未新低 = 底背离，动能衰竭，禁止做空
@@ -114,14 +114,14 @@ analysis:
 
     # 2.8 RSI 中性偏弱区禁止做空（Round 5 分析：RSI 40-60 做空 7 笔全亏，贡献 -124 U）
     rsi_neutral_short_ban_upper: 60
-    rsi_neutral_short_ban_lower: 35   # ← 从40降至35，填补35-40做空漏洞
+    rsi_neutral_short_ban_lower: 35   # RSI中性区做空保护下限
 
     # 2.9 时段做空限制（Round 5 分析：欧洲盘做空 7 笔 6 亏，贡献 -95 U）
     session_short_banned: []  # 禁止做空的时段列表
 
-    # ── R21新增：做空保护参数 ──────────────────────────────────────
-    short_min_adx: 40              # 做空最低ADX要求（趋势必须够强）
-    rsi_short_guard_zone: 40       # RSI低于此值禁止做空（近超卖区35-40）
+    # ── 做空保护参数 ──────────────────────────────────────
+    short_min_adx: 30              # 做空最低ADX要求（趋势必须够强）
+    rsi_short_guard_zone: 50       # RSI低于此值禁止做空（扩大保护范围）
 
     # ═══════════════════════════════════════════════════════════════════
     # 三、多头信号质量（非硬过滤，仅记录质量供 LLM 参考）
@@ -166,43 +166,43 @@ trading:
 
   # 信号质量门槛
   allowed_confidence: ["high"]  # 只有 confidence=high 的信号才允许交易
-  min_signal_strength: 7  # 从10调低，修复实盘0成交问题
+  min_signal_strength: 7  # 最低信号强度
   min_trend_strength: 7         # 最低趋势强度（1-10）← 从6提高到7
   min_rr_ratio: 1.8             # 最低盈亏比（调回1.8，2026-05-09）
   target_rr_ratio: 1.8          # 止盈设置：止盈距离 = 止损距离 × 此倍数
   min_take_profit_pct: 0               # 已关闭：止盈距离检查（2026-04-11）
 
-  # ── R20重构：形态方向分类配置 ─────────────────────────────────────
+  # ── 形态方向分类配置 ─────────────────────────────────────
   # bullish_patterns: 做多时出现 → 加分加仓；做空时出现 → 惩罚
   # bearish_patterns: 做空时出现 → 加分加仓；做多时出现 → 惩罚
   pattern_filter:
     inside_bar_require_trend: true   # Inside Bar 必须有趋势背景（up/down）才生效，横盘时跳过
-    bearish_engulfing_short_ban: true # ← Round 7：bearish_engulfing做空7连败0胜率亏损-176U，彻底关闭
+    bearish_engulfing_short_ban: true # 彻底关闭做空
 
     bullish_patterns:
       patterns:             # 看涨形态列表
         - pin_bar_bull       # 长下影线看涨
         - hammer             # 锤子线
-        - inside_bar         # ← R27降权：横盘期12笔亏损-35U，胜率33%，降为50%仓位
-        - inverted_hammer    # ← R27降权：横盘期9笔亏损-19U，胜率33%，降为50%仓位
+        - inside_bar         # 内K线
+        - inverted_hammer    # 倒锤形态
         - bullish_engulfing  # 看涨吞没
         - morning_star       # 启明星
       position_boost: 1.2    # 默认仓位倍数（低于1=减仓，高于1=加仓）
       signal_boost: 1.0      # 默认信号强度加分
       position_boost_per_pattern:  # 各形态独立仓位倍数（覆盖默认值）
-        pin_bar_bull: 3.5    # ← R31调高：R30 7笔+14.30U/85.7%胜率，均笔+2.04U，扩大仓位至3.5x
-        hammer: 0.5          # ← R24调低：1笔亏-13.54U降至最低仓
-        inside_bar: 0.5     # ← R27新增：横盘期亏损-35U，胜率33%，降权50%
-        inverted_hammer: 0.25 # ← R31再降：R30 3笔-12.94U/33%胜率，进一步降至25%仓位
+        pin_bar_bull: 0.5    # Pin Bar在强趋势中为假信号，降低仓位
+        hammer: 0.5          # 锤子形态：最低仓位
+        inside_bar: 0.5     # 内K线：横盘期表现差，降低仓位
+        inverted_hammer: 0.3 # 倒锤形态：中等仓位
         bullish_engulfing: 1.2  # 看涨吞没：仓位+20%
-        morning_star: 1.3    # ← R24调高：100%胜率全胜记录，值得加仓
-        none: 0.0             # ← R31关闭：无形态R30亏损-74.83U/30.3%胜率，核心风险源，彻底禁止
+        morning_star: 1.3    # 晨星形态：值得加仓
+        none: 0.5             # 无形态：保留最低仓位避免无交易
       signal_boost_per_pattern:  # 各形态独立信号强度加分（覆盖默认值）
-        pin_bar_bull: 2.5    # Pin Bar 多头：+2.5（Round 9：3笔全胜 +20.51 U）
+        pin_bar_bull: 0.5
         bullish_engulfing: 0.5
         hammer: 0.5
-        inside_bar: 0.0      # ← R27新增：降权，信号不加分
-        inverted_hammer: 0.0  # ← R27新增：降权，信号不加分
+        inside_bar: 0.0      # 信号不加分
+        inverted_hammer: 0.0  # 信号不加分
         morning_star: 1.0
 
     bearish_patterns:
@@ -212,25 +212,25 @@ trading:
       position_boost: 1.2    # 默认仓位倍数
       signal_boost: 1.0      # 默认信号强度加分
       position_boost_per_pattern:  # 各形态独立仓位倍数
-        pin_bar_bear: 0.5    # ← R24调低：2笔亏-17.51U（均笔-8.75U），做空禁令已关闭，继续降权
+        pin_bar_bear: 0.5
         bearish_engulfing: 1.2
       signal_boost_per_pattern:  # 各形态独立信号强度加分
-        pin_bar_bear: 0.0    # ← R24清零：做空禁令关闭，该形态继续扣分至零
+        pin_bar_bear: 0.0    # 做空禁令已关闭，扣分至零
         bearish_engulfing: 0.5
 
   # 做空结构位置要求（裸K供给区感知）
   structure_filter:
     short_require_near_resistance: true   # 做空需在阻力区附近
-    short_resistance_threshold_pct: 0.05  # 价格距阻力位 ±5% 视为"附近"（R19优化：放宽到5%）
+    short_resistance_threshold_pct: 0.05  # 价格距阻力位 ±5% 视为"附近"
     short_require_structure_down: true     # 做空需空头结构（LH/LL 满足其一）
 
-  # ADX 边缘区间加严（ADX 处于 20-25 时提高信号强度门槛）
-  adx_edge_min: 35               # ← 从 25 提高到 35，边缘区间加严（ADX 处于 30-35 时视为边缘）
+  # ADX 边缘区间加严（ADX 处于 30-35 时提高信号强度门槛）
+  adx_edge_min: 40               # 边缘区间最低ADX要求
   adx_edge_max: 35
   adx_edge_min_signal_strength: 8  # 边缘区间内要求的最低信号强度
 
   # 仓位控制
-  max_position_pct: 0.20        # ← R27回滚：R26上调至25%后9个月仍亏损-50U，回调至20%
+  max_position_pct: 0.20        # 最大仓位比例
   max_margin_usage_ratio: 0.5   # 保证金占可用余额的最大比例（50%）
   max_slippage_pct: 5.0         # 滑点超过此百分比时重新计算止损止盈
 
@@ -239,7 +239,7 @@ trading:
   warning_keywords: ["低市值", "高波动", "插针", "小市值", "波动大", "仓位减半", "极端缩量"]
 
   # 动态止损（止损距离 = ATR × 倍数，倍数随 ADX 动态调整）
-  stop_loss_atr_multiplier: 1.5
+  stop_loss_atr_multiplier: 2.0  # 止损ATR倍数，给予更多呼吸空间
   stop_loss_adx_scaling:
     enabled: false
     strong_trend_threshold: 40   # ADX >= 此值视为强趋势
@@ -248,7 +248,7 @@ trading:
     extreme_trend_multiplier: 1.5  # 极强趋势止损倍数（ADX >= 60）
 
   # ATR 跟踪止损（优化2：第一批止盈后剩余仓位用跟踪止损）
-  trailing_stop_atr_multiplier: 1.5  # 跟踪止损 ATR 倍数（比开仓止损更紧）
+  trailing_stop_atr_multiplier: 2.0  # 跟踪止损ATR倍数
 
   # 止损止盈硬性上限（风控红线）
   max_stop_loss_pct: 2.0           # 止损距离基准上限（%）
@@ -258,8 +258,8 @@ trading:
 # ── 账户风控 ─────────────────────────────────────────────────────────
 risk:
   leverage: 10                   # 杠杆倍数（与 trading.default_leverage 保持一致）
-  risk_per_trade_pct: 1.0        # ← R27回滚：配合仓位下调
-  max_open_positions: 5          # ← R27回滚：从4回调至5（原R23配置）
+  risk_per_trade_pct: 1.0        # 每笔交易风险比例
+  max_open_positions: 5          # 最大同时持仓数
   max_loss_pct: -10.0             # 日亏损上限（%），超过后当日停止自动交易
   stop_loss_cooldown_hours: 4    # 止损后冷却时间（小时），防止短期内重复开仓同一合约
   take_profit_cooldown_minutes: 30  # 止盈后冷却时间（分钟），防止刚止盈又立即重新开仓
@@ -267,13 +267,13 @@ risk:
 # ── 持仓管理 ─────────────────────────────────────────────────────────
 trade_manager:
   # 移动止损：浮盈达到此百分比时，将止损移至保本位（入场价）
-  trailing_stop_trigger_pct: 20.0
+  trailing_stop_trigger_pct: 20.0  # 跟踪止损触发浮盈(%)
 
-  # 分批止盈
-  partial_profit_trigger_pct: 15.0    # 第一批触发阈值（%）
-  partial_profit_ratio_1: 0.4         # 第一批平仓比例（40%）
-  partial_profit_trigger_pct_2: 30.0  # 第二批触发阈值（%）
-  partial_profit_ratio_2: 1.0         # 第二批平仓比例（100% = 全部平仓）
+  # 分批止盈（分两批止盈，锁定利润防止回吐）
+  partial_profit_enabled: true   # 启用分批止盈
+  partial_profit_trigger_pct: 20.0    # 触发阈值（浮盈>=20%）
+  partial_profit_ratio_1: 0.3         # 第一批平仓比例（30%）
+  # 剩余70%仓位：跟踪止损，让利润奔跑
 
   # 强制平仓（三层止损机制的最后兜底）
   # 层1：交易所止损单（最快，动态止损 2%-3%）
