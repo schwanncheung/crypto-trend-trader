@@ -133,7 +133,8 @@ def _load_ai_key_levels(symbol: str) -> dict:
     candidates = list(decisions_dir.glob(f"{symbol_safe}_*.json"))
     if not candidates:
         return {}
-    latest = max(candidates, key=lambda f: f.name)
+    # 按修改时间排序，取最新的
+    latest = max(candidates, key=lambda f: f.stat().st_mtime)
     try:
         with open(latest, encoding="utf-8") as f:
             data = json.load(f)
