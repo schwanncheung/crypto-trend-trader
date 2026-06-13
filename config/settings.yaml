@@ -252,8 +252,33 @@ trading:
 
   # 止损止盈硬性上限（风控红线）
   max_stop_loss_pct: 2.0           # 止损距离基准上限（%）
-  max_stop_loss_multiplier: 1.0  # 止损距离允许放大倍数 ← 从2.5收紧到1.5（实际上限=1.5%×1.5=2.25%）
-  max_take_profit_pct: 4.0       # 止盈距离上限（%）← 从5.0放宽到6.0，配合更高的R:R
+  max_stop_loss_multiplier: 1.0  # 止损距离允许放大倍数（实际上限=1.5%×1.5=2.25%）
+  max_take_profit_pct: 4.0       # 止盈距离上限（%）
+
+  # ── P0：回踩入场逻辑（Price Action 核心）─────────────────────────────
+  retest_entry:
+    enabled: true              # 启用回踩入场检查
+    max_distance_atr: 1.5      # 入场价距关键位最大距离（ATR倍数）
+    skip_if_not_retrace: true  # 非回踩时是否跳过信号
+
+  # ── P0：结构止损（放在结构之外，避免被狩猎）───────────────────────────
+  structure_stop:
+    enabled: true              # 启用结构止损
+    buffer_pct: 0.005          # 止损缓冲（‰）
+    prefer_structure: true     # 优先使用结构止损而非 ATR 止损
+
+  # ── P1：形态位置质量评分（形态在支撑/阻力位=高质量）─────────────────────
+  pattern_quality:
+    enabled: true
+    high_quality_boost: 1.2    # 高质量形态仓位加成
+    medium_quality_boost: 1.0  # 中等质量不变
+    low_quality_penalty: 0.7   # 低质量形态仓位折减
+
+  # ── P1：趋势阶段判断（避免在趋势末期追单）─────────────────────────────
+  trend_phase:
+    enabled: true
+    allow_long_in_late_trend: false   # 趋势末期是否允许做多
+    allow_short_in_pullback: false    # 回撤中是否允许做空
 
 # ── 账户风控 ─────────────────────────────────────────────────────────
 risk:

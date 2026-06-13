@@ -37,7 +37,8 @@ from fetch_kline import (
     _load_blacklist,
 )
 from ai_analysis import analyze_symbol, save_decision_log
-from risk_filter import check_daily_loss, check_signal_quality
+from risk_filter import check_daily_loss, check_signal_quality, check_retest_entry
+from indicator_engine import evaluate_pattern_quality, get_trend_phase, filter_by_trend_phase
 from execute_trade import (
     create_exchange,
     get_open_positions,
@@ -266,9 +267,56 @@ def main():
                 # 记录风控失败的合约及原因
                 risk_failed_symbols.append((symbol, direction, failed_checks))
                 continue
-            
+
             logger.info(f"{symbol} 风控通过 ✅")
-            
+
+            # 回踩入场检查（Price Action 核心原则）
+            current_price = decision.get("entry_price")
+            atr = decision.get("atr")
+            if atr is None and not data[anchor_tf].empty:
+                # ATR 未由分析模块返回时，从锚周期 K 线计算
+                from indicator_engine import compute_timeframe_indicators
+                anchor_indicators = compute_timeframe_indicators(data[anchor_tf], anchor_tf)
+                atr = anchor_indicators.get("atr")
+
+            retest_ok, retest_reason = check_retest_entry(
+                signal=direction,
+                current_price=current_price,
+                support=support[0] if support else current_price * 0.98,
+                ema21=decision.get("_ema21", current_price),
+                atr=atr if atr else current_price * 0.01,
+            )
+            if not retest_ok:
+                logger.warning(f"{symbol} 回踩入场未通过 | {retest_reason}")
+                continue
+            logger.info(f"{symbol} 回踩入场检查通过: {retest_reason}")
+
+            # 趋势阶段判断（避免在趋势末期追单）
+            from indicator_engine import compute_timeframe_indicators as compute_indicators
+            indicator_5m = compute_indicators(data.get("5m", data[anchor_tf]), "5m")
+            rsi_5m = indicator_5m.get("rsi", 50)
+            ema21 = decision.get("_ema21", current_price)
+            ema21_slope = decision.get("_ema21_slope", 0)
+            recent_candles = []
+            if not data["5m"].empty:
+                df_5m = data["5m"]
+                recent_candles = [
+                    {"close": row["close"], "open": row["open"]}
+                    for _, row in df_5m.tail(5).iterrows()
+                ]
+            trend_phase = get_trend_phase(
+                price=current_price,
+                ema21=ema21,
+                rsi_5m=rsi_5m,
+                ema21_slope=ema21_slope,
+                recent_candles=recent_candles,
+            )
+            phase_ok, phase_reason = filter_by_trend_phase(direction, trend_phase)
+            if not phase_ok:
+                logger.warning(f"{symbol} 趋势阶段过滤 | {phase_reason}")
+                continue
+            logger.info(f"{symbol} 趋势阶段: {trend_phase}（{phase_reason}）")
+
             # 5.6 执行交易
             logger.info(f"{symbol} 准备执行交易: {decision.get('signal')} @ {decision.get('entry_price')}")
             result = execute_from_decision(exchange, symbol, decision)

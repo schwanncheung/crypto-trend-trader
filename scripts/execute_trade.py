@@ -475,7 +475,7 @@ def _calculate_position(
         free_usdt = _get_usdt_balance(balance)
         available_usdt = free_usdt
 
-        # 无形态信号 → 仓位降至 50%（Round 5 分析：9笔无形态亏损-103.6 U）
+        # 无形态信号 → 仓位降至 50%（9笔无形态亏损-103.6 U 分析）
         effective_boost = pattern_boost
         if entry_pattern == "none" or entry_pattern == "":
             effective_boost = pattern_boost * 0.5

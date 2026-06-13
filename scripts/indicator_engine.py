@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 # ── 读取配置 ──────────────────────────────────────────────────────────
 _IND_CFG  = ANALYSIS_CFG.get("indicator", {})
 _RULE_CFG = ANALYSIS_CFG.get("rule_filter", {})
-_PATTERN_FILTER_CFG = _RULE_CFG.get("pattern_filter", {})  # P0优化：inside_bar开关
+_PATTERN_FILTER_CFG = _RULE_CFG.get("pattern_filter", {})  # inside_bar开关
 
 EMA_PERIODS       = _IND_CFG.get("ema_periods", [21, 55, 200])
 ADX_PERIOD        = _IND_CFG.get("adx_period", 14)
@@ -77,7 +77,7 @@ def reload_config_from_dict(config: dict) -> None:
     STRONG_TREND_ADX_THRESHOLD = rule_cfg.get("strong_trend_adx_threshold", STRONG_TREND_ADX_THRESHOLD)
     STRONG_TREND_DI_DIFF_THRESHOLD = rule_cfg.get("strong_trend_di_diff_threshold", STRONG_TREND_DI_DIFF_THRESHOLD)
 
-    _PATTERN_FILTER_CFG = rule_cfg.get("pattern_filter", {})  # P0：inside_bar开关
+    _PATTERN_FILTER_CFG = rule_cfg.get("pattern_filter", {})  # inside_bar开关
 
     # 做空保护参数
     _SHORT_MIN_ADX = trading_cfg.get("short_min_adx", _SHORT_MIN_ADX)
@@ -1132,7 +1132,7 @@ def compute_timeframe_indicators(df: pd.DataFrame, tf_label: str, symbol: str = 
     trend       = assess_trend_direction(df, adx_info, ema_info, symbol)
     patterns    = detect_candlestick_patterns(df, trend_direction=trend)
 
-    # ── P0优化：彻底关闭 inside_bar 信号（两月7/7全亏，亏损-120U）────────
+    # ── 彻底关闭 inside_bar 信号（两月7/7全亏，亏损-120U）────────
     _inside_bar_enabled = _PATTERN_FILTER_CFG.get('inside_bar_enabled', True)
     if not _inside_bar_enabled:
         _before = len(patterns)
@@ -1140,7 +1140,7 @@ def compute_timeframe_indicators(df: pd.DataFrame, tf_label: str, symbol: str = 
         if len(patterns) < _before:
             logger.info(f"[形态过滤] inside_bar 已关闭，移除 {_before - len(patterns)} 个信号")
 
-    # ── Round 8：彻底关闭 bearish_engulfing 做空信号（7连败0胜率亏损-176U）
+    # ── 彻底关闭 bearish_engulfing 做空信号（7连败0胜率亏损-176U）
     _bearish_engulfing_short_ban = _PATTERN_FILTER_CFG.get('bearish_engulfing_short_ban', False)
     if _bearish_engulfing_short_ban:
         _before = len(patterns)
@@ -1480,3 +1480,187 @@ def generate_market_snapshot(
 
     snapshot = "\n".join(lines)
     return snapshot, tf_indicators
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# 六、形态位置质量评分 + 趋势阶段判断
+# ═══════════════════════════════════════════════════════════════════════
+
+def evaluate_pattern_quality(
+    pattern: str,
+    current_price: float,
+    support: float = None,
+    resistance: float = None,
+    ema21: float = None,
+) -> tuple[str, float]:
+    """
+    形态位置质量评分 — 形态在支撑/阻力位=高质量。
+
+    Price Action 原则：
+    - Pin Bar 在支撑位出现 = 高质量信号
+    - Pin Bar 在趋势中途出现 = 低质量信号（可能是中继形态）
+    - Pin Bar 在横盘区间中出现 = 无效信号
+
+    参数：
+        pattern: 形态名称（pin_bar_bull, hammer, bullish_engulfing 等）
+        current_price: 当前价格
+        support: 支撑位价格
+        resistance: 阻力位价格
+        ema21: EMA21 价格
+
+    返回：(质量等级, 仓位倍数调整)
+    """
+    pattern_quality_cfg = TRADING_CFG.get("pattern_quality", {})
+    if not pattern_quality_cfg.get("enabled", False):
+        return "unknown", 1.0
+
+    high_boost = pattern_quality_cfg.get("high_quality_boost", 1.2)
+    medium_boost = pattern_quality_cfg.get("medium_quality_boost", 1.0)
+    low_penalty = pattern_quality_cfg.get("low_quality_penalty", 0.7)
+
+    if pattern in ["none", "inside_bar", "morning_star", "evening_star"]:
+        return "medium", medium_boost
+
+    # 计算价格与关键位的距离
+    if support is None:
+        support = current_price
+    if resistance is None:
+        resistance = current_price
+    if ema21 is None:
+        ema21 = current_price
+
+    # 质量边界（‰）
+    quality_threshold = 0.005  # 5‰
+
+    if pattern in ["pin_bar_bull", "hammer"]:
+        # 高质量：形态下影线触及或接近支撑（5‰ 内）
+        dist_to_support = abs(current_price - support) / support
+        if dist_to_support <= quality_threshold:
+            return "high", high_boost
+        # 中等：形态在 EMA21 附近（1% 内）
+        dist_to_ema = abs(current_price - ema21) / ema21
+        if dist_to_ema <= 0.01:
+            return "medium", medium_boost
+        # 低质量：形态在趋势中途（远离支撑）
+        return "low", low_penalty
+
+    elif pattern in ["pin_bar_bear", "bearish_engulfing"]:
+        # 高质量：形态上影线触及或接近阻力
+        dist_to_resistance = abs(current_price - resistance) / resistance
+        if dist_to_resistance <= quality_threshold:
+            return "high", high_boost
+        # 中等：形态在 EMA21 附近（1% 内）
+        dist_to_ema = abs(current_price - ema21) / ema21
+        if dist_to_ema <= 0.01:
+            return "medium", medium_boost
+        return "low", low_penalty
+
+    elif pattern == "bullish_engulfing":
+        # 吞没形态：需在支撑附近
+        dist_to_support = abs(current_price - support) / support
+        if dist_to_support <= 0.01:
+            return "high", high_boost
+        return "medium", medium_boost
+
+    return "low", low_penalty
+
+
+def get_trend_phase(
+    price: float,
+    ema21: float,
+    rsi_5m: float,
+    ema21_slope: float,
+    recent_candles: list = None,
+) -> str:
+    """
+    趋势阶段判断 — 避免在趋势末期追单。
+
+    返回：
+    - early_trend：趋势早期
+    - pullback：回撤中（入场机会）
+    - late_trend：趋势末期（追单风险高）
+    - reversal：可能反转
+
+    参数：
+        price: 当前价格
+        ema21: EMA21 价格
+        rsi_5m: 5分钟 RSI
+        ema21_slope: EMA21 斜率（正=上涨，负=下跌）
+        recent_candles: 最近K线列表 [{close, open}, ...]
+    """
+    trend_phase_cfg = TRADING_CFG.get("trend_phase", {})
+    if not trend_phase_cfg.get("enabled", False):
+        return "unknown"
+
+    if recent_candles is None or len(recent_candles) < 5:
+        # 数据不足时，根据 RSI 位置简单判断
+        if rsi_5m > 70:
+            return "late_trend"
+        elif rsi_5m < 40:
+            return "pullback"
+        return "unknown"
+
+    price_above_ema = price > ema21
+
+    # RSI 位置判断
+    if rsi_5m > 70:
+        rsi_zone = "overbought"
+    elif rsi_5m < 30:
+        rsi_zone = "oversold"
+    elif rsi_5m > 55:
+        rsi_zone = "overbought_approaching"
+    elif rsi_5m < 45:
+        rsi_zone = "oversold_approaching"
+    else:
+        rsi_zone = "neutral"
+
+    # 最近 K 线形态
+    recent_bars = len([c for c in recent_candles[-5:] if c.get("close", 0) > c.get("open", 0)])
+    recent_bearish = len(recent_candles[-5:]) - recent_bars
+
+    # 趋势阶段判断
+    if price_above_ema and rsi_zone == "overbought" and recent_bearish > recent_bars:
+        return "late_trend"
+    if not price_above_ema and rsi_zone == "oversold" and recent_bars > recent_bearish:
+        return "late_trend"
+    if price_above_ema and rsi_zone == "neutral" and recent_bars > recent_bearish:
+        return "early_trend"
+    if not price_above_ema and rsi_zone == "neutral" and recent_bearish > recent_bars:
+        return "early_trend"
+    if price_above_ema and rsi_zone in ("oversold", "oversold_approaching", "neutral"):
+        return "pullback"
+    if not price_above_ema and rsi_zone in ("overbought", "overbought_approaching", "neutral"):
+        return "pullback"
+    if not price_above_ema and rsi_zone == "oversold":
+        return "reversal"
+
+    return "unknown"
+
+
+def filter_by_trend_phase(
+    signal: str,
+    trend_phase: str,
+) -> tuple[bool, str]:
+    """
+    根据趋势阶段过滤信号。
+
+    参数：
+        signal: 信号方向（long/short）
+        trend_phase: 趋势阶段
+
+    返回：(是否通过, 原因)
+    """
+    trend_phase_cfg = TRADING_CFG.get("trend_phase", {})
+    if not trend_phase_cfg.get("enabled", False):
+        return True, "trend_phase未启用"
+
+    allow_long_in_late = trend_phase_cfg.get("allow_long_in_late_trend", False)
+    allow_short_in_pullback = trend_phase_cfg.get("allow_short_in_pullback", False)
+
+    if signal == "long" and trend_phase == "late_trend" and not allow_long_in_late:
+        return False, f"趋势末期({trend_phase})，禁止做多"
+
+    if signal == "short" and trend_phase == "pullback" and not allow_short_in_pullback:
+        return False, f"回撤中({trend_phase})，禁止做空"
+
+    return True, f"趋势阶段检查通过：{trend_phase}"

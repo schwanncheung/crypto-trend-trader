@@ -29,12 +29,12 @@ trade_manager.py (持仓管理，每4分钟)
 | 文件 | 核心函数/类 | 职责 |
 |------|------------|------|
 | [config_loader.py](scripts/config_loader.py) | `CFG`, `setup_logging()` | 配置加载入口 |
-| [indicator_engine.py](scripts/indicator_engine.py) | `rule_engine_filter()`, `compute_timeframe_indicators()`, `detect_momentum_acceleration()`, `detect_momentum_decay()` | 规则引擎核心 |
+| [indicator_engine.py](scripts/indicator_engine.py) | `rule_engine_filter()`, `compute_timeframe_indicators()`, `evaluate_pattern_quality()`, `get_trend_phase()` | 规则引擎核心 + 形态质量/趋势阶段 |
 | [ai_analysis.py](scripts/ai_analysis.py) | `analyze_symbol()`, `passes_risk_filter()` | AI 分析入口 |
-| [risk_filter.py](scripts/risk_filter.py) | `calculate_position_size()`, `check_signal_quality()` | 风控过滤 |
+| [risk_filter.py](scripts/risk_filter.py) | `calculate_position_size()`, `check_signal_quality()`, `check_retest_entry()` | 风控过滤 + 回踩入场 |
 | [execute_trade.py](scripts/execute_trade.py) | `execute_from_decision()`, `get_open_positions()` | 交易执行 |
 | [trade_manager.py](scripts/trade_manager.py) | `main()`, `_update_trailing_stop()` | 持仓巡检 |
-| [dynamic_stop_take_profit.py](scripts/dynamic_stop_take_profit.py) | `calculate_dynamic_stop_loss()`, `calculate_trailing_stop()` | 动态止损/跟踪止损计算 |
+| [dynamic_stop_take_profit.py](scripts/dynamic_stop_take_profit.py) | `calculate_dynamic_stop_loss()`, `calculate_trailing_stop()`, `calculate_structure_based_stop()` | 动态止损/跟踪止损/结构止损 |
 | [file_lock.py](scripts/file_lock.py) | `atomic_read_json()`, `atomic_write_json()` | 状态文件原子读写 |
 | [circuit_breaker.py](scripts/circuit_breaker.py) | `CircuitBreaker`, `get_llm_circuit_breaker()` | LLM API 熔断器 |
 
@@ -210,6 +210,60 @@ trade_manager 按持仓方向选择对应字段，避免多头创新高时被误
 - 剩余70%仓位：跟踪止损，让利润奔跑
 ```
 
+### 3.9 回踩入场逻辑 (`risk_filter.py:check_retest_entry`)
+
+```
+Price Action 核心原则：只在回撤中做多/反弹中做空。
+
+做多入场时机：
+- 价格回撤到支撑或 EMA21 附近（距关键位 <= 1.5 ATR）
+- 不在 RSI > 55 时追多（已是回调后段）
+- 不在 RSI < 30 时做多（可能是下跌中继）
+
+做空入场时机：
+- 价格反弹到阻力或 EMA21 附近（距关键位 <= 1.5 ATR）
+- 不在 RSI < 45 时追空（已是反弹后段）
+- 不在 RSI > 70 时做空（可能是上涨中继）
+```
+
+### 3.10 结构止损 (`dynamic_stop_take_profit.py:calculate_structure_based_stop`)
+
+```
+将止损放在结构之外，避免被机构"狩猎"：
+- 多头止损：放在 HH（更高高点）外侧 + 缓冲
+- 空头止损：放在 LL（更低低点）外侧 + 缓冲
+- ATR 止损作为兜底（取两者中较远者）
+
+配置：
+- buffer_pct: 止损缓冲（默认5‰）
+- prefer_structure: 优先使用结构止损
+```
+
+### 3.11 形态位置质量评分 (`indicator_engine.py:evaluate_pattern_quality`)
+
+```
+Price Action 原则：形态在支撑/阻力位出现 = 高质量信号
+
+质量等级：
+- high：形态触及支撑/阻力（5‰内）→ 仓位加成 1.2x
+- medium：形态在 EMA21 附近（1%内）→ 仓位不变
+- low：形态在趋势中途（远离关键位）→ 仓位折减 0.7x
+```
+
+### 3.12 趋势阶段判断 (`indicator_engine.py:get_trend_phase`)
+
+```
+避免在趋势末期追单，导致止损：
+- early_trend：趋势早期，可以入场
+- pullback：回撤中（最佳入场机会）
+- late_trend：趋势末期，禁止追单
+- reversal：可能反转
+
+过滤规则：
+- 趋势末期禁止做多（allow_long_in_late_trend=false）
+- 回撤中禁止做空（allow_short_in_pullback=false）
+```
+
 --- (`config/settings.yaml`)
 
 ```yaml
@@ -297,6 +351,7 @@ trade_manager:
 4. **时区**：使用 `config_loader.now_cst()` 获取北京时间
 5. **日志**：使用 `setup_logging(module_name)` 初始化
 6. **本地开发**：网络无法连接 OKX，修改后验证语法 + 分析链路影响
+7. **注释规范**：注释只描述功能含义，禁止包含 P0/P1/P2/R2x 等优先级轮次标记
 
 ### 本地开发验证流程
 

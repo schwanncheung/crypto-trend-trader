@@ -30,7 +30,13 @@ _MIN_SIGNAL_STRENGTH = _TRADING_CFG.get("min_signal_strength", 7)
 _MIN_RR_RATIO = _TRADING_CFG.get("min_rr_ratio", 2.0)
 _RSI_OVERBOUGHT = _RULE_CFG.get("rsi_overbought", 70)
 _RSI_OVERSOLD = _RULE_CFG.get("rsi_oversold", 30)
-_RSI_OVERSOLD_STRICT = _RULE_CFG.get("rsi_oversold_strict", False)  # P1：超卖严格模式
+_RSI_OVERSOLD_STRICT = _RULE_CFG.get("rsi_oversold_strict", False)
+
+# 回踩入场配置
+_RETEST_ENTRY_CFG = _TRADING_CFG.get("retest_entry", {})
+RETEST_ENTRY_ENABLED = _RETEST_ENTRY_CFG.get("enabled", True)
+RETEST_MAX_DISTANCE_ATR = _RETEST_ENTRY_CFG.get("max_distance_atr", 1.5)
+RETEST_SKIP_IF_NOT_RETRACE = _RETEST_ENTRY_CFG.get("skip_if_not_retrace", True)
 
 
 def reload_config_from_dict(config: dict) -> None:
@@ -39,6 +45,7 @@ def reload_config_from_dict(config: dict) -> None:
     """
     global _MIN_TREND_STRENGTH, _MIN_SIGNAL_STRENGTH, _MIN_RR_RATIO, _TRADING_CFG, _RISK_CFG, _RULE_CFG
     global _RSI_OVERBOUGHT, _RSI_OVERSOLD, _RSI_OVERSOLD_STRICT
+    global RETEST_ENTRY_ENABLED, RETEST_MAX_DISTANCE_ATR, RETEST_SKIP_IF_NOT_RETRACE, _RETEST_ENTRY_CFG
 
     trading_cfg = config.get("trading", {})
     risk_cfg = config.get("risk", {})
@@ -55,12 +62,18 @@ def reload_config_from_dict(config: dict) -> None:
     _RSI_OVERSOLD = _RULE_CFG.get("rsi_oversold", _RSI_OVERSOLD)
     _RSI_OVERSOLD_STRICT = _RULE_CFG.get("rsi_oversold_strict", _RSI_OVERSOLD_STRICT)
 
+    _RETEST_ENTRY_CFG = _TRADING_CFG.get("retest_entry", {})
+    RETEST_ENTRY_ENABLED = _RETEST_ENTRY_CFG.get("enabled", True)
+    RETEST_MAX_DISTANCE_ATR = _RETEST_ENTRY_CFG.get("max_distance_atr", 1.5)
+    RETEST_SKIP_IF_NOT_RETRACE = _RETEST_ENTRY_CFG.get("skip_if_not_retrace", True)
+
     logger.info(
         f"[risk_filter] 配置已重载："
         f"min_signal_strength={_MIN_SIGNAL_STRENGTH}, "
         f"min_rr_ratio={_MIN_RR_RATIO}, "
         f"rsi_overbought={_RSI_OVERBOUGHT}, rsi_oversold={_RSI_OVERSOLD}, "
-        f"rsi_oversold_strict={_RSI_OVERSOLD_STRICT}"
+        f"rsi_oversold_strict={_RSI_OVERSOLD_STRICT}, "
+        f"retest_entry={RETEST_ENTRY_ENABLED}"
     )
 
 
@@ -112,7 +125,7 @@ def check_signal_quality(decision: dict) -> tuple[bool, str]:
         if signal == "long" and entry_rsi >= _RSI_OVERBOUGHT:
             return False, f"RSI={entry_rsi:.1f} 超买（>={_RSI_OVERBOUGHT}），禁止做多"
         if signal == "short" and entry_rsi <= _RSI_OVERSOLD:
-            # P1优化：RSI超卖严格模式 + Bearish Engulfing组合保护
+            # RSI超卖严格模式 + Bearish Engulfing组合保护
             if _RSI_OVERSOLD_STRICT:
                 return False, f"RSI={entry_rsi:.1f} <= {_RSI_OVERSOLD}（超卖严格模式），禁止做空"
             return False, f"RSI={entry_rsi:.1f} 超卖（<={_RSI_OVERSOLD}），禁止做空"
@@ -332,6 +345,77 @@ def _parse_rr(rr_str: str) -> float:
         return float(parts[1]) / float(parts[0])
     except Exception:
         return 0.0
+
+
+# ── 回踩入场检查（Price Action 核心原则）───────────────────────────────
+def check_retest_entry(
+    signal: str,
+    current_price: float,
+    support: float,
+    ema21: float,
+    atr: float,
+) -> tuple[bool, str]:
+    """
+    回踩入场检查：Price Action 核心原则，只在回撤中做多/反弹中做空。
+    做多入场时机：价格回撤到支撑或 EMA21 附近（距关键位 <= 1.5 ATR）
+    做空入场时机：价格反弹到阻力或 EMA21 附近（距关键位 <= 1.5 ATR）
+
+    参数：
+        signal: 信号方向（long/short）
+        current_price: 当前价格
+        support: 支撑位价格（波段低点）
+        ema21: EMA21 价格
+        atr: ATR 值
+
+    返回：(是否通过, 原因)
+    """
+    if not RETEST_ENTRY_ENABLED:
+        return True, "回踩入场检查已禁用"
+
+    if signal not in ["long", "short"]:
+        return True, "非交易信号，跳过回踩检查"
+
+    if atr <= 0:
+        logger.warning("ATR为0，无法进行回踩检查，跳过")
+        return True, "无ATR数据，跳过回踩检查"
+
+    if signal == "long":
+        # 回撤判断：价格距支撑/EMA21 的距离
+        support_zone = min(support, ema21)
+        if support_zone <= 0:
+            return True, "支撑位无效，跳过回踩检查"
+
+        distance_to_zone = (current_price - support_zone) / support_zone
+        distance_atr = distance_to_zone * support_zone / atr if atr > 0 else float('inf')
+
+        if distance_atr <= RETEST_MAX_DISTANCE_ATR:
+            return True, f"回踩入场：价格{current_price:.4g}接近支撑区{support_zone:.4g}（{distance_atr:.1f} ATR）"
+
+        if RETEST_SKIP_IF_NOT_RETRACE:
+            return False, f"非回踩入场：距支撑区{distance_atr:.1f} ATR（>{RETEST_MAX_DISTANCE_ATR}），追高风险高"
+        else:
+            logger.warning(f"非回踩入场：距支撑区{distance_atr:.1f} ATR，但允许开仓")
+            return True, f"非回踩入场：距支撑区{distance_atr:.1f} ATR"
+
+    elif signal == "short":
+        # 反弹判断：价格距阻力（支撑+5%或EMA21取较大者）
+        resistance_zone = max(support * 1.05, ema21)
+        if resistance_zone <= 0:
+            return True, "阻力位无效，跳过回踩检查"
+
+        distance_to_zone = (resistance_zone - current_price) / resistance_zone
+        distance_atr = distance_to_zone * resistance_zone / atr if atr > 0 else float('inf')
+
+        if distance_atr <= RETEST_MAX_DISTANCE_ATR:
+            return True, f"反弹入场：价格{current_price:.4g}接近阻力区{resistance_zone:.4g}（{distance_atr:.1f} ATR）"
+
+        if RETEST_SKIP_IF_NOT_RETRACE:
+            return False, f"非反弹入场：距阻力区{distance_atr:.1f} ATR（>{RETEST_MAX_DISTANCE_ATR}），追空风险高"
+        else:
+            logger.warning(f"非反弹入场：距阻力区{distance_atr:.1f} ATR，但允许开仓")
+            return True, f"非反弹入场：距阻力区{distance_atr:.1f} ATR"
+
+    return True, "未知信号，跳过回踩检查"
 
 
 # ── 测试入口 ──────────────────────────────────

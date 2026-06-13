@@ -244,6 +244,96 @@ def calculate_take_profit(
     return actual_tp, reason
 
 
+def calculate_structure_based_stop(
+    entry_price: float,
+    signal: str,
+    swing_high: float = None,
+    swing_low: float = None,
+    atr: float = None,
+) -> tuple[float, str]:
+    """
+    结构止损 — 将止损放在结构之外，避免被机构"狩猎"。
+
+    核心原则：
+    - 多头止损：放在 HH（更高高点）外侧 + 缓冲
+    - 空头止损：放在 LL（更低低点）外侧 + 缓冲
+
+    参数：
+        entry_price: 入场价格
+        signal: "long" 或 "short"
+        swing_high: 近期波段高点（用于计算多头止损）
+        swing_low: 近期波段低点（用于计算空头止损）
+        atr: ATR 值（用于兜底计算）
+
+    返回：
+        (stop_loss, reason)
+    """
+    structure_cfg = _TRADING_CFG.get("structure_stop", {})
+    if not structure_cfg.get("enabled", False):
+        return None, "structure_stop未启用"
+
+    buffer_pct = structure_cfg.get("buffer_pct", 0.005)  # 默认5‰缓冲
+    prefer_structure = structure_cfg.get("prefer_structure", True)
+
+    # 无法获取结构数据时，返回 None 让调用方使用 ATR 止损
+    if swing_high is None and swing_low is None:
+        return None, "无波段高低点数据"
+
+    if signal == "long":
+        if swing_high is None:
+            return None, "无波段高点数据"
+
+        # 多头止损放在 HH 外侧
+        structure_stop = swing_high * (1 + buffer_pct)
+
+        # ATR 止损兜底
+        atr_stop = None
+        if atr is not None:
+            atr_multiplier = _TRADING_CFG.get("stop_loss_atr_multiplier", 2.0)
+            atr_stop = entry_price - atr_multiplier * atr
+
+        # 取较远的止损（给予更多呼吸空间）
+        if atr_stop is not None and prefer_structure:
+            stop_loss = min(structure_stop, atr_stop)
+            reason = f"结构止损(多)：HH={swing_high:.6g}, ATR止损={atr_stop:.6g}"
+        elif atr_stop is not None:
+            stop_loss = atr_stop
+            reason = f"ATR止损(多)：HH={swing_high:.6g}"
+        else:
+            stop_loss = structure_stop
+            reason = f"结构止损(多)：HH={swing_high:.6g}"
+
+    elif signal == "short":
+        if swing_low is None:
+            return None, "无波段低点数据"
+
+        # 空头止损放在 LL 外侧
+        structure_stop = swing_low * (1 - buffer_pct)
+
+        # ATR 止损兜底
+        atr_stop = None
+        if atr is not None:
+            atr_multiplier = _TRADING_CFG.get("stop_loss_atr_multiplier", 2.0)
+            atr_stop = entry_price + atr_multiplier * atr
+
+        # 取较远的止损
+        if atr_stop is not None and prefer_structure:
+            stop_loss = max(structure_stop, atr_stop)
+            reason = f"结构止损(空)：LL={swing_low:.6g}, ATR止损={atr_stop:.6g}"
+        elif atr_stop is not None:
+            stop_loss = atr_stop
+            reason = f"ATR止损(空)：LL={swing_low:.6g}"
+        else:
+            stop_loss = structure_stop
+            reason = f"结构止损(空)：LL={swing_low:.6g}"
+
+    else:
+        return None, "未知信号方向"
+
+    logger.info(f"结构止损计算：入场={entry_price:.6g}, {reason}, 最终止损={stop_loss:.6g}")
+    return stop_loss, reason
+
+
 def calculate_trailing_stop(
     current_price: float,
     atr: float,
