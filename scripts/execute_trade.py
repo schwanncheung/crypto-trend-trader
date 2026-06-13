@@ -47,11 +47,22 @@ def create_exchange() -> ccxt.Exchange:
     if EXCHANGE_CFG.get("testnet", True):
         exchange.set_sandbox_mode(True)
 
-    # 强制重新加载市场数据，避免 ccxt 缓存损坏导致 keysort 错误
+    # 强制清空市场缓存，避免 ccxt 缓存损坏导致 keysort 错误
+    exchange.markets = None
+    exchange.markets_by_id = None
+
+    # 重新加载市场数据
     try:
-        exchange.load_markets(reload=True)
+        exchange.load_markets()
     except Exception as e:
         logger.warning(f"重新加载市场数据失败：{e}")
+        # 再次清空后重试
+        exchange.markets = None
+        exchange.markets_by_id = None
+        try:
+            exchange.load_markets()
+        except Exception as e2:
+            logger.error(f"市场数据加载二次失败：{e2}")
 
     return exchange
 

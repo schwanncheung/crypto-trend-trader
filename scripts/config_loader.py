@@ -62,11 +62,18 @@ def setup_logging(log_name: str, max_bytes: int = 10 * 1024 * 1024, backup_count
 
     root = logging.getLogger()
 
-    # 清理所有已存在的文件 handler，避免日志重复写入多个文件
-    root.handlers = [
-        h for h in root.handlers
-        if not isinstance(h, RotatingFileHandler)
-    ]
+    # 避免重复添加 handler：检查是否已有指向该日志文件的 handler
+    log_file_str = str(log_file)
+    existing_handler = None
+    for h in root.handlers:
+        if isinstance(h, RotatingFileHandler) and hasattr(h, 'baseFilename'):
+            if h.baseFilename == log_file_str:
+                existing_handler = h
+                break
+
+    if existing_handler:
+        # 已存在该文件的 handler，直接复用
+        return
 
     # 添加当前模块的文件 handler
     file_handler = RotatingFileHandler(
@@ -78,7 +85,7 @@ def setup_logging(log_name: str, max_bytes: int = 10 * 1024 * 1024, backup_count
     file_handler.setFormatter(fmt)
     root.addHandler(file_handler)
 
-    # console handler：只加一个
+    # console handl个
     has_console = any(isinstance(h, logging.StreamHandler) and not isinstance(h, RotatingFileHandler)
                       for h in root.handlers)
     if not has_console:
