@@ -155,21 +155,23 @@ def get_open_positions(exchange: ccxt.Exchange) -> list:
             {
                 "symbol": p["symbol"],
                 "side": p["side"],
-                "contracts": float(p.get("contracts", 0)),
-                "entry_price": float(p.get("entryPrice", 0)),
-                "unrealized_pnl": float(p.get("unrealizedPnl", 0)),
-                "percentage": float(p.get("percentage", 0)),
-                "leverage": float(p.get("leverage", 1)),
+                "contracts": float(p.get("contracts") or 0),
+                "entry_price": float(p.get("entryPrice") or 0),
+                "unrealized_pnl": float(p.get("unrealizedPnl") or 0),
+                "percentage": float(p.get("percentage") or 0),
+                "leverage": float(p.get("leverage") or 1),
                 "margin": float(p.get("initialMargin") or p.get("margin") or 0),
                 "liquidation_price": float(p.get("liquidationPrice") or 0),
                 **_load_ai_key_levels(p["symbol"]),
             }
             for p in positions
-            if float(p.get("contracts", 0)) > 0
+            if float(p.get("contracts") or 0) > 0
         ]
         return active
     except Exception as e:
         logger.error(f"获取持仓失败：{e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return []
 
 
