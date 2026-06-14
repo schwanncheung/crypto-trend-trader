@@ -88,14 +88,14 @@ trade_manager.py (持仓管理，每4分钟)
 ```python
 # 止损距离 = ATR × multiplier
 # 基础倍数 2.0x，给予更多呼吸空间，减少正常波动被止损
-# multiplier 随 ADX 动态调整（需启用 stop_loss_adx_scaling.enabled）：
+# multiplier 随 ADX 动态调整（需启用 stop_loss_adx_scaling.enabled，2026-06-13 起默认关闭）：
 #   ADX < 40:  2.0x（基础）
-#   ADX 40-60: 2.4x（强趋势）
-#   ADX ≥ 60:  3.0x（极强趋势）
+#   ADX 40-60: 1.2x（强趋势）
+#   ADX ≥ 60:  1.5x（极强趋势）
 
 # 止损合理性检查（不强制收缩）：
 # 实际上限 = max_stop_loss_pct × max_stop_loss_multiplier
-# 默认 2.0% × 1.5 = 3.0%
+# 默认 2.0% × 1.0 = 2.0%
 # 止损距离 < 实际上限 → 使用完整 ATR 止损
 # 止损距离 > 实际上限 → 拒绝信号（品种波动异常）
 
@@ -122,7 +122,7 @@ trade_manager.py (持仓管理，每4分钟)
 # 7. 无背离风险
 # 8. 结构未打破
 # 9. RSI 极值保护：
-#    做多：entry_rsi < rsi_overbought（默认 60）
+#    做多：entry_rsi < rsi_overbought（默认 65）
 #    做空：entry_rsi > rsi_oversold（默认 35）
 # 10. RSI 超卖严格模式（rsi_oversold_strict=true）：
 #     RSI <= rsi_oversold 时禁止所有做空（裸K逻辑：超卖是反弹结构非趋势延续）
@@ -130,6 +130,9 @@ trade_manager.py (持仓管理，每4分钟)
 #     RSI 超卖区出现看跌吞没 = 强反弹结构，禁止做空
 # 12. RSI 中性区做空保护：40-60区间禁止做空
 # 13. 回调入场过滤（Price Action原则，check_pullback_entry）
+#     - 做多最佳区间 RSI 30-55；RSI > 55 追多拦截，RSI < 30 下跌中继拦截
+#     - 做空最佳区间 RSI 45-70；RSI < 45 追空拦截，RSI > 70 上涨中继拦截
+#     - 调用方：check_signal_quality 末尾（不可被 ADX 强趋势豁免）
 ```
 
 ### 3.5 仓位计算
@@ -215,15 +218,17 @@ trade_manager 按持仓方向选择对应字段，避免多头创新高时被误
 ```
 Price Action 核心原则：只在回撤中做多/反弹中做空。
 
-做多入场时机：
-- 价格回撤到支撑或 EMA21 附近（距关键位 <= 1.5 ATR）
-- 不在 RSI > 55 时追多（已是回调后段）
-- 不在 RSI < 30 时做多（可能是下跌中继）
+做多入场时机：价格回撤到支撑或 EMA21 附近（距关键位 <= 1.5 ATR）
+做空入场时机：价格反弹到阻力或 EMA21 附近（距关键位 <= 1.5 ATR）
 
-做空入场时机：
-- 价格反弹到阻力或 EMA21 附近（距关键位 <= 1.5 ATR）
-- 不在 RSI < 45 时追空（已是反弹后段）
-- 不在 RSI > 70 时做空（可能是上涨中继）
+配置（trading.retest_entry）：
+- enabled: 是否启用
+- max_distance_atr: 价格距关键位的最大距离（ATR 倍数）
+- skip_if_not_retrace: 非回踩时是否跳过信号
+
+调用方：market_scanner 风控通过后、执行交易前
+- 距关键位 > 1.5 ATR 则跳过该信号（不调仓）
+- RSI 回调检查由 check_pullback_entry 独立负责（见 3.4 #13）
 ```
 
 ### 3.10 结构止损 (`dynamic_stop_take_profit.py:calculate_structure_based_stop`)
@@ -237,6 +242,11 @@ Price Action 核心原则：只在回撤中做多/反弹中做空。
 配置：
 - buffer_pct: 止损缓冲（默认5‰）
 - prefer_structure: 优先使用结构止损
+
+调用方：execute_from_decision 解析 AI 决策后、仓位计算前
+- 需 market_scanner 提前注入 _swing_high / _swing_low / _atr 到 decision
+- 验证止损方向（多头SL<入场价、空头SL>入场价）后才覆写原 SL
+- 无 swing 数据时返回 None，保持原 ATR 止损
 ```
 
 ### 3.11 形态位置质量评分 (`indicator_engine.py:evaluate_pattern_quality`)
@@ -248,6 +258,11 @@ Price Action 原则：形态在支撑/阻力位出现 = 高质量信号
 - high：形态触及支撑/阻力（5‰内）→ 仓位加成 1.2x
 - medium：形态在 EMA21 附近（1%内）→ 仓位不变
 - low：形态在趋势中途（远离关键位）→ 仓位折减 0.7x
+
+调用方：execute_trade._calculate_position
+- 在原有 pattern_boost 之上叠乘 quality_boost（1.2/1.0/0.7）
+- 需 market_scanner 提前注入 _support / _ema21 到 decision
+- 无支撑/EMA21 数据时默认为 medium（不调整 boost）
 ```
 
 ### 3.12 趋势阶段判断 (`indicator_engine.py:get_trend_phase`)
@@ -272,11 +287,11 @@ timeframes: ["1h", "15m", "5m"]
 trading:
   enable_open_position: true    # 开仓总开关
   min_signal_strength: 7        # 最低信号强度
-  min_rr_ratio: 2.0             # 最低盈亏比
-  target_rr_ratio: 2.5          # 止盈R倍数
+  min_rr_ratio: 1.8             # 最低盈亏比（2026-05-09 调回 1.8）
+  target_rr_ratio: 1.8          # 止盈设置：止盈距离 = 止损距离 × 此倍数
   stop_loss_atr_multiplier: 2.0 # 止损ATR倍数
   max_stop_loss_pct: 2.0        # 止损上限(%)
-  max_take_profit_pct: 6.0      # 止盈上限(%)
+  max_take_profit_pct: 4.0      # 止盈上限(%)
   trailing_stop_atr_multiplier: 2.0  # 跟踪止损 ATR 倍数
 
   # 形态仓位倍数
@@ -445,6 +460,8 @@ ln -sf $(pwd)/docs/MEMORY.md ~/.claude/projects/$(pwd | sed 's/\//-/g')/memory/M
 ```
 
 ---
+
+*最后更新：2026-06-14（接线 check_pullback_entry / evaluate_pattern_quality / calculate_structure_based_stop，修结构止损函数 min/max 语义反掉 bug）*
 
 *最后更新：2026-06-13（ADX30、ATR2.0x、PinBar0.5x、两批止盈）*
 

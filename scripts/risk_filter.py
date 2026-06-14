@@ -144,6 +144,13 @@ def check_signal_quality(decision: dict) -> tuple[bool, str]:
         if 40 <= entry_rsi <= 60:
             return False, f"RSI={entry_rsi:.1f} 处于中性区（40-60），禁止做空"
 
+    # ── 回调入场检查（Price Action 核心）────────────
+    # 不在 RSI > 55 时追多，不在 RSI < 45 时追空
+    # 不被强趋势豁免（与 RSI 中性区做空保护同级，不可豁免）
+    pullback_ok, pullback_reason = check_pullback_entry(signal, entry_rsi)
+    if not pullback_ok:
+        return False, pullback_reason
+
     return True, "信号质量检查通过"
 
 
@@ -156,37 +163,42 @@ def check_pullback_entry(
     回调入场过滤器：Price Action 核心原则，只在回调底部做多/顶部做空。
 
     做多入场时机：
-    1. RSI 必须从回调低位反弹（30-45 区间）后入场
+    1. RSI 最佳区间 30-55（回调低位区）
     2. 不在 RSI > 55 时追多（已是回调后段）
     3. 不在 RSI < 30 时做多（可能是下跌中继）
 
     做空入场时机：
-    1. RSI 必须从回调高位回落（55-70 区间）后入场
+    1. RSI 最佳区间 45-70（回调高位区）
     2. 不在 RSI < 45 时追空（已是反弹后段）
     3. 不在 RSI > 70 时做空（可能是上涨中继）
+
+    返回：
+    - 严格拦截：RSI > 55 做多 / RSI < 45 做空 / RSI < 30 做多 / RSI > 70 做空
+    - 严格通过：RSI 30-55 做多 / RSI 45-70 做空
+    - 默认通过：其他区间（不明确不拦截）
     """
     if entry_rsi is None:
         return True, "无RSI数据，跳过回调入场检查"
 
     if signal == "long":
-        # 回调低位入场：RSI 在 30-50 区间
+        # 回调低位入场：RSI 在 30-55 区间
         if entry_rsi > 55:
             return False, f"做多 RSI={entry_rsi:.1f} > 55，已在回调后段，追多风险高"
         if entry_rsi < 30:
             return False, f"做多 RSI={entry_rsi:.1f} < 30，可能是下跌中继，等待企稳"
-        if 30 <= entry_rsi <= 50:
-            return True, f"做多 RSI={entry_rsi:.1f} 在回调低位区（30-50），入场质量好"
+        if 30 <= entry_rsi <= 55:
+            return True, f"做多 RSI={entry_rsi:.1f} 在回调低位区（30-55），入场质量好"
 
     elif signal == "short":
-        # 回调高位入场：RSI 在 50-70 区间
+        # 回调高位入场：RSI 在 45-70 区间
         if entry_rsi < 45:
             return False, f"做空 RSI={entry_rsi:.1f} < 45，已在反弹后段，追空风险高"
         if entry_rsi > 70:
             return False, f"做空 RSI={entry_rsi:.1f} > 70，可能是上涨中继，等待见顶"
-        if 50 <= entry_rsi <= 70:
-            return True, f"做空 RSI={entry_rsi:.1f} 在回调高位区（50-70），入场质量好"
+        if 45 <= entry_rsi <= 70:
+            return True, f"做空 RSI={entry_rsi:.1f} 在回调高位区（45-70），入场质量好"
 
-    return False, "RSI 不在理想入场区间"
+    return True, "RSI 处于可接受范围"
 
 
 def check_daily_loss(

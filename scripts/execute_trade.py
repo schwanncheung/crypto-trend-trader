@@ -267,6 +267,41 @@ def execute_from_decision(
                 "reason": f"AI决策缺少必要价格参数：entry={entry_price} sl={stop_loss} tp={take_profit}"
             }
 
+        # ── 1.5 结构止损（Price Action 核心）───────────
+        # 如果 market_scanner 注入了 swing 数据，优先使用结构止损
+        # 多头止损 = 错周期 HH 外侧；空头止损 = 错周期 LL 外侧
+        try:
+            from dynamic_stop_take_profit import calculate_structure_based_stop
+            structure_stop, structure_reason = calculate_structure_based_stop(
+                entry_price=float(entry_price),
+                signal=signal,
+                swing_high=decision.get("_swing_high"),
+                swing_low=decision.get("_swing_low"),
+                atr=decision.get("_atr"),
+            )
+            if structure_stop is not None and structure_stop > 0:
+                # 验证：多头的结构止损必须 < 入场价；空头必须 > 入场价
+                if signal == "long" and structure_stop < float(entry_price):
+                    logger.info(
+                        f"[结构止损] {symbol} 覆写 SL: {stop_loss} → {structure_stop} "
+                        f"（{structure_reason}）"
+                    )
+                    stop_loss = structure_stop
+                elif signal == "short" and structure_stop > float(entry_price):
+                    logger.info(
+                        f"[结构止损] {symbol} 覆写 SL: {stop_loss} → {structure_stop} "
+                        f"（{structure_reason}）"
+                    )
+                    stop_loss = structure_stop
+                else:
+                    logger.info(
+                        f"[结构止损] {symbol} 结构止损 {structure_stop} 方向异常，保持原 SL={stop_loss}"
+                    )
+            else:
+                logger.info(f"[结构止损] {symbol} 未启用/无数据，保持原 SL={stop_loss}（{structure_reason}）")
+        except Exception as e:
+            logger.warning(f"[结构止损] {symbol} 计算失败，保持原 SL：{e}")
+
         # ── 2. 仓位信息（优先用风控传入的，否则自动计算）──
         pattern_boost = decision.get("pattern_boost", 1.0)  # 形态仓位倍数
         entry_pattern = decision.get("signal_type", "none")  # 形态类型（none=无形态）
@@ -278,6 +313,7 @@ def execute_from_decision(
                 stop_loss=float(stop_loss),
                 pattern_boost=pattern_boost,
                 entry_pattern=entry_pattern,
+                decision=decision,
             )
 
         contracts   = position_info.get("contracts")
@@ -478,6 +514,7 @@ def _calculate_position(
     stop_loss: float,
     pattern_boost: float = 1.0,
     entry_pattern: str = "none",
+    decision: dict = None,
 ) -> dict:
     """
     根据固定风险比例自动计算开仓张数
@@ -501,6 +538,32 @@ def _calculate_position(
         if entry_pattern == "none" or entry_pattern == "":
             effective_boost = pattern_boost * 0.5
             logger.info(f"[仓位计算] {symbol} 无形态信号（entry_pattern={entry_pattern}），仓位降至 50%（boost: {pattern_boost}→{effective_boost}）")
+
+        # ── 形态位置质量评分（Price Action 原则）─────
+        # 形态在支撑/阻力位=高质量加仓，趋势中途=低质量减仓
+        try:
+            from indicator_engine import evaluate_pattern_quality
+            # 从 decision 拿支撑/EMA21（由 market_scanner 注入）
+            support_price = None
+            ema21_price = None
+            if decision is not None:
+                support_price = decision.get("_support")
+                ema21_price = decision.get("_ema21")
+            quality_level, quality_boost = evaluate_pattern_quality(
+                pattern=entry_pattern,
+                current_price=entry_price,
+                support=support_price,
+                ema21=ema21_price,
+            )
+            if quality_level != "unknown" and quality_boost != 1.0:
+                old_boost = effective_boost
+                effective_boost = effective_boost * quality_boost
+                logger.info(
+                    f"[仓位计算] {symbol} 形态质量={quality_level}，"
+                    f"boost={quality_boost}（{old_boost:.2f}→{effective_boost:.2f}）"
+                )
+        except Exception as e:
+            logger.warning(f"[仓位计算] {symbol} 形态质量评分失败，使用默认 boost：{e}")
 
         logger.info(
             f"余额状态 | free（可用）：{free_usdt:.2f} USDT | "

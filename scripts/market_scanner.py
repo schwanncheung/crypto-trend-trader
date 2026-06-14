@@ -291,6 +291,31 @@ def main():
                 continue
             logger.info(f"{symbol} 回踩入场检查通过: {retest_reason}")
 
+            # ── 注入结构止损所需元数据（从错周期 K线计算 swing）──
+            try:
+                from fetch_kline import detect_trend_structure
+                anchor_df = data[anchor_tf]
+                if not anchor_df.empty and len(anchor_df) >= 10:
+                    structure = detect_trend_structure(anchor_df)
+                    swing_highs = structure.get("swing_highs", [])
+                    swing_lows = structure.get("swing_lows", [])
+                    # 价顺序：swing_highs 为降序的 (index, price) 列表，swing_lows 为升序
+                    if swing_highs:
+                        decision["_swing_high"] = max(h[1] for h in swing_highs)
+                    if swing_lows:
+                        decision["_swing_low"] = min(l[1] for l in swing_lows)
+                    if atr:
+                        decision["_atr"] = atr
+                    decision["_support"] = support[0] if support else None
+                    logger.info(
+                        f"{symbol} 结构数据已注入 decision: "
+                        f"swing_high={decision.get('_swing_high')}, "
+                        f"swing_low={decision.get('_swing_low')}, "
+                        f"atr={decision.get('_atr')}"
+                    )
+            except Exception as e:
+                logger.warning(f"{symbol} 结构数据计算失败，跳过结构止损注入：{e}")
+
             # 趋势阶段判断（避免在趋势末期追单）
             from indicator_engine import compute_timeframe_indicators as compute_indicators
             indicator_5m = compute_indicators(data.get("5m", data[anchor_tf]), "5m")

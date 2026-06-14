@@ -293,8 +293,9 @@ def calculate_structure_based_stop(
             atr_stop = entry_price - atr_multiplier * atr
 
         # 取较远的止损（给予更多呼吸空间）
+        # 多头止损在入场价下方：stop_loss 越大越远
         if atr_stop is not None and prefer_structure:
-            stop_loss = min(structure_stop, atr_stop)
+            stop_loss = max(structure_stop, atr_stop)
             reason = f"结构止损(多)：HH={swing_high:.6g}, ATR止损={atr_stop:.6g}"
         elif atr_stop is not None:
             stop_loss = atr_stop
@@ -317,6 +318,7 @@ def calculate_structure_based_stop(
             atr_stop = entry_price + atr_multiplier * atr
 
         # 取较远的止损
+        # 空头止损在入场价上方：stop_loss 越大越远
         if atr_stop is not None and prefer_structure:
             stop_loss = max(structure_stop, atr_stop)
             reason = f"结构止损(空)：LL={swing_low:.6g}, ATR止损={atr_stop:.6g}"
