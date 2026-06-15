@@ -34,6 +34,11 @@ _RSI_OVERSOLD_STRICT = _RULE_CFG.get("rsi_oversold_strict", False)
 # RSI 中性区做空保护阈值（从 rule_filter 配置读取，禁止硬编码）
 _RSI_NEUTRAL_SHORT_BAN_LOWER = _RULE_CFG.get("rsi_neutral_short_ban_lower", 40)
 _RSI_NEUTRAL_SHORT_BAN_UPPER = _RULE_CFG.get("rsi_neutral_short_ban_upper", 60)
+# 回调入场 RSI 区间（check_pullback_entry 从配置读取，禁止硬编码）
+_PULLBACK_LONG_LOWER  = _RULE_CFG.get("pullback_long_lower",  30)
+_PULLBACK_LONG_UPPER  = _RULE_CFG.get("pullback_long_upper",  55)
+_PULLBACK_SHORT_LOWER = _RULE_CFG.get("pullback_short_lower", 45)
+_PULLBACK_SHORT_UPPER = _RULE_CFG.get("pullback_short_upper", 70)
 
 # 回踩入场配置
 _RETEST_ENTRY_CFG = _TRADING_CFG.get("retest_entry", {})
@@ -70,6 +75,10 @@ def reload_config_from_dict(config: dict) -> None:
     _RSI_NEUTRAL_SHORT_BAN_UPPER = _RULE_CFG.get(
         "rsi_neutral_short_ban_upper", _RSI_NEUTRAL_SHORT_BAN_UPPER
     )
+    _PULLBACK_LONG_LOWER  = _RULE_CFG.get("pullback_long_lower",  _PULLBACK_LONG_LOWER)
+    _PULLBACK_LONG_UPPER  = _RULE_CFG.get("pullback_long_upper",  _PULLBACK_LONG_UPPER)
+    _PULLBACK_SHORT_LOWER = _RULE_CFG.get("pullback_short_lower", _PULLBACK_SHORT_LOWER)
+    _PULLBACK_SHORT_UPPER = _RULE_CFG.get("pullback_short_upper", _PULLBACK_SHORT_UPPER)
 
     _RETEST_ENTRY_CFG = _TRADING_CFG.get("retest_entry", {})
     RETEST_ENTRY_ENABLED = _RETEST_ENTRY_CFG.get("enabled", True)
@@ -174,41 +183,63 @@ def check_pullback_entry(
     """
     回调入场过滤器：Price Action 核心原则，只在回调底部做多/顶部做空。
 
+    区间从 rule_filter 配置读取（2026-06-15 消除硬编码）：
+    - 做多：pullback_long_lower=30 / pullback_long_upper=55
+    - 做空：pullback_short_lower=45 / pullback_short_upper=70
+
     做多入场时机：
-    1. RSI 最佳区间 30-55（回调低位区）
-    2. 不在 RSI > 55 时追多（已是回调后段）
-    3. 不在 RSI < 30 时做多（可能是下跌中继）
+    1. RSI 最佳区间 [lower, upper]（回调低位区）
+    2. 不在 RSI > upper 时追多（已是回调后段）
+    3. 不在 RSI < lower 时做多（可能是下跌中继）
 
     做空入场时机：
-    1. RSI 最佳区间 45-70（回调高位区）
-    2. 不在 RSI < 45 时追空（已是反弹后段）
-    3. 不在 RSI > 70 时做空（可能是上涨中继）
+    1. RSI 最佳区间 [lower, upper]（回调高位区）
+    2. 不在 RSI < lower 时追空（已是反弹后段）
+    3. 不在 RSI > upper 时做空（可能是上涨中继）
 
     返回：
-    - 严格拦截：RSI > 55 做多 / RSI < 45 做空 / RSI < 30 做多 / RSI > 70 做空
-    - 严格通过：RSI 30-55 做多 / RSI 45-70 做空
+    - 严格拦截：RSI > upper 做多 / RSI < lower 做空 / RSI < lower 做多 / RSI > upper 做空
+    - 严格通过：RSI [lower, upper] 做多 / RSI [lower, upper] 做空
     - 默认通过：其他区间（不明确不拦截）
     """
     if entry_rsi is None:
         return True, "无RSI数据，跳过回调入场检查"
 
     if signal == "long":
-        # 回调低位入场：RSI 在 30-55 区间
-        if entry_rsi > 55:
-            return False, f"做多 RSI={entry_rsi:.1f} > 55，已在回调后段，追多风险高"
-        if entry_rsi < 30:
-            return False, f"做多 RSI={entry_rsi:.1f} < 30，可能是下跌中继，等待企稳"
-        if 30 <= entry_rsi <= 55:
-            return True, f"做多 RSI={entry_rsi:.1f} 在回调低位区（30-55），入场质量好"
+        # 回调低位入场：RSI 在 [lower, upper] 区间
+        if entry_rsi > _PULLBACK_LONG_UPPER:
+            return False, (
+                f"做多 RSI={entry_rsi:.1f} > {_PULLBACK_LONG_UPPER}，"
+                f"已在回调后段，追多风险高"
+            )
+        if entry_rsi < _PULLBACK_LONG_LOWER:
+            return False, (
+                f"做多 RSI={entry_rsi:.1f} < {_PULLBACK_LONG_LOWER}，"
+                f"可能是下跌中继，等待企稳"
+            )
+        if _PULLBACK_LONG_LOWER <= entry_rsi <= _PULLBACK_LONG_UPPER:
+            return True, (
+                f"做多 RSI={entry_rsi:.1f} 在回调低位区"
+                f"（{_PULLBACK_LONG_LOWER}-{_PULLBACK_LONG_UPPER}），入场质量好"
+            )
 
     elif signal == "short":
-        # 回调高位入场：RSI 在 45-70 区间
-        if entry_rsi < 45:
-            return False, f"做空 RSI={entry_rsi:.1f} < 45，已在反弹后段，追空风险高"
-        if entry_rsi > 70:
-            return False, f"做空 RSI={entry_rsi:.1f} > 70，可能是上涨中继，等待见顶"
-        if 45 <= entry_rsi <= 70:
-            return True, f"做空 RSI={entry_rsi:.1f} 在回调高位区（45-70），入场质量好"
+        # 回调高位入场：RSI 在 [lower, upper] 区间
+        if entry_rsi < _PULLBACK_SHORT_LOWER:
+            return False, (
+                f"做空 RSI={entry_rsi:.1f} < {_PULLBACK_SHORT_LOWER}，"
+                f"已在反弹后段，追空风险高"
+            )
+        if entry_rsi > _PULLBACK_SHORT_UPPER:
+            return False, (
+                f"做空 RSI={entry_rsi:.1f} > {_PULLBACK_SHORT_UPPER}，"
+                f"可能是上涨中继，等待见顶"
+            )
+        if _PULLBACK_SHORT_LOWER <= entry_rsi <= _PULLBACK_SHORT_UPPER:
+            return True, (
+                f"做空 RSI={entry_rsi:.1f} 在回调高位区"
+                f"（{_PULLBACK_SHORT_LOWER}-{_PULLBACK_SHORT_UPPER}），入场质量好"
+            )
 
     return True, "RSI 处于可接受范围"
 

@@ -116,6 +116,14 @@ analysis:
     rsi_neutral_short_ban_upper: 60
     rsi_neutral_short_ban_lower: 35   # RSI中性区做空保护下限
 
+    # 2.8.1 回调入场 RSI 区间（check_pullback_entry 从配置读取，2026-06-15 消除硬编码）
+    #   做多：RSI 在 [pullback_long_lower, pullback_long_upper] 视为回调低位
+    #   做空：RSI 在 [pullback_short_lower, pullback_short_upper] 视为回调高位
+    pullback_long_lower: 30
+    pullback_long_upper: 55
+    pullback_short_lower: 45
+    pullback_short_upper: 70
+
     # 2.9 时段做空限制（Round 5 分析：欧洲盘做空 7 笔 6 亏，贡献 -95 U）
     session_short_banned: []  # 禁止做空的时段列表
 

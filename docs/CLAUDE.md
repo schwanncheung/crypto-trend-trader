@@ -133,8 +133,9 @@ trade_manager.py (持仓管理，每4分钟)
 #     - 读取位置：scripts/risk_filter.py → _RSI_NEUTRAL_SHORT_BAN_LOWER / _UPPER
 #     - 与 check_pullback_entry 做空 45-70 区间存在重叠（多关卡保护）
 # 13. 回调入场过滤（Price Action原则，check_pullback_entry）
-#     - 做多最佳区间 RSI 30-55；RSI > 55 追多拦截，RSI < 30 下跌中继拦截
-#     - 做空最佳区间 RSI 45-70；RSI < 45 追空拦截，RSI > 70 上涨中继拦截
+#     - 做多最佳区间 RSI [pullback_long_lower, pullback_long_upper]（默认 30-55）
+#     - 做空最佳区间 RSI [pullback_short_lower, pullback_short_upper]（默认 45-70）
+#     - 区间从 rule_filter 配置读取，2026-06-15 消除硬编码
 #     - 调用方：check_signal_quality 末尾（不可被 ADX 强趋势豁免）
 ```
 
@@ -450,6 +451,18 @@ python backtest/run_backtest.py optimize --workers 4
 - [ ] 新参数已添加到 `settings.yaml` 并写注释
 - [ ] 涉及架构变更已更新 CLAUDE.md
 
+### 9.1.1 回调入场 RSI 区间配置速查
+
+| 配置项 | 默认 | 说明 |
+|--------|------|------|
+| `rule_filter.pullback_long_lower` | 30 | 做多回调区间下限 |
+| `rule_filter.pullback_long_upper` | 55 | 做多回调区间上限 |
+| `rule_filter.pullback_short_lower` | 45 | 做空回调区间下限 |
+| `rule_filter.pullback_short_upper` | 70 | 做空回调区间上限 |
+
+读取位置：`scripts/risk_filter.py` → `_PULLBACK_LONG_LOWER/UPPER` / `_PULLBACK_SHORT_LOWER/UPPER`
+配套保护：`rule_filter.rsi_neutral_short_ban_lower=35` / `upper=60`（与本表做空区间有 45-60 重叠，叠加保护）
+
 ### 9.1 一致性检查铁律（2026-06-15 确立）
 
 **核心原则**：代码、策略配置（settings.yaml / symbols.yaml）、CLAUDE.md 文档三者必须时刻保持一致。任何一项变更，必须同步另外两项。
@@ -497,6 +510,8 @@ ln -sf $(pwd)/docs/MEMORY.md ~/.claude/projects/$(pwd | sed 's/\//-/g')/memory/M
 ```
 
 ---
+
+*最后更新：2026-06-15（check_pullback_entry 30-55/45-70 硬编码改读配置，新增配置速查 9.1.1）*
 
 *最后更新：2026-06-15（修复 RSI 中性区做空保护硬编码 40-60 改读配置，确立一致性检查铁律 9.1）*
 
