@@ -31,6 +31,9 @@ _MIN_RR_RATIO = _TRADING_CFG.get("min_rr_ratio", 2.0)
 _RSI_OVERBOUGHT = _RULE_CFG.get("rsi_overbought", 70)
 _RSI_OVERSOLD = _RULE_CFG.get("rsi_oversold", 30)
 _RSI_OVERSOLD_STRICT = _RULE_CFG.get("rsi_oversold_strict", False)
+# RSI 中性区做空保护阈值（从 rule_filter 配置读取，禁止硬编码）
+_RSI_NEUTRAL_SHORT_BAN_LOWER = _RULE_CFG.get("rsi_neutral_short_ban_lower", 40)
+_RSI_NEUTRAL_SHORT_BAN_UPPER = _RULE_CFG.get("rsi_neutral_short_ban_upper", 60)
 
 # 回踩入场配置
 _RETEST_ENTRY_CFG = _TRADING_CFG.get("retest_entry", {})
@@ -61,6 +64,12 @@ def reload_config_from_dict(config: dict) -> None:
     _RSI_OVERBOUGHT = _RULE_CFG.get("rsi_overbought", _RSI_OVERBOUGHT)
     _RSI_OVERSOLD = _RULE_CFG.get("rsi_oversold", _RSI_OVERSOLD)
     _RSI_OVERSOLD_STRICT = _RULE_CFG.get("rsi_oversold_strict", _RSI_OVERSOLD_STRICT)
+    _RSI_NEUTRAL_SHORT_BAN_LOWER = _RULE_CFG.get(
+        "rsi_neutral_short_ban_lower", _RSI_NEUTRAL_SHORT_BAN_LOWER
+    )
+    _RSI_NEUTRAL_SHORT_BAN_UPPER = _RULE_CFG.get(
+        "rsi_neutral_short_ban_upper", _RSI_NEUTRAL_SHORT_BAN_UPPER
+    )
 
     _RETEST_ENTRY_CFG = _TRADING_CFG.get("retest_entry", {})
     RETEST_ENTRY_ENABLED = _RETEST_ENTRY_CFG.get("enabled", True)
@@ -139,10 +148,13 @@ def check_signal_quality(decision: dict) -> tuple[bool, str]:
             and entry_pattern == "bearish_engulfing"):
         return False, f"RSI={entry_rsi:.1f} 超卖 + 看跌吞没 = 反弹结构，禁止做空"
 
-    # ── RSI 中性区做空保护（40-60区间禁止做空）────────────
+    # ── RSI 中性区做空保护（区间从 rule_filter 配置读取）────
     if signal == "short" and entry_rsi is not None:
-        if 40 <= entry_rsi <= 60:
-            return False, f"RSI={entry_rsi:.1f} 处于中性区（40-60），禁止做空"
+        if _RSI_NEUTRAL_SHORT_BAN_LOWER <= entry_rsi <= _RSI_NEUTRAL_SHORT_BAN_UPPER:
+            return False, (
+                f"RSI={entry_rsi:.1f} 处于中性区"
+                f"（{_RSI_NEUTRAL_SHORT_BAN_LOWER}-{_RSI_NEUTRAL_SHORT_BAN_UPPER}），禁止做空"
+            )
 
     # ── 回调入场检查（Price Action 核心）────────────
     # 不在 RSI > 55 时追多，不在 RSI < 45 时追空

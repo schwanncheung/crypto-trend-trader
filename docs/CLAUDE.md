@@ -128,7 +128,10 @@ trade_manager.py (持仓管理，每4分钟)
 #     RSI <= rsi_oversold 时禁止所有做空（裸K逻辑：超卖是反弹结构非趋势延续）
 # 11. Bearish Engulfing + RSI 超卖阻断：
 #     RSI 超卖区出现看跌吞没 = 强反弹结构，禁止做空
-# 12. RSI 中性区做空保护：40-60区间禁止做空
+# 12. RSI 中性区做空保护：从 rule_filter 配置读取区间（默认 35-60，2026-06-15 起消除硬编码）
+#     - 配置项：rsi_neutral_short_ban_lower / rsi_neutral_short_ban_upper
+#     - 读取位置：scripts/risk_filter.py → _RSI_NEUTRAL_SHORT_BAN_LOWER / _UPPER
+#     - 与 check_pullback_entry 做空 45-70 区间存在重叠（多关卡保护）
 # 13. 回调入场过滤（Price Action原则，check_pullback_entry）
 #     - 做多最佳区间 RSI 30-55；RSI > 55 追多拦截，RSI < 30 下跌中继拦截
 #     - 做空最佳区间 RSI 45-70；RSI < 45 追空拦截，RSI > 70 上涨中继拦截
@@ -447,6 +450,40 @@ python backtest/run_backtest.py optimize --workers 4
 - [ ] 新参数已添加到 `settings.yaml` 并写注释
 - [ ] 涉及架构变更已更新 CLAUDE.md
 
+### 9.1 一致性检查铁律（2026-06-15 确立）
+
+**核心原则**：代码、策略配置（settings.yaml / symbols.yaml）、CLAUDE.md 文档三者必须时刻保持一致。任何一项变更，必须同步另外两项。
+
+**适用范围**：所有代码、配置、文档修改（无论大小）。
+
+**一致性自检步骤（修改后必走）**：
+
+1. **代码 → 配置**：检查改动的阈值/区间/参数，是否都从配置文件读取（`grep "= [0-9]\+"` 扫描硬编码数字）
+2. **配置 → 文档**：检查 `settings.yaml` 新增/修改的字段，CLAUDE.md 对应章节是否同步更新
+3. **文档 → 代码**：检查 CLAUDE.md 描述的函数名/字段名/默认参数，是否与代码实际一致
+4. **回测 vs 生产配置**：回测通过 `backtest/config/backtest.yaml → override` 覆盖生产配置时，覆盖后的值必须在 CLAUDE.md 有说明
+
+**提交前必跑命令**（必带在 commit 前）：
+
+```bash
+# 1. 硬编码扫描
+grep -nE "if .*<=|>= [0-9]+(\\.[0-9]+)?\\)" scripts/risk_filter.py scripts/ai_analysis.py scripts/indicator_engine.py
+
+# 2. 配置项与文档字段对比
+diff <(grep -E "^[a-z_]+:" config/settings.yaml | sort) <(grep -oE "[a-z_]+" docs/CLAUDE.md | sort -u)
+
+# 3. 关键函数存在性检查
+python -c "from scripts.risk_filter import check_signal_quality; print('OK')"
+```
+
+**典型反例（2026-06-14 体检发现）**：
+
+| 反例 | 后果 |
+|------|------|
+| `risk_filter.py:144` 硬编码 `40 <= entry_rsi <= 60`，但 `settings.yaml` 是 35-60 | 配置项形同虚设，参数调整不生效 |
+| CLAUDE.md 写 `min_rr_ratio: 2.0`，但 `settings.yaml` 是 1.8 | 文档误导决策 |
+| R31 调整（pin_bar_bull 3.5x / none 0.0x）被多次 commit 回滚，文档未同步 | 决策意图 vs 实际执行脱节 |
+
 ---
 
 ## 十、开发环境设置
@@ -460,6 +497,8 @@ ln -sf $(pwd)/docs/MEMORY.md ~/.claude/projects/$(pwd | sed 's/\//-/g')/memory/M
 ```
 
 ---
+
+*最后更新：2026-06-15（修复 RSI 中性区做空保护硬编码 40-60 改读配置，确立一致性检查铁律 9.1）*
 
 *最后更新：2026-06-14（接线 check_pullback_entry / evaluate_pattern_quality / calculate_structure_based_stop，修结构止损函数 min/max 语义反掉 bug）*
 
