@@ -656,11 +656,15 @@ def compute_adx(df: pd.DataFrame, period: int = ADX_PERIOD) -> dict:
     plus_dm  = plus_dm.where(plus_dm > minus_dm, 0)
     minus_dm = minus_dm.where(minus_dm > plus_dm, 0)
 
-    atr      = tr.ewm(span=period, adjust=False).mean()
-    plus_di  = 100 * plus_dm.ewm(span=period, adjust=False).mean()  / atr.replace(0, np.nan)
-    minus_di = 100 * minus_dm.ewm(span=period, adjust=False).mean() / atr.replace(0, np.nan)
+    # ── Wilder 平滑（标准 alpha = 1/period，区别于 ewm(span=period) 的 alpha = 1/(period+1)）──
+    # 修复前: ewm(span=14) alpha=1/15，与标准 Wilder 公式偏差 ~0.5-0.7 点
+    # 影响: SOL/XRP 1h ADX 实测 33~35 被算成 26~27 误判横盘，2天0开仓根因
+    # 修复后: ewm(alpha=1/period) 与 Wilder 标准完全一致
+    atr      = tr.ewm(alpha=1.0/period, adjust=False).mean()
+    plus_di  = 100 * plus_dm.ewm(alpha=1.0/period, adjust=False).mean()  / atr.replace(0, np.nan)
+    minus_di = 100 * minus_dm.ewm(alpha=1.0/period, adjust=False).mean() / atr.replace(0, np.nan)
     dx       = (100 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, np.nan))
-    adx      = dx.ewm(span=period, adjust=False).mean()
+    adx      = dx.ewm(alpha=1.0/period, adjust=False).mean()
 
     return {
         "adx":      round(float(adx.iloc[-1]),      2),

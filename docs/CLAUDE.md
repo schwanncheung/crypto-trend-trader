@@ -133,8 +133,8 @@ trade_manager.py (持仓管理，每4分钟)
 #     - 读取位置：scripts/risk_filter.py → _RSI_NEUTRAL_SHORT_BAN_LOWER / _UPPER
 #     - 与 check_pullback_entry 做空 45-70 区间存在重叠（多关卡保护）
 # 13. 回调入场过滤（Price Action原则，check_pullback_entry）
-#     - 做多最佳区间 RSI [pullback_long_lower, pullback_long_upper]（默认 30-55）
-#     - 做空最佳区间 RSI [pullback_short_lower, pullback_short_upper]（默认 45-70）
+#     - 做多最佳区间 RSI [pullback_long_lower, pullback_long_upper]（默认 25-70，2026-06-20 放宽）
+#     - 做空最佳区间 RSI [pullback_short_lower, pullback_short_upper]（默认 30-75，2026-06-20 放宽）
 #     - 区间从 rule_filter 配置读取，2026-06-15 消除硬编码
 #     - 调用方：check_signal_quality 末尾（不可被 ADX 强趋势豁免）
 ```
@@ -455,10 +455,12 @@ python backtest/run_backtest.py optimize --workers 4
 
 | 配置项 | 默认 | 说明 |
 |--------|------|------|
-| `rule_filter.pullback_long_lower` | 30 | 做多回调区间下限 |
-| `rule_filter.pullback_long_upper` | 55 | 做多回调区间上限 |
-| `rule_filter.pullback_short_lower` | 45 | 做空回调区间下限 |
-| `rule_filter.pullback_short_upper` | 70 | 做空回调区间上限 |
+| `rule_filter.pullback_long_lower` | 25 | 做多回调区间下限（2026-06-20 由 30 放宽至 25） |
+| `rule_filter.pullback_long_upper` | 70 | 做多回调区间上限（2026-06-20 由 55 放宽至 70，放行强趋势追多） |
+| `rule_filter.pullback_short_lower` | 30 | 做空回调区间下限（2026-06-20 由 45 放宽至 30，放行强趋势追空） |
+| `rule_filter.pullback_short_upper` | 75 | 做空回调区间上限（2026-06-20 由 70 放宽至 75） |
+
+> **2026-06-20 放宽背景**：连续 82 小时 0 开仓，拦截分布显示 78% 死在 ADX<30 横盘过滤，3% 才进到 RSI/回调闸门；保留 `check_pullback_entry` 函数不动逻辑，仅放宽极端区间拦截（仍挡 RSI<25/>70 等极端值）。后续如需进一步调整，按本表修改即可。
 
 读取位置：`scripts/risk_filter.py` → `_PULLBACK_LONG_LOWER/UPPER` / `_PULLBACK_SHORT_LOWER/UPPER`
 配套保护：`rule_filter.rsi_neutral_short_ban_lower=35` / `upper=60`（与本表做空区间有 45-60 重叠，叠加保护）

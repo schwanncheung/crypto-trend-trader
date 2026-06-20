@@ -119,10 +119,13 @@ analysis:
     # 2.8.1 回调入场 RSI 区间（check_pullback_entry 从配置读取，2026-06-15 消除硬编码）
     #   做多：RSI 在 [pullback_long_lower, pullback_long_upper] 视为回调低位
     #   做空：RSI 在 [pullback_short_lower, pullback_short_upper] 视为回调高位
-    pullback_long_lower: 30
-    pullback_long_upper: 55
-    pullback_short_lower: 45
-    pullback_short_upper: 70
+    # 2026-06-20 放宽：保留函数不动逻辑，仅放宽区间（市场横盘导致开仓为 0）
+    #   做多 [25, 70]：放行强趋势追多场景；RSI<25 仍拦（极端超卖）
+    #   做空 [30, 75]：放行强趋势追空场景；RSI>75 仍拦（极端超买）
+    pullback_long_lower: 25
+    pullback_long_upper: 70
+    pullback_short_lower: 30
+    pullback_short_upper: 75
 
     # 2.9 时段做空限制（Round 5 分析：欧洲盘做空 7 笔 6 亏，贡献 -95 U）
     session_short_banned: []  # 禁止做空的时段列表
@@ -264,8 +267,11 @@ trading:
   max_take_profit_pct: 4.0       # 止盈距离上限（%）
 
   # ── P0：回踩入场逻辑（Price Action 核心）─────────────────────────────
+  # 2026-06-20 临时旁路：6.13 引入的回踩入场检查 + 6.14 趋势阶段检查两道闸叠加
+  # 导致 6.13~6.19 连续 6 天 0 开仓（59/59 全被规则过滤）。
+  # 仅关闭 enabled，不删代码、不改语义，待市场验证后视情况恢复。
   retest_entry:
-    enabled: true              # 启用回踩入场检查
+    enabled: false             # 【临时旁路 2026-06-20】回踩入场检查
     max_distance_atr: 1.5      # 入场价距关键位最大距离（ATR倍数）
     skip_if_not_retrace: true  # 非回踩时是否跳过信号
 
@@ -283,8 +289,9 @@ trading:
     low_quality_penalty: 0.7   # 低质量形态仓位折减
 
   # ── P1：趋势阶段判断（避免在趋势末期追单）─────────────────────────────
+  # 2026-06-20 临时旁路：与 retest_entry 同步关闭，待恢复时一起开
   trend_phase:
-    enabled: true
+    enabled: false             # 【临时旁路 2026-06-20】趋势阶段判断
     allow_long_in_late_trend: false   # 趋势末期是否允许做多
     allow_short_in_pullback: false    # 回撤中是否允许做空
 
