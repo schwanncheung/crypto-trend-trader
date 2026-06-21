@@ -64,7 +64,7 @@ analysis:
     anchor_timeframe: "1h"              # 锚周期：宏观方向判断，必须非横盘才放行
     require_anchor_aligned: true        # 是否要求锚周期与信号方向对齐
     min_trending_timeframes: 2
-    adx_trending_threshold: 30
+    adx_trending_threshold: 25          # ADX 趋势判断阈值（2026-06-21 由 30 放宽到 25：解决连续 82 小时 0 开仓；ADX<30 横盘拒绝占比 100%，放宽放行弱趋势启动期）
     volume_ratio_threshold: 0.8         # 量比阈值：当前量 / MA5 >= 此值视为放量
 
     # ═══════════════════════════════════════════════════════════════════
