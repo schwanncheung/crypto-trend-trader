@@ -465,6 +465,18 @@ python backtest/run_backtest.py optimize --workers 4
 读取位置：`scripts/risk_filter.py` → `_PULLBACK_LONG_LOWER/UPPER` / `_PULLBACK_SHORT_LOWER/UPPER`
 配套保护：`rule_filter.rsi_neutral_short_ban_lower=35` / `upper=60`（与本表做空区间有 45-60 重叠，叠加保护）
 
+### 9.1.2 多周期对齐阈值配置速查
+
+| 配置项 | 默认 | 说明 |
+|--------|------|------|
+| `rule_filter.min_trending_timeframes` | 1 | 至少几个非锚周期与锚周期对齐（2026-09-19 由 2 放宽至 1） |
+| `rule_filter.adx_trending_threshold` | 25 | 锚周期 ADX 趋势阈值（2026-06-21 由 30 放宽至 25） |
+
+> **2026-09-19 放宽背景**：9/8~9/19 连续 0 开仓（最近一笔 9/18 PUMP）。拦截分布 4289 次中：53% 死在"趋势不一致多头 X/2"（要求 15m+5m 双对齐）、35% 死在 ADX<25 横盘、2% 动量衰减。15m+5m 严格双对齐在横盘期几乎不可能命中，仅放宽 `min_trending_timeframes` 由 2 改 1（要求"1h 锚 + 至少 1 个非锚对齐"），ADX 阈值维持 25 不动。后续仍有 ADX>=25 + 形态 + RSI + 风控多道闸，信号质量可控。
+
+读取位置：`scripts/indicator_engine.py` → `rule_engine_filter()` 多周期对齐判定
+配套保护：`adx_trending_threshold=25`（横盘期锚周期直接拒） / `rsi_neutral_short_ban` / `pullback_*` 多关卡叠加
+
 ### 9.1 一致性检查铁律（2026-06-15 确立）
 
 **核心原则**：代码、策略配置（settings.yaml / symbols.yaml）、CLAUDE.md 文档三者必须时刻保持一致。任何一项变更，必须同步另外两项。
@@ -512,6 +524,8 @@ ln -sf $(pwd)/docs/MEMORY.md ~/.claude/projects/$(pwd | sed 's/\//-/g')/memory/M
 ```
 
 ---
+
+*最后更新：2026-09-19（min_trending_timeframes 2→1，解决 9/8~9/19 连续 0 开仓；新增配置速查 9.1.2）*
 
 *最后更新：2026-06-15（check_pullback_entry 30-55/45-70 硬编码改读配置，新增配置速查 9.1.1）*
 
